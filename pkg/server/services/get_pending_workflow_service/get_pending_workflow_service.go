@@ -1,6 +1,7 @@
 package get_pending_workflow_service
 
 import (
+	"errors"
 	"github.com/ovvesley/akoflow/pkg/server/config"
 	"github.com/ovvesley/akoflow/pkg/server/database/repository/activity_repository"
 	"github.com/ovvesley/akoflow/pkg/server/database/repository/workflow_repository"
@@ -32,6 +33,14 @@ func (g *GetPendingWorkflowService) GetPendingWorkflows() ([]workflow_entity.Wor
 }
 
 func (g *GetPendingWorkflowService) retriveWorkflowsOnDatabase() ([]workflow_entity.Workflow, error) {
+	if g.workflowRepository == nil {
+		return nil, errors.New("workflow repository is not initialized")
+	}
+
+	if g.activityRepository == nil {
+		return nil, errors.New("activity repository is not initialized")
+	}
+
 	workflows, err := g.workflowRepository.GetPendingWorkflows(g.namespace)
 	if err != nil {
 		return nil, err

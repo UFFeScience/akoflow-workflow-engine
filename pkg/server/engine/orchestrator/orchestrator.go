@@ -22,7 +22,11 @@ func StartOrchestrator() {
 
 func handleOrchestrator() {
 	getPendingWorkflowService := get_pending_workflow_service.New()
-	workflows, _ := getPendingWorkflowService.GetPendingWorkflows()
+	workflows, err := getPendingWorkflowService.GetPendingWorkflows()
+	if err != nil {
+		config.App().Logger.Error("failed to load pending workflows:", err)
+		return
+	}
 
 	dispatchToWorkerActivityService := orchestrate_workflow_service.New()
 	dispatchToWorkerActivityService.Orchestrate(workflows)
