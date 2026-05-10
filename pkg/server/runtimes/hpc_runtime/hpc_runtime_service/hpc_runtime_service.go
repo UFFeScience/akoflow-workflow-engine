@@ -3,6 +3,7 @@ package hpc_runtime_service
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/ovvesley/akoflow/pkg/server/config"
@@ -200,88 +201,102 @@ func (s *HPCRuntimeService) extractJobID(outputCommand string) (string, error) {
 func (s *HPCRuntimeService) VerifyActivitiesWasFinished(workflow workflow_entity.Workflow) bool {
 	config.App().Logger.Infof("WORKER: Verify activities was finished in HPCRuntime")
 
+	finishedActivities := s.getFinishedActivities(workflow)
+	if len(finishedActivities) == 0 {
+		return true
+	}
+
+	syncNeeded := false
 	for _, activity := range workflow.Spec.Activities {
-		if activity.GetRuntimeId() == s.runtimeName {
-			s.handleVerifyActivityWasFinished(activity, workflow)
+		if activity.GetRuntimeId() != s.runtimeName {
+			continue
+		}
+
+		if _, ok := finishedActivities[activity.Id]; !ok {
+			continue
+		}
+
+		if s.handleVerifyActivityWasFinished(activity) {
+			syncNeeded = true
 		}
 	}
+
+	if syncNeeded {
+		s.syncWorkflowVolumes(workflow)
+	}
+
 	return true
 }
 
-func (s *HPCRuntimeService) handleVerifyActivityWasFinished(activity workflow_activity_entity.WorkflowActivities, wf workflow_entity.Workflow) int {
+func (s *HPCRuntimeService) getFinishedActivities(workflow workflow_entity.Workflow) map[int]struct{} {
+	finishedActivities := make(map[int]struct{})
+
+	runtimeName := s.runtimeName
+	if runtimeName == "" && len(workflow.GetRuntimeId()) > 0 {
+		runtimeName = workflow.GetRuntimeId()[0]
+	}
+
+	if runtimeName == "" {
+		return finishedActivities
+	}
+
+	runtime, err := s.runtimeRepository.GetByName(runtimeName)
+	if err != nil {
+		config.App().Logger.Infof("WORKER: Error getting runtime from database.")
+		return finishedActivities
+	}
+
+	sharedMountPath := workflow.GetMountPath()
+	if sharedMountPath == "" {
+		sharedMountPath = runtime.GetCurrentRuntimeMetadata("MOUNT_PATH")
+	}
+
+	commandVerify := fmt.Sprintf("find %s -maxdepth 1 -type f -name 'akoflow_finished_%d_*.txt' -print", sharedMountPath, workflow.GetId())
+	output, err := s.connectorHPCRuntime.SetRuntime(*runtime).RunCommandWithOutputRemote(commandVerify)
+	if err != nil {
+		config.App().Logger.Infof("WORKER: Error listing finished activities for workflow %d", workflow.GetId())
+		return finishedActivities
+	}
+
+	re := regexp.MustCompile(fmt.Sprintf(`akoflow_finished_%d_(\d+)\.txt`, workflow.GetId()))
+	for _, match := range re.FindAllStringSubmatch(output, -1) {
+		if len(match) < 2 {
+			continue
+		}
+
+		activityID, err := strconv.Atoi(strings.TrimSpace(match[1]))
+		if err != nil {
+			continue
+		}
+
+		finishedActivities[activityID] = struct{}{}
+	}
+
+	return finishedActivities
+}
+
+func (s *HPCRuntimeService) handleVerifyActivityWasFinished(activity workflow_activity_entity.WorkflowActivities) bool {
 	println("Verifying activity: ", activity.Name, " with id: ", activity.Id)
 
 	wfaDatabase, _ := s.activityRepository.Find(activity.Id)
 
 	if wfaDatabase.Status == activity_repository.StatusFinished {
-		return activity_repository.StatusFinished
+		return false
 	}
 
 	if wfaDatabase.Status == activity_repository.StatusCreated {
-		return activity_repository.StatusCreated
-	}
-
-	runtime, err := s.runtimeRepository.GetByName(activity.GetRuntimeId())
-
-	if err != nil {
-		config.App().Logger.Infof("WORKER: Error getting runtime from database.")
-		return activity_repository.StatusRunning
+		return false
 	}
 
 	if wfaDatabase.GetProcId() == "" {
 		config.App().Logger.Infof("WORKER: Activity %d has no process ID", activity.Id)
-		return activity_repository.StatusRunning
+		return false
 	}
 
-	commandVerify := fmt.Sprintf("cat %s/akoflow_finished_%d_%d.txt", runtime.GetCurrentRuntimeMetadata("MOUNT_PATH"), wf.GetId(), activity.Id)
+	config.App().Logger.Infof("WORKER: Activity %d finished", activity.Id)
+	_ = s.activityRepository.UpdateStatus(activity.Id, activity_repository.StatusFinished)
+	return true
 
-	output, _ := s.connectorHPCRuntime.SetRuntime(*runtime).RunCommandWithOutputRemote(commandVerify)
-
-	scontrolResponse, err := s.extractJobIsFinished(output)
-
-	if err != nil {
-		config.App().Logger.Infof("WORKER: Error extracting job ID %s", strings.TrimSpace(wfaDatabase.GetProcId()))
-		return activity_repository.StatusRunning
-	}
-
-	if scontrolResponse.State == "COMPLETED" {
-		config.App().Logger.Infof("WORKER: Activity %d finished", activity.Id)
-		s.syncWorkflowVolumes(wf)
-		_ = s.activityRepository.UpdateStatus(activity.Id, activity_repository.StatusFinished)
-		return activity_repository.StatusFinished
-	}
-
-	if scontrolResponse.State == "FAILED" || scontrolResponse.State == "CANCELLED+" || scontrolResponse.State == "CANCELLED" || scontrolResponse.State == "DEADLINE" || scontrolResponse.State == "TIMEOUT" || scontrolResponse.State == "OUT_OF_MEM+" {
-		config.App().Logger.Infof("WORKER: Activity %d failed", activity.Id)
-		s.syncWorkflowVolumes(wf)
-		_ = s.activityRepository.UpdateStatus(activity.Id, activity_repository.StatusFinished)
-		return activity_repository.StatusFinished
-	}
-
-	if scontrolResponse.State == "RUNNING" {
-		config.App().Logger.Infof("WORKER: Activity %d running", activity.Id)
-		_ = s.activityRepository.UpdateStatus(activity.Id, activity_repository.StatusRunning)
-		return activity_repository.StatusRunning
-	}
-
-	if scontrolResponse.State == "PENDING" {
-		config.App().Logger.Infof("WORKER: Activity %d pending", activity.Id)
-		_ = s.activityRepository.UpdateStatus(activity.Id, activity_repository.StatusRunning)
-		return activity_repository.StatusRunning
-	}
-
-	return activity_repository.StatusRunning
-
-}
-
-type SaactResponse struct {
-	JobID     string `json:"JobID"`
-	JobName   string `json:"JobName"`
-	Partition string `json:"Partition"`
-	Account   string `json:"Account"`
-	AllocCPUs string `json:"AllocCPUs"`
-	State     string `json:"State"`
-	ExitCode  string `json:"ExitCode"`
 }
 
 func extractField(pattern, text string) (string, error) {
@@ -291,18 +306,6 @@ func extractField(pattern, text string) (string, error) {
 		return "", fmt.Errorf("field not found: %s", pattern)
 	}
 	return match[1], nil
-}
-
-func (s *HPCRuntimeService) extractJobIsFinished(output string) (SaactResponse, error) {
-	// verify if output contains "AKOFLOW_JOB_FINISHED"
-	if !strings.Contains(output, "AKOFLOW_JOB_FINISHED") {
-		return SaactResponse{}, fmt.Errorf("job not finished")
-	}
-
-	return SaactResponse{
-		State: "COMPLETED",
-	}, nil
-
 }
 
 func (s *HPCRuntimeService) HealthCheck(runtimeName string) bool {

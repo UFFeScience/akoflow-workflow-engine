@@ -60,11 +60,15 @@ func (m MakeSBatchHPCRuntimeActivityService) GetTemplateSbatch() string {
 func (m MakeSBatchHPCRuntimeActivityService) Handle(workflow workflow_entity.Workflow, activity workflow_activity_entity.WorkflowActivities) string {
 
 	templateSbatch := m.GetTemplateSbatch()
+	sharedMountPath := workflow.GetMountPath()
+	if sharedMountPath == "" {
+		sharedMountPath = m.runtime.GetCurrentRuntimeMetadata("MOUNT_PATH")
+	}
 
 	jobName := fmt.Sprintf("akoflow_%d_%d", workflow.GetId(), activity.GetId())
 
-	output := fmt.Sprintf("%s/akoflow_out_%d_%d.out", m.runtime.GetCurrentRuntimeMetadata("MOUNT_PATH"), workflow.GetId(), activity.GetId())
-	error := fmt.Sprintf("%s/akoflow_err_%d_%d.err", m.runtime.GetCurrentRuntimeMetadata("MOUNT_PATH"), workflow.GetId(), activity.GetId())
+	output := fmt.Sprintf("%s/akoflow_out_%d_%d.out", sharedMountPath, workflow.GetId(), activity.GetId())
+	error := fmt.Sprintf("%s/akoflow_err_%d_%d.err", sharedMountPath, workflow.GetId(), activity.GetId())
 	time := m.runtime.GetCurrentRuntimeMetadata("TIME")
 	partition := m.runtime.GetCurrentRuntimeMetadata("QUEUE")
 	ntasks := m.runtime.GetCurrentRuntimeMetadata("NTASKS")
@@ -86,7 +90,7 @@ func (m MakeSBatchHPCRuntimeActivityService) Handle(workflow workflow_entity.Wor
 	templateSbatch = strings.ReplaceAll(templateSbatch, "#MEM#", mem)
 	templateSbatch = strings.ReplaceAll(templateSbatch, "#COMMAND#", wrap)
 
-	templateSbatch += "\n\necho AKOFLOW_JOB_FINISHED > " + fmt.Sprintf("%s/akoflow_finished_%d_%d.txt", m.runtime.GetCurrentRuntimeMetadata("MOUNT_PATH"), workflow.GetId(), activity.GetId())
+	templateSbatch += "\n\necho AKOFLOW_JOB_FINISHED > " + fmt.Sprintf("%s/akoflow_finished_%d_%d.txt", sharedMountPath, workflow.GetId(), activity.GetId())
 
 	templateSbatchBase64 := base64.StdEncoding.EncodeToString([]byte(templateSbatch))
 
