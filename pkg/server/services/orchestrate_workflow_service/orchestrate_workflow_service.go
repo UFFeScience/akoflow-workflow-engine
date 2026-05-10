@@ -50,7 +50,22 @@ func (o *OrchestrateWorflowService) dispatchToWorker(activities []workflow_activ
 	}
 }
 
+func (o *OrchestrateWorflowService) hasSyncingActivity(wf workflow_entity.Workflow) bool {
+	for _, activity := range wf.Spec.Activities {
+		if activity.Status == activity_repository.StatusSyncing {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (o *OrchestrateWorflowService) handleDispatchToWorker(wf workflow_entity.Workflow) []workflow_activity_entity.WorkflowActivities {
+	if o.hasSyncingActivity(wf) {
+		config.App().Logger.Infof("WORKER: Workflow %d is syncing, skip dispatch", wf.Id)
+		return []workflow_activity_entity.WorkflowActivities{}
+	}
+
 	wfsFinished := o.getWorkflowByStatus.GetActivitiesByStatus(wf, activity_repository.StatusFinished)
 	wfsRunning := o.getWorkflowByStatus.GetActivitiesByStatus(wf, activity_repository.StatusRunning)
 	wfsNotStarted := o.getWorkflowByStatus.GetActivitiesByStatus(wf, activity_repository.StatusCreated)

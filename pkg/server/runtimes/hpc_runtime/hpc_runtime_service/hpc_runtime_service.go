@@ -61,12 +61,12 @@ func (s *HPCRuntimeService) ApplyJob(workflowID int, activityID int) string {
 		return ""
 	}
 
-	if wfa.Status == activity_repository.StatusRunning {
-		config.App().Logger.Infof("WORKER: Activity already running %d", activityID)
+	if wfa.Status != activity_repository.StatusCreated {
+		config.App().Logger.Infof("WORKER: Activity not eligible for execution %d", activityID)
 		return ""
 	}
 
-	if wf.Status == activity_repository.StatusCreated {
+	if wf.Status == workflow_repository.StatusCreated {
 		config.App().Logger.Infof("WORKER: Initial activity. Setup Data and Environment.")
 		s.applyWorkflowInRuntime(wf, wfa)
 	}
@@ -138,8 +138,7 @@ func (s *HPCRuntimeService) applyWorkflowInRuntime(wf workflow_entity.Workflow, 
 }
 
 func (s *HPCRuntimeService) updateWorkflowAndActivityStatus(wfa workflow_activity_entity.WorkflowActivities) {
-	_ = s.workflowRepository.UpdateStatus(wfa.WorkflowId, workflow_repository.StatusRunning)
-	_ = s.activityRepository.UpdateStatus(wfa.Id, activity_repository.StatusRunning)
+	_ = s.activityRepository.UpdateStatus(wfa.Id, activity_repository.StatusSyncing)
 }
 
 func (s *HPCRuntimeService) syncWorkflowVolumes(wf workflow_entity.Workflow) {

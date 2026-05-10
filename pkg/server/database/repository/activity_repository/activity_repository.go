@@ -18,6 +18,7 @@ var StatusCreated = 0
 var StatusRunning = 1
 var StatusFinished = 2
 var StatusCompleted = 3
+var StatusSyncing = 4
 
 func New() IActivityRepository {
 

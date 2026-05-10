@@ -27,6 +27,13 @@ func (w *ActivityRepository) UpdateStatus(id int, status int) error {
 		}
 	}
 
+	if status == StatusSyncing {
+		_, err := c.Exec("UPDATE "+w.tableNameActivity+" SET status = ? WHERE ID = ?", status, id)
+		if err != nil {
+			return err
+		}
+	}
+
 	err := c.Close()
 
 	if err != nil {
