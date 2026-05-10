@@ -25,3 +25,9 @@ Here you will find information for developers who want to contribute to the Akô
 
 ### [5 - Examples](examples)
 Here you will find practical examples and use cases demonstrating how to use AkôFlow in various scenarios. This section provides hands-on guidance to help users understand and implement AkôFlow in their own projects.
+
+### [6 - Internal Architecture](internal/architecture)
+Here you will find internal notes about how the application is structured, how the modules relate to each other, and how runtime execution is assembled.
+
+### [7 - Runtime Execution Flow](internal/runtime-execution-flow)
+Here you will find a runtime-by-runtime explanation of how activities are executed, monitored and finalized.
