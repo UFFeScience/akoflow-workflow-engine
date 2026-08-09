@@ -64,6 +64,9 @@ func GetPatternFromRequest(r *http.Request) string {
 	pattern := reflect.NewAt(patternField.Type(), unsafe.Pointer(patternField.UnsafeAddr())).Elem().Interface()
 
 	patternStr := fmt.Sprintf("%v", pattern)
+	if patternStr == "<nil>" {
+		return ""
+	}
 
 	return patternStr
 }
