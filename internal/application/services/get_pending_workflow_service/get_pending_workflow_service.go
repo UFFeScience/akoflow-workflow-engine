@@ -2,6 +2,7 @@ package get_pending_workflow_service
 
 import (
 	"errors"
+
 	"github.com/UFFeScience/akoflow/internal/application/utils"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/definition"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
@@ -13,6 +14,14 @@ type GetPendingWorkflowService struct {
 	namespace          string
 	workflowRepository workflow_repository.IWorkflowRepository
 	activityRepository activity_repository.IActivityRepository
+}
+
+func NewWithDependencies(namespace string, workflowRepository workflow_repository.IWorkflowRepository, activityRepository activity_repository.IActivityRepository) GetPendingWorkflowService {
+	return GetPendingWorkflowService{
+		namespace:          namespace,
+		workflowRepository: workflowRepository,
+		activityRepository: activityRepository,
+	}
 }
 
 func New() GetPendingWorkflowService {

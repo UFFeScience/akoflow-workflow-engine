@@ -15,6 +15,14 @@ type Database struct {
 const File = "storage/database.db"
 
 func (d *Database) Connect() *sql.DB {
+	if configured := os.Getenv("AKOFLOW_DATABASE_PATH"); configured != "" {
+		createDirectoryIfNotExists(filepath.Dir(configured))
+		db, err := sql.Open("sqlite3", configured)
+		if err != nil {
+			panic(err)
+		}
+		return db
+	}
 	projectPath, err := os.Getwd()
 	if err != nil {
 		panic(err)
