@@ -1,0 +1,83 @@
+// Package domain is the stable facade for AkoFlow's bounded domain contexts.
+// New behavior belongs in the workflow, environment, resource, planning or
+// execution subpackage; aliases here keep application ports concise.
+package domain
+
+import (
+	"github.com/UFFeScience/akoflow/internal/domain/environment"
+	"github.com/UFFeScience/akoflow/internal/domain/execution"
+	"github.com/UFFeScience/akoflow/internal/domain/planning"
+	"github.com/UFFeScience/akoflow/internal/domain/resource"
+	"github.com/UFFeScience/akoflow/internal/domain/workflow"
+)
+
+type EnvironmentVersionStatus = environment.EnvironmentVersionStatus
+type Environment = environment.Environment
+type EnvironmentVersion = environment.EnvironmentVersion
+type EnvironmentRuntime = environment.EnvironmentRuntime
+
+const (
+	EnvironmentVersionDraft     = environment.EnvironmentVersionDraft
+	EnvironmentVersionPublished = environment.EnvironmentVersionPublished
+	EnvironmentVersionRetired   = environment.EnvironmentVersionRetired
+)
+
+type ResourceType = resource.ResourceType
+type Resource = resource.Resource
+type ResourceSnapshot = resource.ResourceSnapshot
+type NetworkLink = resource.NetworkLink
+
+const (
+	ResourceCluster           = resource.ResourceCluster
+	ResourceNodePool          = resource.ResourceNodePool
+	ResourceKubernetesMachine = resource.ResourceKubernetesMachine
+	ResourceHPCPartition      = resource.ResourceHPCPartition
+	ResourceHPCMachine        = resource.ResourceHPCMachine
+	ResourceCloudVM           = resource.ResourceCloudVM
+	ResourceFogDevice         = resource.ResourceFogDevice
+	ResourceLocalMachine      = resource.ResourceLocalMachine
+	ResourceStorage           = resource.ResourceStorage
+)
+
+type WorkflowVersion = workflow.WorkflowVersion
+type ActivityType = workflow.ActivityType
+type Activity = workflow.Activity
+type ActivityDependency = workflow.ActivityDependency
+type ActivityDataDependency = workflow.ActivityDataDependency
+type ActivityResourceProfile = workflow.ActivityResourceProfile
+
+type PlanningSource = planning.PlanningSource
+type ExecutionMode = planning.ExecutionMode
+type PredictedMetrics = planning.PredictedMetrics
+type SchedulePlan = planning.SchedulePlan
+type PlanAssignment = planning.PlanAssignment
+type PlanningRequest = planning.PlanningRequest
+
+const (
+	PlanningSourcePlugin    = planning.PlanningSourcePlugin
+	PlanningSourceImported  = planning.PlanningSourceImported
+	ExecutionModeReal       = planning.ExecutionModeReal
+	ExecutionModeSimulation = planning.ExecutionModeSimulation
+)
+
+type ExecutionRunStatus = execution.ExecutionRunStatus
+type TaskExecutionStatus = execution.TaskExecutionStatus
+type ExecutionRun = execution.ExecutionRun
+type TaskExecution = execution.TaskExecution
+type ExecutionMetrics = execution.ExecutionMetrics
+type ExecutionTrace = execution.ExecutionTrace
+type DataTransfer = execution.DataTransfer
+type ActivityExecutionContext = execution.ActivityExecutionContext
+
+const (
+	ExecutionRunCreated   = execution.ExecutionRunCreated
+	ExecutionRunRunning   = execution.ExecutionRunRunning
+	ExecutionRunCompleted = execution.ExecutionRunCompleted
+	ExecutionRunFailed    = execution.ExecutionRunFailed
+	TaskBlocked           = execution.TaskBlocked
+	TaskReady             = execution.TaskReady
+	TaskPreparing         = execution.TaskPreparing
+	TaskRunning           = execution.TaskRunning
+	TaskCompleted         = execution.TaskCompleted
+	TaskFailed            = execution.TaskFailed
+)

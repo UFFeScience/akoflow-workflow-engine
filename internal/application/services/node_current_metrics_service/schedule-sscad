@@ -1,0 +1,55 @@
+package main
+
+import (
+	"fmt"
+)
+
+// AkoScore is a function that calculates the score for a given input.
+// input[TimeEstimate] is the time estimate in seconds.
+// input[Priority] is the priority of the task, where 1 is highest priority and
+func AkoScore(input any) float64 {
+	params, ok := input.(map[string]any)
+	fmt.Println(params)
+
+	if !ok {
+		return 0.0
+	}
+
+	estimates := map[string]map[string]float64{
+		"activity1":  {"c6i.xlarge": 185, "c7a.xlarge": 122.5, "c7i.large": 138.0},
+		"activity2":  {"c6i.xlarge": 148, "c7a.xlarge": 98.0, "c7i.large": 110.4},
+		"activity3":  {"c6i.xlarge": 167, "c7a.xlarge": 110.6, "c7i.large": 124.6},
+		"activity4":  {"c6i.xlarge": 74, "c7a.xlarge": 49.0, "c7i.large": 55.2},
+		"activity5":  {"c6i.xlarge": 103, "c7a.xlarge": 68.2, "c7i.large": 76.9},
+		"activity6":  {"c6i.xlarge": 140, "c7a.xlarge": 92.7, "c7i.large": 104.5},
+		"activity7":  {"c6i.xlarge": 107, "c7a.xlarge": 70.9, "c7i.large": 79.9},
+		"activity8":  {"c6i.xlarge": 63, "c7a.xlarge": 41.7, "c7i.large": 47.0},
+		"activity9":  {"c6i.xlarge": 81, "c7a.xlarge": 53.6, "c7i.large": 60.4},
+		"activity10": {"c6i.xlarge": 60, "c7a.xlarge": 39.7, "c7i.large": 44.8},
+	}
+
+	activity := params["activity_name"].(string)
+	machine := params["machine_type"].(string)
+
+	T_t_m := estimates[activity][machine]
+	M_req_t := params["memory_required"].(float64)
+	VCPUs_t := int(params["vcpus_required"].(float64))
+
+	M_free_m := params["memory_free"].(float64)
+	M_max := params["memory_max"].(float64)
+	VCPUs_m := int(params["vcpus_available"].(float64))
+
+	alpha := 0.0
+
+	if VCPUs_m < VCPUs_t || M_free_m < M_req_t {
+		return 0.0
+	}
+
+	execScore := 1.0 / T_t_m
+	memScore := (M_free_m - M_req_t) / M_max
+	S_t_m := alpha*execScore + (1.0-alpha)*memScore
+
+	return S_t_m
+}
+
+func main() {}

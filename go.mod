@@ -1,11 +1,10 @@
-module github.com/ovvesley/akoflow
+module github.com/UFFeScience/akoflow
 
 go 1.23.0
 
 require (
 	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/stretchr/testify v1.9.0
-	go.uber.org/mock v0.5.0
 	golang.org/x/crypto v0.35.0
 	gopkg.in/yaml.v3 v3.0.1
 )

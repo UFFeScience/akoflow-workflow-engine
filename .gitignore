@@ -4,6 +4,8 @@ storage/*
 */.DS_Store
 .DS_Store
 __debug**
+*.so
+cmd/server/ako_plugin_*.go
 releases/bin/*
 **akoflow.log**
 *.db
@@ -12,3 +14,7 @@ releases/bin/*
 resources/
 keys/
 volumes/
+/sbbd.txt
+/hello-world-*.yaml
+/hybrid.yaml
+/wf-*.yaml
