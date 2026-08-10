@@ -1,21 +1,19 @@
 package get_pending_storage_service
 
 import (
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/application/services/get_activity_dependencies_service"
 	"github.com/UFFeScience/akoflow/internal/application/services/get_workflow_by_status_service"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/activity"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/activity_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/storages_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/workflow_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/kubernetes/connector"
 )
 
 type GetPendingStorageService struct {
 	namespace                  string
-	workflowRepository         workflow_repository.IWorkflowRepository
-	activityRepository         activity_repository.IActivityRepository
-	storageRepository          storages_repository.IStorageRepository
+	workflowRepository         ports.WorkflowRepository
+	activityRepository         ports.ActivityRepository
+	storageRepository          ports.StorageRepository
 	getWorkflowByStatusService get_workflow_by_status_service.GetWorkflowByStatusService
 	getActivityDependencies    get_activity_dependencies_service.GetActivityDependenciesService
 
@@ -37,15 +35,18 @@ func New() GetPendingStorageService {
 }
 
 func (g *GetPendingStorageService) GetPendingStorages() ([]workflow_activity_entity.WorkflowActivities, error) {
-	storages := g.storageRepository.GetCreatedStorages(g.namespace)
+	storages, err := g.storageRepository.GetCreatedStorages(g.namespace)
+	if err != nil {
+		return nil, err
+	}
 
-	mapWorkflowByStorage := make(map[int][]storages_repository.StorageDatabase)
-	mapActivityByStorage := make(map[int]storages_repository.StorageDatabase)
+	mapWorkflowByStorage := make(map[int][]ports.Storage)
+	mapActivityByStorage := make(map[int]ports.Storage)
 	workflowsIds := make([]int, 0)
 
 	for _, storage := range storages {
-		mapWorkflowByStorage[storage.WorkflowId] = append(mapWorkflowByStorage[storage.WorkflowId], storage)
-		mapActivityByStorage[storage.ActivityId] = storage
+		mapWorkflowByStorage[storage.WorkflowID] = append(mapWorkflowByStorage[storage.WorkflowID], storage)
+		mapActivityByStorage[storage.ActivityID] = storage
 	}
 
 	for key := range mapWorkflowByStorage {
@@ -64,7 +65,7 @@ func (g *GetPendingStorageService) GetPendingStorages() ([]workflow_activity_ent
 	for _, activity := range allActivities {
 		storage := mapActivityByStorage[activity.Id]
 
-		if storage.Id == 0 {
+		if storage.ID == 0 {
 			continue
 		}
 
@@ -72,7 +73,7 @@ func (g *GetPendingStorageService) GetPendingStorages() ([]workflow_activity_ent
 			activity.KeepDisk = true
 		}
 
-		if storage.Status == storages_repository.StatusCompleted {
+		if storage.Status == ports.StorageStatusCompleted {
 			continue
 		}
 
@@ -83,10 +84,10 @@ func (g *GetPendingStorageService) GetPendingStorages() ([]workflow_activity_ent
 	return allActivitiesFiltered, nil
 }
 
-func (g *GetPendingStorageService) handleWorkflowActivities(wfId int, activities []workflow_activity_entity.WorkflowActivities, storages []storages_repository.StorageDatabase) []workflow_activity_entity.WorkflowActivities {
+func (g *GetPendingStorageService) handleWorkflowActivities(wfId int, activities []workflow_activity_entity.WorkflowActivities, storages []ports.Storage) []workflow_activity_entity.WorkflowActivities {
 
-	wfaFinisheds := g.getWorkflowByStatusService.GetActivitiesByStatuses(activities, activity_repository.StatusFinished)
-	wfaRunning := g.getWorkflowByStatusService.GetActivitiesByStatuses(activities, activity_repository.StatusRunning)
+	wfaFinisheds := g.getWorkflowByStatusService.GetActivitiesByStatuses(activities, ports.ActivityStatusFinished)
+	wfaRunning := g.getWorkflowByStatusService.GetActivitiesByStatuses(activities, ports.ActivityStatusRunning)
 
 	wfaStarted := append(wfaFinisheds, wfaRunning...)
 

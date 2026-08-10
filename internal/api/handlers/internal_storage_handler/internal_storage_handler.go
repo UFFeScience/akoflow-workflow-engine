@@ -6,16 +6,16 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	file_list_parser_service "github.com/UFFeScience/akoflow/internal/application/services/file_disk_parser_service"
 	"github.com/UFFeScience/akoflow/internal/application/services/file_spec_parser_service"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/storages_repository"
 )
 
 type InternalStorageHandler struct {
 	fileSpecParserService file_spec_parser_service.FileSpecParserService
 	fileListParserService file_list_parser_service.FileListParserService
-	storageRepository     storages_repository.IStorageRepository
+	storageRepository     ports.StorageRepository
 }
 
 func (h *InternalStorageHandler) readText(r *http.Request) string {

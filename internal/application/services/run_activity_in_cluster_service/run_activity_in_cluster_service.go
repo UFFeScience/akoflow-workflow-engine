@@ -3,17 +3,16 @@ package run_activity_in_cluster_service
 import (
 	"fmt"
 
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/execution/real/runtimes"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/activity_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/resource_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/workflow_repository"
 )
 
 type RunActivityInClusterService struct {
 	namespace          string
-	workflowRepository workflow_repository.IWorkflowRepository
-	activityRepository activity_repository.IActivityRepository
+	workflowRepository ports.WorkflowRepository
+	activityRepository ports.ActivityRepository
 	resourceRepository resource_repository.IRepository
 	runtimeResolver    RuntimeResolver
 }
@@ -37,8 +36,8 @@ func New() *RunActivityInClusterService {
 }
 
 func NewWithDependencies(
-	workflowRepository workflow_repository.IWorkflowRepository,
-	activityRepository activity_repository.IActivityRepository,
+	workflowRepository ports.WorkflowRepository,
+	activityRepository ports.ActivityRepository,
 	resourceRepository resource_repository.IRepository,
 	runtimeResolver RuntimeResolver,
 ) *RunActivityInClusterService {

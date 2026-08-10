@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/definition"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/activity_repository"
 )
 
 func GetIds(workflows []workflow_entity.Workflow) []int {
@@ -16,7 +16,7 @@ func GetIds(workflows []workflow_entity.Workflow) []int {
 	return ids
 }
 
-func HydrateWorkflows(workflows []workflow_entity.Workflow, mapWfActivities activity_repository.ResultGetActivitiesByWorkflowIds) []workflow_entity.Workflow {
+func HydrateWorkflows(workflows []workflow_entity.Workflow, mapWfActivities ports.ActivitiesByWorkflow) []workflow_entity.Workflow {
 	var workflowsToReturn []workflow_entity.Workflow
 	for _, wf := range workflows {
 		if mapWfActivities[wf.Id] == nil {
@@ -28,7 +28,7 @@ func HydrateWorkflows(workflows []workflow_entity.Workflow, mapWfActivities acti
 	return workflowsToReturn
 }
 
-func HydrateWorkflow(workflow workflow_entity.Workflow, mapWfActivities activity_repository.ResultGetActivitiesByWorkflowIds) workflow_entity.Workflow {
+func HydrateWorkflow(workflow workflow_entity.Workflow, mapWfActivities ports.ActivitiesByWorkflow) workflow_entity.Workflow {
 	if mapWfActivities[workflow.Id] == nil {
 		return workflow
 	}

@@ -1,6 +1,7 @@
 package logs_repository
 
 import (
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/schema"
 )
@@ -12,14 +13,9 @@ type LogsRepository struct {
 var TableName = "logs"
 var Columns = "(ID INTEGER PRIMARY KEY AUTOINCREMENT, activity_id INTEGER, logs TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
 
-type LogsDatabase struct {
-	ID         int
-	ActivityId int
-	Logs       string
-	CreatedAt  string
-}
+type LogsDatabase = ports.ActivityLog
 
-func New() ILogsRepository {
+func New() ports.LogsRepository {
 
 	database := repository.Database{}
 	c := database.Connect()
@@ -33,6 +29,4 @@ func New() ILogsRepository {
 	}
 }
 
-type ILogsRepository interface {
-	Create(params ParamsLogsCreate) error
-}
+type ILogsRepository = ports.LogsRepository

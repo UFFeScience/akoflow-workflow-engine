@@ -1,117 +1,75 @@
 package storages_repository
 
-import "github.com/UFFeScience/akoflow/internal/infrastructure/database/repository"
+import (
+	"database/sql"
 
-func (s *StorageRepository) Find(id int) (StorageDatabase, error) {
-	database := repository.Database{}
-	c := database.Connect()
+	"github.com/UFFeScience/akoflow/internal/application/ports"
+	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository"
+)
 
-	rows, err := c.Query("SELECT id, workflow_id, activity_id, pvc_name, namespace, status, storage_mount_path, storage_class, storage_size, initial_file_list, end_file_list, initial_disk_spec, end_disk_spec, keep_storage_after_finish, detached, created_at FROM "+s.tableName+" WHERE id = ?", id)
-	if err != nil {
-		return StorageDatabase{}, err
-	}
+const storageColumns = "id, workflow_id, activity_id, pvc_name, namespace, status, storage_mount_path, storage_class, storage_size, initial_file_list, end_file_list, initial_disk_spec, end_disk_spec, keep_storage_after_finish, detached, created_at"
 
-	var storageDatabase StorageDatabase
-	for rows.Next() {
-		err = rows.Scan(&storageDatabase.Id, &storageDatabase.WorkflowId, &storageDatabase.Namespace, &storageDatabase.Status, &storageDatabase.StorageMountPath, &storageDatabase.StorageClass, &storageDatabase.StorageSize)
-		if err != nil {
-			return StorageDatabase{}, err
-		}
-	}
-
-	err = c.Close()
-	if err != nil {
-		return StorageDatabase{}, err
-	}
-
-	return storageDatabase, nil
+func scanStorage(scanner interface{ Scan(...any) error }) (ports.Storage, error) {
+	var result ports.Storage
+	err := scanner.Scan(&result.ID, &result.WorkflowID, &result.ActivityID, &result.PVCName, &result.Namespace, &result.Status, &result.StorageMountPath, &result.StorageClass, &result.StorageSize, &result.InitialFileList, &result.EndFileList, &result.InitialDiskSpec, &result.EndDiskSpec, &result.KeepStorageAfterFinish, &result.Detached, &result.CreatedAt)
+	return result, err
 }
 
-func (s *StorageRepository) FindByWorkflow(worflow_id int) []StorageDatabase {
+func (s *StorageRepository) Find(id int) (ports.Storage, error) {
 	database := repository.Database{}
 	c := database.Connect()
 
-	rows, err := c.Query("SELECT id, workflow_id, activity_id, pvc_name, namespace, status, storage_mount_path, storage_class, storage_size, initial_file_list, end_file_list, initial_disk_spec, end_disk_spec, keep_storage_after_finish, detached, created_at FROM "+s.tableName+" WHERE workflow_id = ?", worflow_id)
-	if err != nil {
-		return nil
+	defer c.Close()
+	result, err := scanStorage(c.QueryRow("SELECT "+storageColumns+" FROM "+s.tableName+" WHERE id = ?", id))
+	if err == sql.ErrNoRows {
+		return ports.Storage{}, err
 	}
+	return result, err
+}
 
-	var storages []StorageDatabase
+func (s *StorageRepository) FindByWorkflow(workflowID int) ([]ports.Storage, error) {
+	database := repository.Database{}
+	c := database.Connect()
+
+	defer c.Close()
+	rows, err := c.Query("SELECT "+storageColumns+" FROM "+s.tableName+" WHERE workflow_id = ?", workflowID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	storages := []ports.Storage{}
 	for rows.Next() {
-		result := StorageDatabase{}
-		err = rows.Scan(
-			&result.Id,
-			&result.WorkflowId,
-			&result.ActivityId,
-			&result.PvcName,
-			&result.Namespace,
-			&result.Status,
-			&result.StorageMountPath,
-			&result.StorageClass,
-			&result.StorageSize,
-			&result.InitialFileList,
-			&result.EndFileList,
-			&result.InitialDiskSpec,
-			&result.EndDiskSpec,
-			&result.KeepStorageAfterFinish,
-			&result.Detached,
-			&result.CreatedAt)
+		result, err := scanStorage(rows)
 		if err != nil {
-			return nil
+			return nil, err
+		}
+		storages = append(storages, result)
+	}
+	return storages, rows.Err()
+}
+
+func (s *StorageRepository) GetCreatedStorages(namespace string) ([]ports.Storage, error) {
+	database := repository.Database{}
+	c := database.Connect()
+
+	defer c.Close()
+	rows, err := c.Query("SELECT "+storageColumns+" FROM "+s.tableName+" WHERE namespace = ? AND status = ?", namespace, StatusCreated)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	storages := []ports.Storage{}
+
+	for rows.Next() {
+		result, err := scanStorage(rows)
+		if err != nil {
+			return nil, err
 		}
 
 		storages = append(storages, result)
 	}
 
-	err = c.Close()
-	if err != nil {
-		return nil
-	}
-
-	return storages
-}
-
-func (s *StorageRepository) GetCreatedStorages(namespace string) []StorageDatabase {
-	database := repository.Database{}
-	c := database.Connect()
-
-	rows, err := c.Query("SELECT id, workflow_id, activity_id, pvc_name, namespace, status, storage_mount_path, storage_class, storage_size, initial_file_list, end_file_list, initial_disk_spec, end_disk_spec, keep_storage_after_finish, detached, created_at FROM "+s.tableName+" WHERE namespace = ? AND status = ?", namespace, StatusCreated)
-	if err != nil {
-		return nil
-	}
-
-	var storages []StorageDatabase
-
-	for rows.Next() {
-		result := StorageDatabase{}
-		err = rows.Scan(
-			&result.Id,
-			&result.WorkflowId,
-			&result.ActivityId,
-			&result.PvcName,
-			&result.Namespace,
-			&result.Status,
-			&result.StorageMountPath,
-			&result.StorageClass,
-			&result.StorageSize,
-			&result.InitialFileList,
-			&result.EndFileList,
-			&result.InitialDiskSpec,
-			&result.EndDiskSpec,
-			&result.KeepStorageAfterFinish,
-			&result.Detached,
-			&result.CreatedAt)
-		if err != nil {
-			return nil
-		}
-
-		storages = append(storages, result)
-	}
-
-	err = c.Close()
-	if err != nil {
-		return nil
-	}
-
-	return storages
+	return storages, rows.Err()
 }

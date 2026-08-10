@@ -7,21 +7,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/activity"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/definition"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/activity_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/logs_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/metrics_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/workflow_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/ssh/local_connector"
 )
 
 type LocalRuntimeService struct {
-	activityRepository activity_repository.IActivityRepository
-	workflowRepository workflow_repository.IWorkflowRepository
-	metricsRepository  metrics_repository.IMetricsRepository
-	logsRepository     logs_repository.ILogsRepository
+	activityRepository ports.ActivityRepository
+	workflowRepository ports.WorkflowRepository
+	metricsRepository  ports.MetricsRepository
+	logsRepository     ports.LogsRepository
 
 	localConnector connector_local.IConnectorLocal
 
@@ -128,14 +127,12 @@ func (s *LocalRuntimeService) handleProcessRunning(_ workflow_entity.Workflow, w
 
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 
-	err = s.metricsRepository.Create(metrics_repository.ParamsMetricsCreate{
-		MetricsDatabase: metrics_repository.MetricsDatabase{
-			ActivityId: activityID,
-			Cpu:        totalCPU,
-			Memory:     totalMEM,
-			Window:     "1s",
-			Timestamp:  timestamp,
-		},
+	err = s.metricsRepository.Create(ports.ActivityMetric{
+		ActivityID: activityID,
+		CPU:        totalCPU,
+		Memory:     totalMEM,
+		Window:     "1s",
+		Timestamp:  timestamp,
 	})
 
 	if err != nil {
@@ -151,22 +148,12 @@ func (s *LocalRuntimeService) handleProcessRunning(_ workflow_entity.Workflow, w
 	}
 
 	if logsOutput != "" {
-		s.logsRepository.Create(logs_repository.ParamsLogsCreate{
-			LogsDatabase: logs_repository.LogsDatabase{
-				ActivityId: activityID,
-				Logs:       logsOutput,
-			},
-		})
+		s.logsRepository.Create(ports.ActivityLog{ActivityID: activityID, Logs: logsOutput})
 
 	}
 
 	if logsErr != "" {
-		s.logsRepository.Create(logs_repository.ParamsLogsCreate{
-			LogsDatabase: logs_repository.LogsDatabase{
-				ActivityId: activityID,
-				Logs:       logsErr,
-			},
-		})
+		s.logsRepository.Create(ports.ActivityLog{ActivityID: activityID, Logs: logsErr})
 	}
 
 }

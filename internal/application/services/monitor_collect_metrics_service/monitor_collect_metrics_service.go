@@ -1,11 +1,11 @@
 package monitor_collect_metrics_service
 
 import (
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/application/services/get_pending_workflow_service"
 	"github.com/UFFeScience/akoflow/internal/application/services/get_workflow_by_status_service"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/definition"
 	"github.com/UFFeScience/akoflow/internal/execution/real/runtimes"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/activity_repository"
 )
 
 type MonitorCollectMetricsService struct {
@@ -29,7 +29,7 @@ func (m *MonitorCollectMetricsService) CollectMetrics() {
 }
 
 func (m *MonitorCollectMetricsService) handleCollectMetricsByWorkflow(wf workflow_entity.Workflow) {
-	wfaRunning := m.getWorkflowByStatus.GetActivitiesByStatus(wf, activity_repository.StatusRunning)
+	wfaRunning := m.getWorkflowByStatus.GetActivitiesByStatus(wf, ports.ActivityStatusRunning)
 
 	println("Workflow: ", wf.Id)
 	println("Running: ", len(wfaRunning))

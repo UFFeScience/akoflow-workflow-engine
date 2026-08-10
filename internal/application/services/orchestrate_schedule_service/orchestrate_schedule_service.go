@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 	"plugin"
 
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/application/services/resource_current_metrics_service"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/activity"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/definition"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/activity_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/resource_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/schedule_repository"
 )
@@ -18,16 +18,31 @@ import (
 type OrchestrateScheduleService struct {
 	scheduleRepository schedule_repository.IScheduleRepository
 	resourceRepository resource_repository.IRepository
-	activityRepository activity_repository.IActivityRepository
+	activityRepository ports.ActivityRepository
 
-	resourceMetricsService resource_current_metrics_service.Service
+	resourceMetricsService ResourceMetricsProvider
+	scoreRunner            ScoreRunner
 
 	workflow             workflow_entity.Workflow
 	readyToRunActivities []workflow_activity_entity.WorkflowActivities
 }
 
+type ResourceMetricsProvider interface {
+	Get(string, []workflow_activity_entity.WorkflowActivities) (*resource_current_metrics_service.Metrics, error)
+}
+
+type ScoreRunner func(scheduleName string, input map[string]any) (float64, error)
+
+type pluginSymbolLookup interface {
+	Lookup(string) (plugin.Symbol, error)
+}
+
+var openPlugin = func(path string) (pluginSymbolLookup, error) {
+	return plugin.Open(path)
+}
+
 func New() OrchestrateScheduleService {
-	return OrchestrateScheduleService{
+	service := OrchestrateScheduleService{
 		scheduleRepository: config.App().Repository.ScheduleRepository,
 		activityRepository: config.App().Repository.ActivityRepository,
 		resourceRepository: config.App().Repository.ResourceRepository,
@@ -36,6 +51,19 @@ func New() OrchestrateScheduleService {
 
 		workflow:             workflow_entity.Workflow{},
 		readyToRunActivities: []workflow_activity_entity.WorkflowActivities{},
+	}
+	service.scoreRunner = service.StartRunSchedule
+	return service
+}
+
+func NewWithDependencies(scheduleRepository schedule_repository.IScheduleRepository, activityRepository ports.ActivityRepository, resourceRepository resource_repository.IRepository, metrics ResourceMetricsProvider, scoreRunner ScoreRunner) OrchestrateScheduleService {
+	return OrchestrateScheduleService{
+		scheduleRepository:     scheduleRepository,
+		activityRepository:     activityRepository,
+		resourceRepository:     resourceRepository,
+		resourceMetricsService: metrics,
+		scoreRunner:            scoreRunner,
+		readyToRunActivities:   []workflow_activity_entity.WorkflowActivities{},
 	}
 }
 
@@ -73,7 +101,7 @@ func (o *OrchestrateScheduleService) Orchestrate() ([]workflow_activity_entity.W
 		activityIScheduled, err := o.activityRepository.IsActivityScheduled(activity.WorkflowId, activity.Id)
 		if err != nil {
 			config.App().Logger.Error("Error checking if activity is scheduled: " + err.Error())
-			return nil, err
+			return nil, fmt.Errorf("checking if activity %d is scheduled: %w", activity.Id, err)
 		}
 		if activityIScheduled {
 			continue
@@ -82,7 +110,7 @@ func (o *OrchestrateScheduleService) Orchestrate() ([]workflow_activity_entity.W
 		resources, err := o.resourceRepository.ListByRuntime(o.workflow.Spec.EnvironmentVersionID, o.workflow.Spec.Runtime)
 		if err != nil {
 			config.App().Logger.Error("Error getting nodes: " + err.Error())
-			return nil, err
+			return nil, fmt.Errorf("getting nodes for runtime %s: %w", o.workflow.Spec.Runtime, err)
 		}
 		for _, resource := range resources {
 
@@ -90,7 +118,7 @@ func (o *OrchestrateScheduleService) Orchestrate() ([]workflow_activity_entity.W
 
 			if err != nil {
 				config.App().Logger.Error("Error getting activity schedule by node name: " + err.Error())
-				return nil, err
+				return nil, fmt.Errorf("getting activity schedule metrics for resource %s: %w", resource.ID, err)
 			}
 
 			input := map[string]any{
@@ -105,7 +133,10 @@ func (o *OrchestrateScheduleService) Orchestrate() ([]workflow_activity_entity.W
 				"machine_type":    resource.Name,
 			}
 
-			akoScore, _ := o.StartRunSchedule(scheduleName, input)
+			akoScore, err := o.scoreRunner(scheduleName, input)
+			if err != nil {
+				return nil, fmt.Errorf("score activity %d on resource %s: %w", activity.Id, resource.ID, err)
+			}
 			response = append(response, ResponseStartSchedule{
 				"activity_id": activity.Id,
 				"resource_id": resource.ID,
@@ -134,15 +165,12 @@ func (o *OrchestrateScheduleService) Orchestrate() ([]workflow_activity_entity.W
 			"othersScores": response,
 		}
 
-		metadataByte, err := json.Marshal(metadataMap)
-		if err != nil {
-			config.App().Logger.Error("Error marshalling metadata: " + err.Error())
-			return nil, err
-		}
+		// metadataMap is built exclusively from JSON-safe primitives above.
+		metadataByte, _ := json.Marshal(metadataMap)
 
 		metadata := string(metadataByte)
 
-		o.activityRepository.SetActivitySchedule(
+		if err := o.activityRepository.SetActivitySchedule(
 			activity.WorkflowId,
 			activity.Id,
 			bestNode["resource_id"].(string),
@@ -150,7 +178,9 @@ func (o *OrchestrateScheduleService) Orchestrate() ([]workflow_activity_entity.W
 			activity.GetCpuRequired(),
 			activity.GetMemoryRequired(),
 			metadata,
-		)
+		); err != nil {
+			return nil, fmt.Errorf("persist schedule for activity %d: %w", activity.Id, err)
+		}
 
 		newReadyToRunActivities = append(newReadyToRunActivities, activity)
 	}
@@ -187,7 +217,7 @@ func (r *OrchestrateScheduleService) StartRunSchedule(scheduleName string, input
 
 	println("Schedule found: ", schedule.Name)
 
-	p, err := plugin.Open(filepath.Clean(schedule.PluginSoPath))
+	p, err := openPlugin(filepath.Clean(schedule.PluginSoPath))
 
 	if err != nil {
 		fmt.Println("Erro ao abrir plugin:", err)

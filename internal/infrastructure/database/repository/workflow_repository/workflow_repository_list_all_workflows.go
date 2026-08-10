@@ -1,15 +1,14 @@
 package workflow_repository
 
 import (
+	"strconv"
+
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/definition"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository"
 )
 
-type ListAllWorkflowParams struct {
-	All     bool
-	Page    *int
-	PerPage *int
-}
+type ListAllWorkflowParams = ports.WorkflowListOptions
 
 func (w *WorkflowRepository) ListAllWorkflows(params *ListAllWorkflowParams) ([]workflow_entity.Workflow, error) {
 
@@ -23,7 +22,7 @@ func (w *WorkflowRepository) ListAllWorkflows(params *ListAllWorkflowParams) ([]
 	query := "SELECT id, namespace, name, raw_workflow, status FROM " + w.tableName + " ORDER BY id DESC"
 
 	if !params.All {
-		query += " LIMIT " + string(rune(*params.PerPage)) + " OFFSET " + string(rune(*params.Page**params.PerPage)) + ";"
+		query += " LIMIT " + strconv.Itoa(*params.PerPage) + " OFFSET " + strconv.Itoa(*params.Page**params.PerPage) + ";"
 	}
 
 	rows, err := c.Query(query)

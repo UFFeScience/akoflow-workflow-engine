@@ -8,16 +8,15 @@ import (
 
 	"github.com/UFFeScience/akoflow/internal/api/mapper/mapper_engine_api"
 	"github.com/UFFeScience/akoflow/internal/api/requests"
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/application/utils"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/definition"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/activity_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/workflow_repository"
 )
 
 type FindWorkflowApiService struct {
-	workflowRepository workflow_repository.IWorkflowRepository
-	activityRepository activity_repository.IActivityRepository
+	workflowRepository ports.WorkflowRepository
+	activityRepository ports.ActivityRepository
 }
 
 func New() *FindWorkflowApiService {

@@ -1,6 +1,7 @@
 package metrics_repository
 
 import (
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/schema"
 )
@@ -12,17 +13,9 @@ type MetricsRepository struct {
 var TableName = "metrics"
 var Columns = "(ID INTEGER PRIMARY KEY AUTOINCREMENT, activity_id INTEGER, cpu TEXT, memory TEXT, window TEXT, timestamp TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
 
-type MetricsDatabase struct {
-	ID         int
-	ActivityId int
-	Cpu        string
-	Memory     string
-	Window     string
-	Timestamp  string
-	CreatedAt  string
-}
+type MetricsDatabase = ports.ActivityMetric
 
-func New() *MetricsRepository {
+func New() ports.MetricsRepository {
 
 	database := repository.Database{}
 	c := database.Connect()
@@ -36,6 +29,4 @@ func New() *MetricsRepository {
 	}
 }
 
-type IMetricsRepository interface {
-	Create(params ParamsMetricsCreate) error
-}
+type IMetricsRepository = ports.MetricsRepository

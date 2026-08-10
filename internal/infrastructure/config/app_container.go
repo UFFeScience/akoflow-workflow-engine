@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config/http_helper"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config/logger"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/activity_repository"
@@ -14,7 +15,6 @@ import (
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/runtime_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/schedule_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/storages_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/workflow_execution_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/workflow_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/kubernetes/connector"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/slurm/connector"
@@ -39,15 +39,14 @@ type EnvVars struct {
 }
 
 type AppContainerRepository struct {
-	WorkflowRepository          workflow_repository.IWorkflowRepository
-	ActivityRepository          activity_repository.IActivityRepository
-	LogsRepository              logs_repository.ILogsRepository
-	MetricsRepository           metrics_repository.IMetricsRepository
-	StoragesRepository          storages_repository.IStorageRepository
-	RuntimeRepository           runtime_repository.IRuntimeRepository
-	ResourceRepository          resource_repository.IRepository
-	WorkflowExecutionRepository workflow_execution_repository.IWorkflowExecutionRepository
-	ScheduleRepository          schedule_repository.IScheduleRepository
+	WorkflowRepository ports.WorkflowRepository
+	ActivityRepository ports.ActivityRepository
+	LogsRepository     ports.LogsRepository
+	MetricsRepository  ports.MetricsRepository
+	StoragesRepository ports.StorageRepository
+	RuntimeRepository  runtime_repository.IRuntimeRepository
+	ResourceRepository resource_repository.IRepository
+	ScheduleRepository schedule_repository.IScheduleRepository
 }
 
 type AppContainerConnector struct {
@@ -107,7 +106,6 @@ func MakeAppContainer() AppContainer {
 	storagesRepository := storages_repository.New()
 	runtimeRepository := runtime_repository.New()
 	resourceRepository := resource_repository.New()
-	workflowExecutionRepository := workflow_execution_repository.New()
 	scheduleRepository := schedule_repository.New()
 
 	// create the Connector instances
@@ -123,15 +121,14 @@ func MakeAppContainer() AppContainer {
 	appContainer := AppContainer{
 		DefaultNamespace: DEFAULT_NAMESPACE,
 		Repository: AppContainerRepository{
-			WorkflowRepository:          workflowRepository,
-			ActivityRepository:          activityRepository,
-			LogsRepository:              logsRepository,
-			MetricsRepository:           metricsRepository,
-			StoragesRepository:          storagesRepository,
-			RuntimeRepository:           runtimeRepository,
-			ResourceRepository:          resourceRepository,
-			WorkflowExecutionRepository: workflowExecutionRepository,
-			ScheduleRepository:          scheduleRepository,
+			WorkflowRepository: workflowRepository,
+			ActivityRepository: activityRepository,
+			LogsRepository:     logsRepository,
+			MetricsRepository:  metricsRepository,
+			StoragesRepository: storagesRepository,
+			RuntimeRepository:  runtimeRepository,
+			ResourceRepository: resourceRepository,
+			ScheduleRepository: scheduleRepository,
 		},
 		Connector: AppContainerConnector{
 			K8sConnector:         k8sConnector,

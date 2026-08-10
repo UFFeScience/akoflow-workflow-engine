@@ -4,26 +4,23 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/domain"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/activity"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/definition"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/activity_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/logs_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/metrics_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/resource_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/runtime_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/workflow_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/kubernetes/connector"
 )
 
 type MonitorGetMetricsActivityService struct {
 	namespace          string
-	logsRepository     logs_repository.ILogsRepository
-	metricsRepository  metrics_repository.IMetricsRepository
+	logsRepository     ports.LogsRepository
+	metricsRepository  ports.MetricsRepository
 	resourceRepository resource_repository.IRepository
-	workflowRepository workflow_repository.IWorkflowRepository
-	activityRepository activity_repository.IActivityRepository
+	workflowRepository ports.WorkflowRepository
+	activityRepository ports.ActivityRepository
 	runtimeRepository  runtime_repository.IRuntimeRepository
 
 	connector connector_k8s.IConnector
@@ -91,14 +88,12 @@ func (m *MonitorGetMetricsActivityService) retrieveMetricsInDatabase(_ workflow_
 		return
 	}
 
-	_ = m.metricsRepository.Create(metrics_repository.ParamsMetricsCreate{
-		MetricsDatabase: metrics_repository.MetricsDatabase{
-			ActivityId: wfa.Id,
-			Cpu:        metric.Containers[0].Usage.Cpu,
-			Memory:     metric.Containers[0].Usage.Memory,
-			Window:     metric.Window,
-			Timestamp:  metric.Timestamp.String(),
-		},
+	_ = m.metricsRepository.Create(ports.ActivityMetric{
+		ActivityID: wfa.Id,
+		CPU:        metric.Containers[0].Usage.Cpu,
+		Memory:     metric.Containers[0].Usage.Memory,
+		Window:     metric.Window,
+		Timestamp:  metric.Timestamp.String(),
 	})
 
 	config.App().Logger.Infof("WORKER: Metrics collected for activity %d - CPU: %s - Memory: %s", wfa.Id, metric.Containers[0].Usage.Cpu, metric.Containers[0].Usage.Memory)

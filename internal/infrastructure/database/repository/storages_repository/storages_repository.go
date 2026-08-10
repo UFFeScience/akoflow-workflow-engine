@@ -1,6 +1,7 @@
 package storages_repository
 
 import (
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/schema"
 )
@@ -12,30 +13,13 @@ type StorageRepository struct {
 var TableName = "storages"
 var Columns = "(id INTEGER PRIMARY KEY AUTOINCREMENT, workflow_id INTEGER, activity_id INTEGER, pvc_name TEXT,  namespace TEXT, status INTEGER, storage_mount_path TEXT, storage_class TEXT, storage_size TEXT, initial_file_list TEXT, end_file_list TEXT, initial_disk_spec TEXT, end_disk_spec TEXT, keep_storage_after_finish INTEGER, detached DATETIME,  created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
 
-type StorageDatabase struct {
-	Id                     int
-	WorkflowId             int
-	ActivityId             int
-	PvcName                *string
-	Namespace              string
-	Status                 int
-	StorageMountPath       string
-	StorageClass           string
-	StorageSize            string
-	InitialFileList        string
-	EndFileList            string
-	InitialDiskSpec        string
-	EndDiskSpec            string
-	KeepStorageAfterFinish int
-	Detached               *string
-	CreatedAt              string
-}
+type StorageDatabase = ports.Storage
 
-var StatusNotCreated = 1
-var StatusCreated = 2
-var StatusCompleted = 3
+const StatusNotCreated = ports.StorageStatusNotCreated
+const StatusCreated = ports.StorageStatusCreated
+const StatusCompleted = ports.StorageStatusCompleted
 
-func New() IStorageRepository {
+func New() ports.StorageRepository {
 
 	database := repository.Database{}
 	c := database.Connect()
@@ -49,15 +33,4 @@ func New() IStorageRepository {
 	}
 }
 
-type IStorageRepository interface {
-	Create(params ParamsStorageCreate) error
-	Update(params ParamsStorageUpdate) error
-	Find(id int) (StorageDatabase, error)
-	FindByWorkflow(workflowId int) []StorageDatabase
-	GetCreatedStorages(namespace string) []StorageDatabase
-	UpdateInitialFileListDisk(activityId int, fileDisk string) error
-	UpdateEndFileListDisk(activityId int, fileDisk string) error
-	UpdateInitialDiskSpec(activityId int, fileSpec string) error
-	UpdateEndDiskSpec(activityId int, fileSpec string) error
-	UpdateDetached(activityId int) error
-}
+type IStorageRepository = ports.StorageRepository

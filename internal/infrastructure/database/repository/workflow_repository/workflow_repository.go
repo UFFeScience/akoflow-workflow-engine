@@ -1,7 +1,7 @@
 package workflow_repository
 
 import (
-	"github.com/UFFeScience/akoflow/internal/domain/workflow/definition"
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/schema"
 )
@@ -13,11 +13,11 @@ type WorkflowRepository struct {
 var TableName = "workflows"
 var Columns = "(id INTEGER PRIMARY KEY AUTOINCREMENT, namespace TEXT, runtime TEXT, name TEXT, raw_workflow TEXT, status INTEGER)"
 
-var StatusCreated = 0
-var StatusRunning = 1
-var StatusFinished = 2
+const StatusCreated = ports.WorkflowStatusCreated
+const StatusRunning = ports.WorkflowStatusRunning
+const StatusFinished = ports.WorkflowStatusFinished
 
-func New() IWorkflowRepository {
+func New() ports.WorkflowRepository {
 
 	database := repository.Database{}
 	c := database.Connect()
@@ -38,10 +38,4 @@ func New() IWorkflowRepository {
 	return &WorkflowRepository{tableName: TableName}
 }
 
-type IWorkflowRepository interface {
-	Create(namespace string, workflow workflow_entity.Workflow) (int, error)
-	Find(workflowId int) (workflow_entity.Workflow, error)
-	GetPendingWorkflows(namespace string) ([]workflow_entity.Workflow, error)
-	UpdateStatus(id int, status int) error
-	ListAllWorkflows(params *ListAllWorkflowParams) ([]workflow_entity.Workflow, error)
-}
+type IWorkflowRepository = ports.WorkflowRepository

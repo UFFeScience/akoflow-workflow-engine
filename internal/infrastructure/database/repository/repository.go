@@ -42,7 +42,7 @@ func (d *Database) Connect() *sql.DB {
 
 func createDirectoryIfNotExists(path string) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		err := os.Mkdir(path, 0755)
+		err := os.MkdirAll(path, 0755)
 		if err != nil {
 			println("Error creating directory", err.Error())
 		}

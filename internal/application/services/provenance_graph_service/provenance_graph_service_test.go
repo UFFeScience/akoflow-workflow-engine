@@ -14,7 +14,9 @@ type storageFake struct {
 	values []storages_repository.StorageDatabase
 }
 
-func (f storageFake) FindByWorkflow(int) []storages_repository.StorageDatabase { return f.values }
+func (f storageFake) FindByWorkflow(int) ([]storages_repository.StorageDatabase, error) {
+	return f.values, nil
+}
 
 type graphActivityFake struct {
 	activity_repository.IActivityRepository
@@ -31,7 +33,7 @@ func (f graphActivityFake) Find(id int) (workflow_activity_entity.WorkflowActivi
 func TestBuildGraphCreatesInputsOutputsFallbacksAndSkipsDirectories(t *testing.T) {
 	initial := `[{"Permissions":"-rw","Path":"./data","Name":"input.dat"},{"Permissions":"drwx","Path":"./data","Name":"dir"}]`
 	end := `[{"Permissions":"-rw","Path":"./data","Name":"input.dat"},{"Permissions":"-rw","Path":"./data","Name":"output.dat"},{"Permissions":"drwx","Path":"./data","Name":"dir"}]`
-	service := New(storageFake{values: []storages_repository.StorageDatabase{{ActivityId: 1, InitialFileList: initial, EndFileList: end}, {ActivityId: 2, InitialFileList: `[{"Permissions":"-rw","Path":"./data","Name":"output.dat"}]`, EndFileList: `[]`}}}, graphActivityFake{names: map[int]string{1: "producer"}})
+	service := New(storageFake{values: []storages_repository.StorageDatabase{{ActivityID: 1, InitialFileList: initial, EndFileList: end}, {ActivityID: 2, InitialFileList: `[{"Permissions":"-rw","Path":"./data","Name":"output.dat"}]`, EndFileList: `[]`}}}, graphActivityFake{names: map[int]string{1: "producer"}})
 	graph, err := service.BuildGraph(7)
 	if err != nil {
 		t.Fatal(err)
@@ -52,7 +54,7 @@ func TestBuildGraphCreatesInputsOutputsFallbacksAndSkipsDirectories(t *testing.T
 }
 
 func TestBuildGraphHandlesEmptyAndMalformedSnapshots(t *testing.T) {
-	graph, err := New(storageFake{values: []storages_repository.StorageDatabase{{ActivityId: 1, InitialFileList: `{`, EndFileList: `bad`}}}, graphActivityFake{names: map[int]string{1: "a"}}).BuildGraph(1)
+	graph, err := New(storageFake{values: []storages_repository.StorageDatabase{{ActivityID: 1, InitialFileList: `{`, EndFileList: `bad`}}}, graphActivityFake{names: map[int]string{1: "a"}}).BuildGraph(1)
 	if err != nil || len(graph.Nodes) != 1 || len(graph.Edges) != 0 {
 		t.Fatalf("unexpected graph: %+v %v", graph, err)
 	}

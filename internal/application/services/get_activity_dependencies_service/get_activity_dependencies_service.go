@@ -1,16 +1,15 @@
 package get_activity_dependencies_service
 
 import (
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/activity"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/activity_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/workflow_repository"
 )
 
 // GetActivityDependenciesService is a service that returns the dependencies of an activity.
 type GetActivityDependenciesService struct {
-	workflowRepository workflow_repository.IWorkflowRepository
-	activityRepository activity_repository.IActivityRepository
+	workflowRepository ports.WorkflowRepository
+	activityRepository ports.ActivityRepository
 }
 
 func New() GetActivityDependenciesService {

@@ -4,24 +4,22 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/application/services/get_activity_dependencies_service"
 	"github.com/UFFeScience/akoflow/internal/application/services/get_pending_storage_service"
 	"github.com/UFFeScience/akoflow/internal/application/services/get_pending_workflow_service"
 	"github.com/UFFeScience/akoflow/internal/application/services/get_workflow_by_status_service"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/activity"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/activity_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/runtime_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/storages_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/workflow_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/kubernetes/connector"
 )
 
 type GarbageCollectorRemoveStorageService struct {
 	namespace          string
-	workflowRepository workflow_repository.IWorkflowRepository
-	activityRepository activity_repository.IActivityRepository
-	storageRepository  storages_repository.IStorageRepository
+	workflowRepository ports.WorkflowRepository
+	activityRepository ports.ActivityRepository
+	storageRepository  ports.StorageRepository
 	runtimeRepository  runtime_repository.IRuntimeRepository
 
 	getActivityDependeciesService get_activity_dependencies_service.GetActivityDependenciesService
@@ -81,7 +79,7 @@ func (c *GarbageCollectorRemoveStorageService) RemoveStoragesDeprecated() {
 
 		_ = c.connector.Pod(runtime).DeletePod(c.namespace, podNameJob)
 
-		preactivity.Status = activity_repository.StatusCompleted
+		preactivity.Status = ports.ActivityStatusCompleted
 		_ = c.activityRepository.UpdatePreActivity(preactivity.ActivityId, preactivity)
 
 	}
@@ -103,20 +101,20 @@ func (c *GarbageCollectorRemoveStorageService) removeResource(activity workflow_
 
 	_ = c.connector.Pod(runtime).DeletePod(c.namespace, podNameJob)
 
-	_ = c.storageRepository.Update(storages_repository.ParamsStorageUpdate{
-		PvcName:    activity.GetVolumeName(),
-		Status:     storages_repository.StatusCompleted,
-		ActivityId: activity.Id,
+	_ = c.storageRepository.Update(ports.UpdateStorageParams{
+		PVCName:    activity.GetVolumeName(),
+		Status:     ports.StorageStatusCompleted,
+		ActivityID: activity.Id,
 	})
 
 	_ = c.storageRepository.UpdateDetached(activity.Id)
 }
 
 func (c *GarbageCollectorRemoveStorageService) handleKeepDisk(activity workflow_activity_entity.WorkflowActivities) {
-	err := c.storageRepository.Update(storages_repository.ParamsStorageUpdate{
-		PvcName:    activity.GetVolumeName(),
-		Status:     storages_repository.StatusCompleted,
-		ActivityId: activity.Id,
+	err := c.storageRepository.Update(ports.UpdateStorageParams{
+		PVCName:    activity.GetVolumeName(),
+		Status:     ports.StorageStatusCompleted,
+		ActivityID: activity.Id,
 	})
 	if err != nil {
 		println("Error updating storage")

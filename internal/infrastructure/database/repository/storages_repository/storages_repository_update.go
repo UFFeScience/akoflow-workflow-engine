@@ -1,40 +1,27 @@
 package storages_repository
 
 import (
-	"strconv"
+	"fmt"
 	"time"
 
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository"
 )
 
-type ParamsStorageUpdate struct {
-	Status     int
-	PvcName    string
-	ActivityId int
-}
+type ParamsStorageUpdate = ports.UpdateStorageParams
 
-func (s *StorageRepository) Update(params ParamsStorageUpdate) error {
+func (s *StorageRepository) Update(params ports.UpdateStorageParams) error {
 
 	database := repository.Database{}
 	c := database.Connect()
 
-	if !(params.Status > 0 && params.PvcName != "" && params.ActivityId > 0) {
-		return nil
+	defer c.Close()
+	if params.Status <= 0 || params.PVCName == "" || params.ActivityID <= 0 {
+		return fmt.Errorf("invalid storage update")
 	}
 
-	_, err := c.Exec("UPDATE " + s.tableName + " SET status = " + strconv.Itoa(params.Status) + ", pvc_name = '" + params.PvcName + "' WHERE activity_id = " + strconv.Itoa(params.ActivityId))
-
-	if err != nil {
-		return err
-	}
-
-	err = c.Close()
-
-	if err != nil {
-		return err
-	}
-
-	return nil
+	_, err := c.Exec("UPDATE "+s.tableName+" SET status = ?, pvc_name = ? WHERE activity_id = ?", params.Status, params.PVCName, params.ActivityID)
+	return err
 
 }
 
@@ -43,13 +30,8 @@ func (s *StorageRepository) UpdateInitialFileListDisk(activityId int, fileDisk s
 	database := repository.Database{}
 	c := database.Connect()
 
-	_, err := c.Exec("UPDATE " + s.tableName + " SET initial_file_list = '" + fileDisk + "' WHERE activity_id = " + strconv.Itoa(activityId))
-
-	if err != nil {
-		return err
-	}
-
-	err = c.Close()
+	defer c.Close()
+	_, err := c.Exec("UPDATE "+s.tableName+" SET initial_file_list = ? WHERE activity_id = ?", fileDisk, activityId)
 
 	if err != nil {
 		return err
@@ -63,13 +45,8 @@ func (s *StorageRepository) UpdateEndFileListDisk(activityId int, fileDisk strin
 	database := repository.Database{}
 	c := database.Connect()
 
-	_, err := c.Exec("UPDATE " + s.tableName + " SET end_file_list = '" + fileDisk + "' WHERE activity_id = " + strconv.Itoa(activityId))
-
-	if err != nil {
-		return err
-	}
-
-	err = c.Close()
+	defer c.Close()
+	_, err := c.Exec("UPDATE "+s.tableName+" SET end_file_list = ? WHERE activity_id = ?", fileDisk, activityId)
 
 	if err != nil {
 		return err
@@ -83,13 +60,8 @@ func (s *StorageRepository) UpdateInitialDiskSpec(activityId int, fileSpec strin
 	database := repository.Database{}
 	c := database.Connect()
 
-	_, err := c.Exec("UPDATE " + s.tableName + " SET initial_disk_spec = '" + fileSpec + "' WHERE activity_id = " + strconv.Itoa(activityId))
-
-	if err != nil {
-		return err
-	}
-
-	err = c.Close()
+	defer c.Close()
+	_, err := c.Exec("UPDATE "+s.tableName+" SET initial_disk_spec = ? WHERE activity_id = ?", fileSpec, activityId)
 
 	if err != nil {
 		return err
@@ -103,13 +75,8 @@ func (s *StorageRepository) UpdateEndDiskSpec(activityId int, fileSpec string) e
 	database := repository.Database{}
 	c := database.Connect()
 
-	_, err := c.Exec("UPDATE " + s.tableName + " SET end_disk_spec = '" + fileSpec + "' WHERE activity_id = " + strconv.Itoa(activityId))
-	if err != nil {
-		return err
-	}
-
-	err = c.Close()
-
+	defer c.Close()
+	_, err := c.Exec("UPDATE "+s.tableName+" SET end_disk_spec = ? WHERE activity_id = ?", fileSpec, activityId)
 	if err != nil {
 		return err
 	}
@@ -124,13 +91,8 @@ func (s *StorageRepository) UpdateDetached(activityId int) error {
 
 	now := time.Now()
 
-	_, err := c.Exec("UPDATE " + s.tableName + " SET detached = '" + now.Format("2006-01-02 15:04:05") + "' WHERE activity_id = " + strconv.Itoa(activityId))
-	if err != nil {
-		return err
-	}
-
-	err = c.Close()
-
+	defer c.Close()
+	_, err := c.Exec("UPDATE "+s.tableName+" SET detached = ? WHERE activity_id = ?", now.Format("2006-01-02 15:04:05"), activityId)
 	if err != nil {
 		return err
 	}

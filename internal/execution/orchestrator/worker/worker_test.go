@@ -128,3 +128,10 @@ func TestActivityEventReachesAssignedRuntimeEndToEnd(t *testing.T) {
 		t.Fatalf("runtime calls=%d workflow=%d activity=%d", runtime.calls, runtime.workflowID, runtime.activityID)
 	}
 }
+
+func TestNewUsesSharedChannelAndProductionRunner(t *testing.T) {
+	worker := New()
+	if worker.activityChannel == nil || worker.runner == nil {
+		t.Fatalf("New() returned incomplete worker: %+v", worker)
+	}
+}

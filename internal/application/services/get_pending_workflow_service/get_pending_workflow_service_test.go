@@ -75,4 +75,18 @@ func TestGetPendingWorkflowsPropagatesRepositoryFailures(t *testing.T) {
 			t.Fatal("expected initialization error")
 		}
 	})
+
+	t.Run("activity dependency not initialized", func(t *testing.T) {
+		service := NewWithDependencies("lab", &workflowRepositoryFake{}, nil)
+		if _, err := service.GetPendingWorkflows(); err == nil {
+			t.Fatal("expected activity repository initialization error")
+		}
+	})
+}
+
+func TestNewUsesApplicationDependencies(t *testing.T) {
+	service := New()
+	if service.namespace == "" || service.workflowRepository == nil || service.activityRepository == nil {
+		t.Fatalf("New() returned incomplete service: %+v", service)
+	}
 }

@@ -1,27 +1,26 @@
 package create_workflow_in_database_service
 
 import (
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/application/services/create_storage_in_database_service"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/definition"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/activity_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/storages_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/workflow_repository"
+	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
 )
 
 type CreateWorkflowInDatabaseService struct {
 	namespace                      string
-	workflowRepository             workflow_repository.IWorkflowRepository
-	activityRepository             activity_repository.IActivityRepository
-	storageRepository              storages_repository.IStorageRepository
+	workflowRepository             ports.WorkflowRepository
+	activityRepository             ports.ActivityRepository
+	storageRepository              ports.StorageRepository
 	createStorageInDatabaseService create_storage_in_database_service.CreateStorageInDatabaseService
 }
 
 func New() *CreateWorkflowInDatabaseService {
 	return &CreateWorkflowInDatabaseService{
 		namespace:                      "akoflow",
-		workflowRepository:             workflow_repository.New(),
-		activityRepository:             activity_repository.New(),
-		storageRepository:              storages_repository.New(),
+		workflowRepository:             config.App().Repository.WorkflowRepository,
+		activityRepository:             config.App().Repository.ActivityRepository,
+		storageRepository:              config.App().Repository.StoragesRepository,
 		createStorageInDatabaseService: create_storage_in_database_service.New(),
 	}
 }

@@ -3,19 +3,18 @@ package kubernetes_runtime_service
 import (
 	"fmt"
 
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/activity"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/definition"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/logs_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/metrics_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/runtime_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/kubernetes/connector"
 )
 
 type MonitorGetLogsActivityService struct {
 	namespace         string
-	logsRepository    logs_repository.ILogsRepository
-	metricsRepository metrics_repository.IMetricsRepository
+	logsRepository    ports.LogsRepository
+	metricsRepository ports.MetricsRepository
 
 	runtimeRepository runtime_repository.IRuntimeRepository
 
@@ -73,10 +72,5 @@ func (m *MonitorGetLogsActivityService) retrieveSaveLogsInDatabase(wf workflow_e
 		return
 	}
 
-	_ = m.logsRepository.Create(logs_repository.ParamsLogsCreate{
-		LogsDatabase: logs_repository.LogsDatabase{
-			ActivityId: wfa.Id,
-			Logs:       logs,
-		},
-	})
+	_ = m.logsRepository.Create(ports.ActivityLog{ActivityID: wfa.Id, Logs: logs})
 }

@@ -3,13 +3,13 @@ package orchestrate_workflow_service
 import (
 	"fmt"
 
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/application/services/get_workflow_by_status_service"
 	"github.com/UFFeScience/akoflow/internal/application/services/orchestrate_schedule_service"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/activity"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/definition"
 	"github.com/UFFeScience/akoflow/internal/execution/lifecycle/channel"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/activity_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/schedule_repository"
 )
 
@@ -71,7 +71,7 @@ func (o *OrchestrateWorflowService) dispatchToWorker(activities []workflow_activ
 
 func (o *OrchestrateWorflowService) hasSyncingActivity(wf workflow_entity.Workflow) bool {
 	for _, activity := range wf.Spec.Activities {
-		if activity.Status == activity_repository.StatusSyncing {
+		if activity.Status == ports.ActivityStatusSyncing {
 			return true
 		}
 	}
@@ -85,9 +85,9 @@ func (o *OrchestrateWorflowService) handleDispatchToWorker(wf workflow_entity.Wo
 		return []workflow_activity_entity.WorkflowActivities{}
 	}
 
-	wfsFinished := o.getWorkflowByStatus.GetActivitiesByStatus(wf, activity_repository.StatusFinished)
-	wfsRunning := o.getWorkflowByStatus.GetActivitiesByStatus(wf, activity_repository.StatusRunning)
-	wfsNotStarted := o.getWorkflowByStatus.GetActivitiesByStatus(wf, activity_repository.StatusCreated)
+	wfsFinished := o.getWorkflowByStatus.GetActivitiesByStatus(wf, ports.ActivityStatusFinished)
+	wfsRunning := o.getWorkflowByStatus.GetActivitiesByStatus(wf, ports.ActivityStatusRunning)
+	wfsNotStarted := o.getWorkflowByStatus.GetActivitiesByStatus(wf, ports.ActivityStatusCreated)
 
 	println("wfsFinished: ", len(wfsFinished))
 	println("wfsRunning: ", len(wfsRunning))

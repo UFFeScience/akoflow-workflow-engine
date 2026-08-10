@@ -168,3 +168,13 @@ func TestRunHandlesUnavailableAndRejectingRuntime(t *testing.T) {
 		}
 	})
 }
+
+func TestNewUsesApplicationDependencies(t *testing.T) {
+	service := New()
+	if service.workflowRepository == nil || service.activityRepository == nil || service.resourceRepository == nil || service.runtimeResolver == nil {
+		t.Fatalf("New() returned incomplete service: %+v", service)
+	}
+	if runtime := service.runtimeResolver("runtime-that-does-not-exist"); runtime != nil {
+		t.Fatalf("unknown runtime resolved to %T", runtime)
+	}
+}

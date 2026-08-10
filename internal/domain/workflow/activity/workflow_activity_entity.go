@@ -182,6 +182,14 @@ func DatabaseToWorkflowActivities(params ParamsDatabaseToWorkflowActivities) Wor
 	} else {
 		runtime = wfa.Runtime
 	}
+	resourceSelector := wfa.ResourceSelector
+	if params.WorkflowActivityDatabase.ResourceSelector != nil {
+		resourceSelector = *params.WorkflowActivityDatabase.ResourceSelector
+	}
+	mountPath := wfa.MountPath
+	if params.WorkflowActivityDatabase.MountPath != nil {
+		mountPath = *params.WorkflowActivityDatabase.MountPath
+	}
 
 	return WorkflowActivities{
 		Id:               params.WorkflowActivityDatabase.Id,
@@ -195,8 +203,8 @@ func DatabaseToWorkflowActivities(params ParamsDatabaseToWorkflowActivities) Wor
 		MemoryLimit:      wfa.MemoryLimit,
 		CpuLimit:         wfa.CpuLimit,
 		DependsOn:        wfa.DependsOn,
-		ResourceSelector: wfa.ResourceSelector,
-		MountPath:        wfa.MountPath,
+		ResourceSelector: resourceSelector,
+		MountPath:        mountPath,
 		KeepDisk:         wfa.KeepDisk,
 		CreatedAt:        createdAt,
 		StartedAt:        startedAt,

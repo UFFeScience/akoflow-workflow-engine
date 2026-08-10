@@ -3,8 +3,9 @@ package resource_current_metrics_service
 import (
 	"fmt"
 
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/activity"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/activity_repository"
+	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/resource_repository"
 )
 
@@ -19,12 +20,12 @@ func (m Metrics) CPUFree() float64    { return m.CPUTotal - m.CPUUsage }
 func (m Metrics) MemoryFree() float64 { return m.MemoryTotal - m.MemoryUsage }
 
 type Service struct {
-	activities activity_repository.IActivityRepository
+	activities ports.ActivityRepository
 	resources  resource_repository.IRepository
 }
 
 func New() Service {
-	return Service{activities: activity_repository.New(), resources: resource_repository.New()}
+	return Service{activities: config.App().Repository.ActivityRepository, resources: config.App().Repository.ResourceRepository}
 }
 
 func (s Service) Get(resourceID string, current []workflow_activity_entity.WorkflowActivities) (*Metrics, error) {

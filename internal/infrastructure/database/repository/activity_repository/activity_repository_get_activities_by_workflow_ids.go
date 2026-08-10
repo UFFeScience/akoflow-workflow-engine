@@ -1,11 +1,12 @@
 package activity_repository
 
 import (
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/activity"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository"
 )
 
-type ResultGetActivitiesByWorkflowIds map[int][]workflow_activity_entity.WorkflowActivities
+type ResultGetActivitiesByWorkflowIds = ports.ActivitiesByWorkflow
 
 func (w *ActivityRepository) GetActivitiesByWorkflowIds(ids []int) (ResultGetActivitiesByWorkflowIds, error) {
 

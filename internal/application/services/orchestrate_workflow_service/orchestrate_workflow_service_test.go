@@ -108,3 +108,19 @@ func TestDependencyRequiresEveryPredecessor(t *testing.T) {
 		t.Fatal("activity was not released after every predecessor finished")
 	}
 }
+
+func TestConstructorsAndWorkflowsRunningState(t *testing.T) {
+	service := New()
+	if service.channelManager == nil || service.getWorkflowByStatus == nil || service.scheduleActivities == nil {
+		t.Fatalf("New() returned incomplete service: %+v", service)
+	}
+	running := map[int][]workflow_activity_entity.WorkflowActivities{3: {{Id: 8}}}
+	if got := service.SetWorkflowsRunning(running); got != service || service.workflowsRunning[3][0].Id != 8 {
+		t.Fatal("SetWorkflowsRunning did not preserve service and state")
+	}
+	activities := []workflow_activity_entity.WorkflowActivities{{Id: 12}}
+	result, err := service.scheduleActivities(workflow_entity.Workflow{Spec: workflow_entity.WorkflowSpec{Schedule: "missing-schedule"}}, activities)
+	if err != nil || len(result) != 1 || result[0].Id != 12 {
+		t.Fatalf("default scheduler result=%v error=%v", result, err)
+	}
+}

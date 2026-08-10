@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/activity_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/storages_repository"
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 )
 
 type Node struct {
@@ -26,11 +25,11 @@ type ProvenanceGraph struct {
 }
 
 type ProvenanceGraphService struct {
-	storageRepository  storages_repository.IStorageRepository
-	activityRepository activity_repository.IActivityRepository
+	storageRepository  ports.StorageRepository
+	activityRepository ports.ActivityRepository
 }
 
-func New(storageRepo storages_repository.IStorageRepository, activityRepo activity_repository.IActivityRepository) *ProvenanceGraphService {
+func New(storageRepo ports.StorageRepository, activityRepo ports.ActivityRepository) *ProvenanceGraphService {
 	return &ProvenanceGraphService{
 		storageRepository:  storageRepo,
 		activityRepository: activityRepo,
@@ -46,13 +45,16 @@ func New(storageRepo storages_repository.IStorageRepository, activityRepo activi
 //   - Files present in InitialFileList were CONSUMED/USED as input by that activity
 //     → edge: file → activity  (labeled "used")
 func (s *ProvenanceGraphService) BuildGraph(workflowId int) (*ProvenanceGraph, error) {
-	storages := s.storageRepository.FindByWorkflow(workflowId)
+	storages, err := s.storageRepository.FindByWorkflow(workflowId)
+	if err != nil {
+		return nil, err
+	}
 
 	activitiesMap := map[int]string{}
 	for _, storage := range storages {
-		activity, err := s.activityRepository.Find(storage.ActivityId)
+		activity, err := s.activityRepository.Find(storage.ActivityID)
 		if err == nil {
-			activitiesMap[storage.ActivityId] = activity.Name
+			activitiesMap[storage.ActivityID] = activity.Name
 		}
 	}
 
@@ -93,9 +95,9 @@ func (s *ProvenanceGraphService) BuildGraph(workflowId int) (*ProvenanceGraph, e
 	}
 
 	for _, storage := range storages {
-		actName := activitiesMap[storage.ActivityId]
+		actName := activitiesMap[storage.ActivityID]
 		if actName == "" {
-			actName = fmt.Sprintf("activity_%d", storage.ActivityId)
+			actName = fmt.Sprintf("activity_%d", storage.ActivityID)
 		}
 		actNodeId := "activity:" + actName
 

@@ -1,6 +1,7 @@
 package kubernetes_runtime_service
 
 import (
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/kubernetes/connector"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/kubernetes/connector/connector_pvc_k8s"
@@ -13,7 +14,7 @@ import (
 
 type CreatePVCService struct {
 	connector         connector_k8s.IConnector
-	storageRepository storages_repository.IStorageRepository
+	storageRepository ports.StorageRepository
 
 	runtimeRepository runtime_repository.IRuntimeRepository
 }
@@ -51,9 +52,9 @@ func (c *CreatePVCService) GetOrCreatePersistentVolumeClainByActivity(wf workflo
 	}
 
 	err = c.storageRepository.Update(storages_repository.ParamsStorageUpdate{
-		PvcName:    wfa.GetVolumeName(),
+		PVCName:    wfa.GetVolumeName(),
 		Status:     storages_repository.StatusCreated,
-		ActivityId: wfa.Id,
+		ActivityID: wfa.Id,
 	})
 
 	return pvc.Metadata.Name, nil
@@ -101,9 +102,9 @@ func (c *CreatePVCService) handleCreatePersistentVolumeClain(wf workflow_entity.
 	}
 
 	err = c.storageRepository.Update(storages_repository.ParamsStorageUpdate{
-		PvcName:    wfa.GetVolumeName(),
+		PVCName:    wfa.GetVolumeName(),
 		Status:     storages_repository.StatusCreated,
-		ActivityId: wfa.Id,
+		ActivityID: wfa.Id,
 	})
 
 	if err != nil {

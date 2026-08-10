@@ -3,11 +3,11 @@ package kubernetes_runtime_service
 import (
 	"errors"
 
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/activity"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/definition"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/activity_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/logs_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/runtime_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/kubernetes/connector"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/kubernetes/connector/connector_job_k8s"
@@ -19,9 +19,9 @@ type MonitorVerifyActivityWasFinishedService struct {
 	runtimeName string
 	runtimeType string
 
-	activityRepository activity_repository.IActivityRepository
+	activityRepository ports.ActivityRepository
 	runtimeRepository  runtime_repository.IRuntimeRepository
-	logsRepository     logs_repository.ILogsRepository
+	logsRepository     ports.LogsRepository
 
 	connector connector_k8s.IConnector
 }
@@ -186,10 +186,5 @@ func (m *MonitorVerifyActivityWasFinishedService) monitorHandleLogs(wf workflow_
 
 	logs, _ := m.connector.Pod(runtime).GetPodLogs(m.namespace, podName)
 
-	_ = m.logsRepository.Create(logs_repository.ParamsLogsCreate{
-		LogsDatabase: logs_repository.LogsDatabase{
-			ActivityId: activity.Id,
-			Logs:       logs,
-		},
-	})
+	_ = m.logsRepository.Create(ports.ActivityLog{ActivityID: activity.Id, Logs: logs})
 }
