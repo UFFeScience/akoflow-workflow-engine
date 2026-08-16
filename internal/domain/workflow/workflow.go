@@ -62,6 +62,15 @@ type WorkflowVersion struct {
 	DataDependencies []ActivityDataDependency `json:"dataDependencies,omitempty"`
 }
 
+type Definition struct {
+	ID         string          `json:"id"`
+	ExternalID string          `json:"externalId"`
+	Name       string          `json:"name"`
+	Namespace  string          `json:"namespace"`
+	Version    WorkflowVersion `json:"version"`
+	Types      []ActivityType  `json:"activityTypes"`
+}
+
 type ActivityType struct {
 	ID               string         `json:"id"`
 	Name             string         `json:"name"`

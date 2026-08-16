@@ -1,43 +1,34 @@
 package workflow_definition_repository
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/domain"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/schema"
 )
 
-type Definition struct {
-	ID         string                 `json:"id"`
-	ExternalID string                 `json:"externalId"`
-	Name       string                 `json:"name"`
-	Namespace  string                 `json:"namespace"`
-	Version    domain.WorkflowVersion `json:"version"`
-	Types      []domain.ActivityType  `json:"activityTypes"`
-}
+type Definition = domain.WorkflowDefinition
+type Repository struct{ db *sql.DB }
 
-type IRepository interface {
-	Create(definition Definition) error
-	FindVersion(id string) (*domain.WorkflowVersion, error)
-}
+var _ ports.WorkflowRepository = (*Repository)(nil)
 
-type Repository struct{}
-
-func New() IRepository {
+func New() *Repository {
 	db := (&repository.Database{}).Connect()
-	defer db.Close()
 	if err := schema.Apply(db); err != nil {
+		db.Close()
 		panic(err)
 	}
-	return &Repository{}
+	return &Repository{db: db}
 }
 
-func (r *Repository) Create(definition Definition) error {
-	db := (&repository.Database{}).Connect()
-	defer db.Close()
-	tx, err := db.Begin()
+func NewWithDB(db *sql.DB) *Repository { return &Repository{db: db} }
+
+func (r *Repository) Create(ctx context.Context, definition Definition) error {
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -100,11 +91,9 @@ func (r *Repository) Create(definition Definition) error {
 	return tx.Commit()
 }
 
-func (r *Repository) FindVersion(id string) (*domain.WorkflowVersion, error) {
-	db := (&repository.Database{}).Connect()
-	defer db.Close()
+func (r *Repository) FindVersion(ctx context.Context, id string) (*domain.WorkflowVersion, error) {
 	var workflow domain.WorkflowVersion
-	err := db.QueryRow(`SELECT id, workflow_id, version, definition_hash
+	err := r.db.QueryRowContext(ctx, `SELECT id, workflow_id, version, definition_hash
 		FROM workflow_versions WHERE id=?`, id).Scan(&workflow.ID, &workflow.WorkflowID,
 		&workflow.Version, &workflow.DefinitionHash)
 	if err == sql.ErrNoRows {
@@ -113,7 +102,7 @@ func (r *Repository) FindVersion(id string) (*domain.WorkflowVersion, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.Query(`SELECT id, workflow_version_id, activity_type_id,
+	rows, err := r.db.QueryContext(ctx, `SELECT id, workflow_version_id, activity_type_id,
 		external_id, name, kind, capabilities, command_spec, resource_requirements,
 		service_spec, simulation_spec, policy, priority, metadata
 		FROM activity_definitions WHERE workflow_version_id=?`, id)
@@ -147,7 +136,7 @@ func (r *Repository) FindVersion(id string) (*domain.WorkflowVersion, error) {
 		workflow.Activities = append(workflow.Activities, activity)
 	}
 	rows.Close()
-	deps, err := db.Query(`SELECT d.activity_id, d.depends_on_activity_id,
+	deps, err := r.db.QueryContext(ctx, `SELECT d.activity_id, d.depends_on_activity_id,
 		d.dependency_type FROM activity_dependencies d
 		JOIN activity_definitions a ON a.id=d.activity_id
 		WHERE a.workflow_version_id=?`, id)

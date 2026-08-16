@@ -1,34 +1,33 @@
 package schedule_plan_repository
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/domain"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/schema"
 )
 
-type IRepository interface {
-	Save(plan domain.SchedulePlan) error
-	Find(id string) (*domain.SchedulePlan, error)
-}
+type Repository struct{ db *sql.DB }
 
-type Repository struct{}
+var _ ports.PlanningRepository = (*Repository)(nil)
 
-func New() IRepository {
+func New() *Repository {
 	db := (&repository.Database{}).Connect()
-	defer db.Close()
 	if err := schema.Apply(db); err != nil {
+		db.Close()
 		panic(err)
 	}
-	return &Repository{}
+	return &Repository{db: db}
 }
 
-func (r *Repository) Save(plan domain.SchedulePlan) error {
-	db := (&repository.Database{}).Connect()
-	defer db.Close()
-	tx, err := db.Begin()
+func NewWithDB(db *sql.DB) *Repository { return &Repository{db: db} }
+
+func (r *Repository) Save(ctx context.Context, plan domain.SchedulePlan) error {
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -65,12 +64,10 @@ func (r *Repository) Save(plan domain.SchedulePlan) error {
 	return tx.Commit()
 }
 
-func (r *Repository) Find(id string) (*domain.SchedulePlan, error) {
-	db := (&repository.Database{}).Connect()
-	defer db.Close()
+func (r *Repository) Find(ctx context.Context, id string) (*domain.SchedulePlan, error) {
 	var plan domain.SchedulePlan
 	var source string
-	err := db.QueryRow(`SELECT id, workflow_version_id, environment_version_id,
+	err := r.db.QueryRowContext(ctx, `SELECT id, workflow_version_id, environment_version_id,
 		source, algorithm, algorithm_version, objective, deadline_seconds, budget,
 		predicted_makespan_seconds, predicted_cost, predicted_feasible
 		FROM schedule_plans WHERE id = ?`, id).Scan(&plan.ID, &plan.WorkflowVersionID,
@@ -84,7 +81,7 @@ func (r *Repository) Find(id string) (*domain.SchedulePlan, error) {
 		return nil, err
 	}
 	plan.Source = domain.PlanningSource(source)
-	rows, err := db.Query(`SELECT id, schedule_plan_id, activity_id, resource_id,
+	rows, err := r.db.QueryContext(ctx, `SELECT id, schedule_plan_id, activity_id, resource_id,
 		core_id, slot_id, order_on_resource, priority, predicted_ready_at,
 		predicted_start_at, predicted_finish_at, predicted_runtime_seconds,
 		predicted_transfer_seconds, predicted_cost, metadata

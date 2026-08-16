@@ -20,6 +20,7 @@ type EnvironmentRuntime = environment.EnvironmentRuntime
 type EnvironmentConnection = environment.EnvironmentConnection
 type EnvironmentCapabilities = environment.Capabilities
 type DiscoveryRun = environment.DiscoveryRun
+type EnvironmentDefinition = environment.Definition
 
 const (
 	EnvironmentVersionDraft     = environment.EnvironmentVersionDraft
@@ -62,6 +63,7 @@ const (
 )
 
 type WorkflowVersion = workflow.WorkflowVersion
+type WorkflowDefinition = workflow.Definition
 type ActivityType = workflow.ActivityType
 type Activity = workflow.Activity
 type ActivityKind = workflow.ActivityKind

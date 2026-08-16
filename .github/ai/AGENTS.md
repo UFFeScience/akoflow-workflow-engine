@@ -1,40 +1,43 @@
 # Akoflow Agent Guide
 
-This repository uses this file as the shared architecture reference for AI agents.
-
 ## Core Shape
 
-- Go project with two binaries: client and server.
-- The server is layered: HTTP handlers, services, runtimes, connectors, repositories and entities.
-- `config.App()` is the dependency composition root.
+- Go project with CLI and server binaries.
+- `cmd/server` is the explicit composition root. Do not introduce global service locators.
+- Domain packages contain definitions only and cannot import infrastructure.
+- Application services coordinate use cases through small ports.
+- SQL repositories own complete aggregates and share the process database handle.
+- Runtime adapters implement `ports.RuntimeAdapter` and are registered by runtime ID and execution mode.
+- The persistent event loop is the asynchronous command transport and source of retry/lease semantics.
 
-## Primary Flows
+## Primary Flow
 
-- Client submits a workflow to the server.
-- Server persists workflow and activities.
-- Orchestrator schedules pending work.
-- Worker dispatches activity execution.
-- Runtime wrapper delegates to runtime service.
-- Runtime service uses connectors and repositories to execute and monitor the job.
+1. API validates and persists a command in `queue_jobs`.
+2. The event loop leases the command and invokes its handler.
+3. `ExecutionSupervisor` creates the run and follows the frozen schedule plan.
+4. `ActivityExecutionService` resolves the adapter and starts an activity.
+5. The adapter returns a runtime-independent `ActivityHandle`.
+6. The supervisor inspects handles, persists task observations and completes or fails the run.
 
-## Runtime Order For Debugging
-
-1. `pkg/server/services/run_activity_in_cluster_service`
-2. `pkg/server/runtimes/runtime.go`
-3. `pkg/server/runtimes/<runtime>` wrapper
-4. `pkg/server/runtimes/<runtime>/<runtime>_service`
-5. connector package
-6. repository layer
+Simulation follows the same request and trace contracts. Interactive runs keep the execution run open and expose endpoints through the activity handle.
 
 ## Important Invariants
 
-- Handlers should not talk directly to repositories.
-- Runtime wrappers should stay thin.
-- Runtime services contain the real execution logic.
-- File persistence depends on the correct mount path inside the runtime.
-- Singularity and HPC are the most sensitive to mount-path mismatches.
+- Activity definition, schedule prediction and execution observation are different records.
+- API handlers never import SQL repositories as domain types.
+- No one-directory-per-method services. Prefer cohesive services with explicit dependencies.
+- No package globals for repositories, connectors, queues or runtime registries.
+- Adapters cannot update workflow or plan state directly.
+- Provider IDs such as PID, Kubernetes Job and Slurm Job exist only in `ActivityHandle.ExternalID`.
+- Queue handlers must be idempotent because leases can be retried.
+- A repository operation that changes one aggregate must use one transaction.
+- Real, simulation and interactive execution are modes, not separate activity models.
 
-## Key References
+## Runtime Packages
 
-- `AI_ARCHITECTURE.md`
-- `AI_RUNTIME_EXECUTION_FLOW.md`
+- `internal/runtime/local`
+- `internal/runtime/kubernetes`
+- `internal/runtime/slurm`
+- `internal/execution/simulation`
+
+New runtimes implement the same adapter contract and register their supported modes. Do not add provider conditionals to application services.

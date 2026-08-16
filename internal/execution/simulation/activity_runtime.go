@@ -15,7 +15,9 @@ type ActivityRuntime struct{}
 
 func NewActivityRuntime() *ActivityRuntime { return &ActivityRuntime{} }
 
-func (*ActivityRuntime) Mode() domain.ExecutionMode { return domain.ExecutionModeSimulation }
+func (*ActivityRuntime) Modes() []domain.ExecutionMode {
+	return []domain.ExecutionMode{domain.ExecutionModeSimulation}
+}
 
 func (*ActivityRuntime) Start(ctx context.Context, execution domain.ActivityExecutionContext) (domain.ActivityHandle, error) {
 	select {

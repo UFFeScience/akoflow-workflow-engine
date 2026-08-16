@@ -1,6 +1,11 @@
 package environment
 
-import "time"
+import (
+	"time"
+
+	"github.com/UFFeScience/akoflow/internal/domain/resource"
+	"github.com/UFFeScience/akoflow/internal/domain/workflow"
+)
 
 type EnvironmentVersionStatus string
 type EnvironmentStatus string
@@ -94,4 +99,14 @@ type EnvironmentRuntime struct {
 	Role                 string         `json:"role,omitempty"`
 	Configuration        map[string]any `json:"configuration,omitempty"`
 	Capabilities         Capabilities   `json:"capabilities"`
+}
+
+type Definition struct {
+	Environment Environment                        `json:"environment"`
+	Version     EnvironmentVersion                 `json:"version"`
+	Runtimes    []EnvironmentRuntime               `json:"runtimes"`
+	Resources   []resource.Resource                `json:"resources"`
+	Links       []resource.NetworkLink             `json:"networkLinks"`
+	Profiles    []workflow.ActivityResourceProfile `json:"activityResourceProfiles,omitempty"`
+	Connections []EnvironmentConnection            `json:"connections,omitempty"`
 }

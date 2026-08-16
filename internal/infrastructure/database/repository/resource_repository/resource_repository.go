@@ -1,10 +1,12 @@
 package resource_repository
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/domain"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/schema"
@@ -15,35 +17,27 @@ const (
 	StatusNotReady = false
 )
 
-type IRepository interface {
-	Upsert(resource domain.Resource) error
-	FindByID(id string) (*domain.Resource, error)
-	FindByProviderID(environmentVersionID, providerID string) (*domain.Resource, error)
-	ListByRuntime(environmentVersionID, runtimeID string) ([]domain.Resource, error)
-	ListSchedulable(environmentVersionID string) ([]domain.Resource, error)
-	CreateSnapshot(snapshot domain.ResourceSnapshot) error
-	LatestSnapshot(resourceID string) (*domain.ResourceSnapshot, error)
-}
+type ResourceRepository struct{ db *sql.DB }
 
-type ResourceRepository struct{}
+var _ ports.ResourceInventoryRepository = (*ResourceRepository)(nil)
 
-func New() IRepository {
+func New() *ResourceRepository {
 	db := (&repository.Database{}).Connect()
-	defer db.Close()
 	if err := schema.Apply(db); err != nil {
+		db.Close()
 		panic(err)
 	}
-	return &ResourceRepository{}
+	return &ResourceRepository{db: db}
 }
 
-func (r *ResourceRepository) Upsert(resource domain.Resource) error {
-	db := (&repository.Database{}).Connect()
-	defer db.Close()
+func NewWithDB(db *sql.DB) *ResourceRepository { return &ResourceRepository{db: db} }
+
+func (r *ResourceRepository) Upsert(ctx context.Context, resource domain.Resource) error {
 	metadata, err := json.Marshal(resource.Metadata)
 	if err != nil {
 		return err
 	}
-	_, err = db.Exec(`INSERT INTO resources (
+	_, err = r.db.ExecContext(ctx, `INSERT INTO resources (
 		id, environment_version_id, runtime_id, parent_resource_id, type, name,
 		provider_id, tier, region, zone, architecture, cpu_cores, cpu_capacity,
 		memory_bytes, storage_bytes, compute_speedup, price_per_second,
@@ -104,30 +98,24 @@ func scanResource(scanner interface{ Scan(...any) error }) (*domain.Resource, er
 	return &resource, nil
 }
 
-func (r *ResourceRepository) FindByID(id string) (*domain.Resource, error) {
-	db := (&repository.Database{}).Connect()
-	defer db.Close()
-	resource, err := scanResource(db.QueryRow(`SELECT `+resourceColumns+` FROM resources WHERE id = ?`, id))
+func (r *ResourceRepository) FindByID(ctx context.Context, id string) (*domain.Resource, error) {
+	resource, err := scanResource(r.db.QueryRowContext(ctx, `SELECT `+resourceColumns+` FROM resources WHERE id = ?`, id))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	return resource, err
 }
 
-func (r *ResourceRepository) FindByProviderID(environmentVersionID, providerID string) (*domain.Resource, error) {
-	db := (&repository.Database{}).Connect()
-	defer db.Close()
-	resource, err := scanResource(db.QueryRow(`SELECT `+resourceColumns+` FROM resources WHERE environment_version_id = ? AND provider_id = ?`, environmentVersionID, providerID))
+func (r *ResourceRepository) FindByProviderID(ctx context.Context, environmentVersionID, providerID string) (*domain.Resource, error) {
+	resource, err := scanResource(r.db.QueryRowContext(ctx, `SELECT `+resourceColumns+` FROM resources WHERE environment_version_id = ? AND provider_id = ?`, environmentVersionID, providerID))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	return resource, err
 }
 
-func (r *ResourceRepository) list(query string, args ...any) ([]domain.Resource, error) {
-	db := (&repository.Database{}).Connect()
-	defer db.Close()
-	rows, err := db.Query(query, args...)
+func (r *ResourceRepository) list(ctx context.Context, query string, args ...any) ([]domain.Resource, error) {
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -143,22 +131,20 @@ func (r *ResourceRepository) list(query string, args ...any) ([]domain.Resource,
 	return resources, rows.Err()
 }
 
-func (r *ResourceRepository) ListByRuntime(environmentVersionID, runtimeID string) ([]domain.Resource, error) {
-	return r.list(`SELECT `+resourceColumns+` FROM resources WHERE environment_version_id = ? AND runtime_id = ?`, environmentVersionID, runtimeID)
+func (r *ResourceRepository) ListByRuntime(ctx context.Context, environmentVersionID, runtimeID string) ([]domain.Resource, error) {
+	return r.list(ctx, `SELECT `+resourceColumns+` FROM resources WHERE environment_version_id = ? AND runtime_id = ?`, environmentVersionID, runtimeID)
 }
 
-func (r *ResourceRepository) ListSchedulable(environmentVersionID string) ([]domain.Resource, error) {
-	return r.list(`SELECT `+resourceColumns+` FROM resources WHERE environment_version_id = ? AND schedulable = 1`, environmentVersionID)
+func (r *ResourceRepository) ListSchedulable(ctx context.Context, environmentVersionID string) ([]domain.Resource, error) {
+	return r.list(ctx, `SELECT `+resourceColumns+` FROM resources WHERE environment_version_id = ? AND schedulable = 1`, environmentVersionID)
 }
 
-func (r *ResourceRepository) CreateSnapshot(snapshot domain.ResourceSnapshot) error {
-	db := (&repository.Database{}).Connect()
-	defer db.Close()
+func (r *ResourceRepository) CreateSnapshot(ctx context.Context, snapshot domain.ResourceSnapshot) error {
 	metadata, err := json.Marshal(snapshot.Metadata)
 	if err != nil {
 		return err
 	}
-	_, err = db.Exec(`INSERT INTO resource_snapshots (
+	_, err = r.db.ExecContext(ctx, `INSERT INTO resource_snapshots (
 		id, resource_id, captured_at, available, cpu_used, memory_used_bytes,
 		network_in_bps, network_out_bps, disk_read_bps, disk_write_bps, queue_length, metadata
 	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, snapshot.ID, snapshot.ResourceID,
@@ -168,12 +154,10 @@ func (r *ResourceRepository) CreateSnapshot(snapshot domain.ResourceSnapshot) er
 	return err
 }
 
-func (r *ResourceRepository) LatestSnapshot(resourceID string) (*domain.ResourceSnapshot, error) {
-	db := (&repository.Database{}).Connect()
-	defer db.Close()
+func (r *ResourceRepository) LatestSnapshot(ctx context.Context, resourceID string) (*domain.ResourceSnapshot, error) {
 	var snapshot domain.ResourceSnapshot
 	var metadata string
-	err := db.QueryRow(`SELECT id, resource_id, captured_at, available, cpu_used,
+	err := r.db.QueryRowContext(ctx, `SELECT id, resource_id, captured_at, available, cpu_used,
 		memory_used_bytes, network_in_bps, network_out_bps, disk_read_bps,
 		disk_write_bps, queue_length, metadata FROM resource_snapshots
 		WHERE resource_id = ? ORDER BY captured_at DESC LIMIT 1`, resourceID).Scan(

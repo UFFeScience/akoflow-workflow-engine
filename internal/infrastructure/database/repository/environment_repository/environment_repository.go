@@ -5,40 +5,30 @@ import (
 	"database/sql"
 	"encoding/json"
 
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/domain"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/schema"
 )
 
-type Definition struct {
-	Environment domain.Environment               `json:"environment"`
-	Version     domain.EnvironmentVersion        `json:"version"`
-	Runtimes    []domain.EnvironmentRuntime      `json:"runtimes"`
-	Resources   []domain.Resource                `json:"resources"`
-	Links       []domain.NetworkLink             `json:"networkLinks"`
-	Profiles    []domain.ActivityResourceProfile `json:"activityResourceProfiles,omitempty"`
-	Connections []domain.EnvironmentConnection   `json:"connections,omitempty"`
-}
+type Definition = domain.EnvironmentDefinition
+type Repository struct{ db *sql.DB }
 
-type IRepository interface {
-	Create(Definition) error
-}
+var _ ports.EnvironmentCatalog = (*Repository)(nil)
 
-type Repository struct{}
-
-func New() IRepository {
+func New() *Repository {
 	db := (&repository.Database{}).Connect()
-	defer db.Close()
 	if err := schema.Apply(db); err != nil {
+		db.Close()
 		panic(err)
 	}
-	return &Repository{}
+	return &Repository{db: db}
 }
 
-func (r *Repository) Create(definition Definition) error {
-	db := (&repository.Database{}).Connect()
-	defer db.Close()
-	tx, err := db.Begin()
+func NewWithDB(db *sql.DB) *Repository { return &Repository{db: db} }
+
+func (r *Repository) Create(ctx context.Context, definition Definition) error {
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -75,6 +65,9 @@ func (r *Repository) Create(definition Definition) error {
 		return err
 	}
 	for _, runtime := range definition.Runtimes {
+		if _, err = tx.Exec(`INSERT OR IGNORE INTO runtimes (name) VALUES (?)`, runtime.RuntimeID); err != nil {
+			return err
+		}
 		configuration, _ := json.Marshal(runtime.Configuration)
 		if _, err = tx.Exec(`INSERT INTO environment_runtimes (
 			environment_version_id, runtime_id, role, configuration
@@ -143,9 +136,7 @@ func (r *Repository) Create(definition Definition) error {
 }
 
 func (r *Repository) UpdateStatus(ctx context.Context, id string, status domain.EnvironmentStatus) error {
-	db := (&repository.Database{}).Connect()
-	defer db.Close()
-	result, err := db.ExecContext(ctx, `UPDATE environments SET status=? WHERE id=?`, status, id)
+	result, err := r.db.ExecContext(ctx, `UPDATE environments SET status=? WHERE id=?`, status, id)
 	if err != nil {
 		return err
 	}
@@ -160,13 +151,11 @@ func (r *Repository) UpdateStatus(ctx context.Context, id string, status domain.
 }
 
 func (r *Repository) UpsertConnection(ctx context.Context, connection domain.EnvironmentConnection) error {
-	db := (&repository.Database{}).Connect()
-	defer db.Close()
 	configuration, err := json.Marshal(connection.Configuration)
 	if err != nil {
 		return err
 	}
-	_, err = db.ExecContext(ctx, `INSERT INTO environment_connections (
+	_, err = r.db.ExecContext(ctx, `INSERT INTO environment_connections (
 		id, environment_id, name, type, endpoint, username, credential_ref, configuration
 	) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET name=excluded.name, type=excluded.type,
@@ -178,9 +167,7 @@ func (r *Repository) UpsertConnection(ctx context.Context, connection domain.Env
 }
 
 func (r *Repository) ListConnections(ctx context.Context, environmentID string) ([]domain.EnvironmentConnection, error) {
-	db := (&repository.Database{}).Connect()
-	defer db.Close()
-	rows, err := db.QueryContext(ctx, `SELECT id, environment_id, name, type,
+	rows, err := r.db.QueryContext(ctx, `SELECT id, environment_id, name, type,
 		endpoint, username, credential_ref, configuration, created_at
 		FROM environment_connections WHERE environment_id=? ORDER BY name`, environmentID)
 	if err != nil {

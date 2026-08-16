@@ -21,13 +21,21 @@ func (r *RuntimeRegistry) Register(runtimeID string, adapter ports.RuntimeAdapte
 	if runtimeID == "" || adapter == nil {
 		return fmt.Errorf("runtime id and adapter are required")
 	}
-	key := runtimeKey(adapter.Mode(), runtimeID)
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, exists := r.runtimes[key]; exists {
-		return fmt.Errorf("runtime %q is already registered for mode %q", runtimeID, adapter.Mode())
+	modes := adapter.Modes()
+	if len(modes) == 0 {
+		return fmt.Errorf("runtime %q does not declare execution modes", runtimeID)
 	}
-	r.runtimes[key] = adapter
+	for _, mode := range modes {
+		key := runtimeKey(mode, runtimeID)
+		if _, exists := r.runtimes[key]; exists {
+			return fmt.Errorf("runtime %q is already registered for mode %q", runtimeID, mode)
+		}
+	}
+	for _, mode := range modes {
+		r.runtimes[runtimeKey(mode, runtimeID)] = adapter
+	}
 	return nil
 }
 

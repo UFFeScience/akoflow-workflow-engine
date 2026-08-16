@@ -21,10 +21,14 @@ func (f resolverFake) Resolve(domain.ExecutionMode, string) (ports.RuntimeAdapte
 type runtimeFake struct {
 	handle  domain.ActivityHandle
 	stopped bool
+	starts  int
 }
 
-func (f *runtimeFake) Mode() domain.ExecutionMode { return domain.ExecutionModeReal }
+func (f *runtimeFake) Modes() []domain.ExecutionMode {
+	return []domain.ExecutionMode{domain.ExecutionModeReal}
+}
 func (f *runtimeFake) Start(context.Context, domain.ActivityExecutionContext) (domain.ActivityHandle, error) {
+	f.starts++
 	return f.handle, nil
 }
 func (f *runtimeFake) Inspect(context.Context, domain.ActivityHandle) (domain.ActivityHandle, error) {
@@ -37,19 +41,20 @@ func (f *runtimeFake) Stop(context.Context, domain.ActivityHandle) error {
 }
 
 type handlesFake struct {
-	handle *domain.ActivityHandle
-	err    error
+	handle  *domain.ActivityHandle
+	findErr error
+	saveErr error
 }
 
 func (f *handlesFake) Save(_ context.Context, handle domain.ActivityHandle) error {
-	if f.err != nil {
-		return f.err
+	if f.saveErr != nil {
+		return f.saveErr
 	}
 	f.handle = &handle
 	return nil
 }
 func (f *handlesFake) Find(context.Context, string) (*domain.ActivityHandle, error) {
-	return f.handle, f.err
+	return f.handle, f.findErr
 }
 
 func executionFixture() domain.ActivityExecutionContext {
@@ -66,14 +71,23 @@ func TestStartPersistsRuntimeIndependentHandle(t *testing.T) {
 	runtime := &runtimeFake{handle: domain.ActivityHandle{ID: "handle", RunID: "run", ActivityID: "activity", RuntimeID: "local", Status: domain.HandleRunning}}
 	handles := &handlesFake{}
 	got, err := New(resolverFake{adapter: runtime}, handles).Start(context.Background(), executionFixture())
-	if err != nil || got.ID != "handle" || handles.handle == nil {
+	if err != nil || got.ID != "run:activity" || handles.handle == nil {
 		t.Fatalf("unexpected start: %+v %v", got, err)
+	}
+}
+
+func TestStartReturnsPersistedHandleWithoutStartingRuntimeAgain(t *testing.T) {
+	runtime := &runtimeFake{}
+	existing := domain.ActivityHandle{ID: "run:activity", RunID: "run", ActivityID: "activity", Status: domain.HandleRunning}
+	got, err := New(resolverFake{adapter: runtime}, &handlesFake{handle: &existing}).Start(context.Background(), executionFixture())
+	if err != nil || got.ID != existing.ID || runtime.starts != 0 {
+		t.Fatalf("handle=%+v err=%v", got, err)
 	}
 }
 
 func TestStartStopsRuntimeWhenHandleCannotBePersisted(t *testing.T) {
 	runtime := &runtimeFake{handle: domain.ActivityHandle{ID: "handle", RunID: "run", ActivityID: "activity"}}
-	_, err := New(resolverFake{adapter: runtime}, &handlesFake{err: errors.New("database")}).Start(context.Background(), executionFixture())
+	_, err := New(resolverFake{adapter: runtime}, &handlesFake{saveErr: errors.New("database")}).Start(context.Background(), executionFixture())
 	if err == nil || !runtime.stopped {
 		t.Fatal("runtime must be stopped after persistence failure")
 	}

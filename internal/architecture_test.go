@@ -15,10 +15,9 @@ func TestRequiredArchitectureDirectoriesExist(t *testing.T) {
 		"domain/workflow", "domain/environment", "domain/resource",
 		"domain/planning", "domain/execution", "application/services",
 		"application/ports", "infrastructure/database",
-		"infrastructure/plugins", "infrastructure/kubernetes",
-		"infrastructure/slurm", "infrastructure/ssh",
-		"execution/orchestrator", "execution/lifecycle", "execution/real",
-		"execution/simulation", "api/handlers", "api/requests", "api/responses",
+		"infrastructure/plugins", "runtime/local", "runtime/kubernetes",
+		"runtime/slurm", "execution/orchestrator", "execution/lifecycle",
+		"execution/simulation", "api/handlers",
 	}
 	for _, path := range required {
 		info, err := os.Stat(path)

@@ -10,10 +10,10 @@ import (
 
 type Service struct {
 	runtimes ports.RuntimeResolver
-	handles  ports.ActivityHandleRepository
+	handles  ports.ActivityExecutionStore
 }
 
-func New(runtimes ports.RuntimeResolver, handles ports.ActivityHandleRepository) *Service {
+func New(runtimes ports.RuntimeResolver, handles ports.ActivityExecutionStore) *Service {
 	return &Service{runtimes: runtimes, handles: handles}
 }
 
@@ -28,6 +28,14 @@ func (s *Service) Start(ctx context.Context, execution domain.ActivityExecutionC
 	if !execution.Activity.Supports(capability) {
 		return domain.ActivityHandle{}, fmt.Errorf("activity %q does not support %q execution", execution.Activity.ID, execution.Run.Mode)
 	}
+	handleID := execution.Run.ID + ":" + execution.Activity.ID
+	existing, err := s.handles.Find(ctx, handleID)
+	if err != nil {
+		return domain.ActivityHandle{}, fmt.Errorf("find activity handle: %w", err)
+	}
+	if existing != nil {
+		return *existing, nil
+	}
 	runtime, err := s.runtimes.Resolve(execution.Run.Mode, execution.Resource.RuntimeID)
 	if err != nil {
 		return domain.ActivityHandle{}, err
@@ -36,9 +44,10 @@ func (s *Service) Start(ctx context.Context, execution domain.ActivityExecutionC
 	if err != nil {
 		return domain.ActivityHandle{}, err
 	}
-	if handle.ID == "" || handle.ActivityID != execution.Activity.ID || handle.RunID != execution.Run.ID {
+	if handle.ActivityID != execution.Activity.ID || handle.RunID != execution.Run.ID {
 		return domain.ActivityHandle{}, fmt.Errorf("runtime returned an invalid activity handle")
 	}
+	handle.ID = handleID
 	if err := s.handles.Save(ctx, handle); err != nil {
 		_ = runtime.Stop(ctx, handle)
 		return domain.ActivityHandle{}, fmt.Errorf("persist activity handle: %w", err)

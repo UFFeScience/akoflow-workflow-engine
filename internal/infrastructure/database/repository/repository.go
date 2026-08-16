@@ -43,9 +43,7 @@ func (d *Database) Connect() *sql.DB {
 
 func openSQLite(path string) (*sql.DB, error) {
 	location := (&url.URL{Scheme: "file", Path: path}).String()
-	// Foreign-key enforcement remains controlled by schema/application migrations
-	// until all existing repositories create their aggregates transactionally.
-	dsn := location + "?_busy_timeout=10000&_journal_mode=WAL"
+	dsn := location + "?_busy_timeout=10000&_journal_mode=WAL&_foreign_keys=on"
 	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, err

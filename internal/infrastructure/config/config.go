@@ -2,13 +2,23 @@ package config
 
 import (
 	"os"
-	"path/filepath"
-	"strings"
-
-	"github.com/UFFeScience/akoflow/internal/infrastructure/system/utils/utils_read_file"
 )
 
-const PORT_SERVER = ":8080"
+type Settings struct {
+	HTTPAddress      string
+	DefaultNamespace string
+}
+
+func Load() Settings {
+	settings := Settings{HTTPAddress: ":8080", DefaultNamespace: "akoflow"}
+	if value := os.Getenv("AKOFLOW_HTTP_ADDRESS"); value != "" {
+		settings.HTTPAddress = value
+	}
+	if value := os.Getenv("AKOFLOW_NAMESPACE"); value != "" {
+		settings.DefaultNamespace = value
+	}
+	return settings
+}
 
 func GetVersion() string {
 
@@ -17,66 +27,4 @@ func GetVersion() string {
 		return versionEnv
 	}
 	return "dev-env"
-}
-
-// depreacated to be removed in the future. This item exists to garanted that read service account key file
-func SetupEnv() {
-
-	tokenFile, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/token")
-	tokenEnv := os.Getenv("K8S_API_SERVER_TOKEN")
-
-	loadDotEnv()
-
-	hostEnvByKube := os.Getenv("KUBERNETES_SERVICE_HOST")
-
-	tokenData := ""
-
-	if tokenEnv == "" && tokenFile != nil {
-		if err != nil {
-			println("Error reading token file", err)
-			panic(err)
-		} else {
-			tokenData = string(tokenFile)
-		}
-	} else {
-		tokenData = tokenEnv
-	}
-
-	if hostEnvByKube != "" {
-		os.Setenv("K8S_API_SERVER_HOST", hostEnvByKube)
-	}
-	if tokenData != "" {
-		os.Setenv("K8S_API_SERVER_TOKEN", tokenData)
-	}
-
-}
-
-func loadDotEnv() {
-
-	file := filepath.Join(utils_read_file.New().GetRootProjectPath(), ".env")
-	contentBytes, err := os.ReadFile(file)
-	if err != nil {
-		return
-	}
-	content := string(contentBytes)
-
-	splitedLine := strings.Split(content, "\n")
-
-	for _, line := range splitedLine {
-		if line != "" {
-			env := strings.Split(line, "=")
-			key := strings.TrimSpace(env[0])
-			value := ""
-
-			if len(env) == 2 {
-				value = strings.TrimSpace(env[1])
-			} else if len(env) > 2 {
-				value = strings.TrimSpace(strings.Join(env[1:], "="))
-			}
-			value = strings.TrimSpace(value)
-			os.Setenv(key, value)
-
-		}
-	}
-
 }

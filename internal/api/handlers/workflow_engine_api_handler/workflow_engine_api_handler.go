@@ -1,67 +1,54 @@
 package workflow_engine_api_handler
 
 import (
-	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"time"
 
+	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/domain"
-	executionservice "github.com/UFFeScience/akoflow/internal/execution/simulation"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/environment_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/execution_run_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/schedule_plan_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/workflow_definition_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/plugins/planning"
+	domainqueue "github.com/UFFeScience/akoflow/internal/domain/queue"
+	"github.com/UFFeScience/akoflow/internal/execution/lifecycle/eventloop"
 )
 
 type PlanValidator interface {
 	Validate(domain.SchedulePlan, domain.WorkflowVersion, []domain.Resource) error
 }
 
-type Simulator interface {
-	Execute(context.Context, executionservice.Request) (domain.ExecutionTrace, error)
-}
-
 type Dependencies struct {
-	Environments environment_repository.IRepository
-	Workflows    workflow_definition_repository.IRepository
-	Plans        schedule_plan_repository.IRepository
-	Runs         execution_run_repository.IRepository
+	Environments ports.EnvironmentCatalog
+	Workflows    ports.WorkflowRepository
+	Plans        ports.PlanningRepository
+	Events       ports.EventPublisher
 	Validator    PlanValidator
-	Simulator    Simulator
 }
 
 type Handler struct {
-	environments environment_repository.IRepository
-	workflows    workflow_definition_repository.IRepository
-	plans        schedule_plan_repository.IRepository
-	runs         execution_run_repository.IRepository
+	environments ports.EnvironmentCatalog
+	workflows    ports.WorkflowRepository
+	plans        ports.PlanningRepository
+	events       ports.EventPublisher
 	validator    PlanValidator
-	simulator    Simulator
 }
 
-func New() *Handler {
-	return NewWithDependencies(Dependencies{
-		Environments: environment_repository.New(), Workflows: workflow_definition_repository.New(),
-		Plans: schedule_plan_repository.New(), Runs: execution_run_repository.New(),
-		Validator: planning.NewValidatePlanService(), Simulator: executionservice.NewSimulationExecutor(),
-	})
-}
-
-func NewWithDependencies(dependencies Dependencies) *Handler {
+func New(dependencies Dependencies) (*Handler, error) {
+	if dependencies.Environments == nil || dependencies.Workflows == nil || dependencies.Plans == nil || dependencies.Events == nil || dependencies.Validator == nil {
+		return nil, fmt.Errorf("workflow API dependencies are required")
+	}
 	return &Handler{
 		environments: dependencies.Environments, workflows: dependencies.Workflows,
-		plans: dependencies.Plans, runs: dependencies.Runs,
-		validator: dependencies.Validator, simulator: dependencies.Simulator,
-	}
+		plans: dependencies.Plans, events: dependencies.Events,
+		validator: dependencies.Validator,
+	}, nil
 }
 
 func (h *Handler) CreateEnvironment(w http.ResponseWriter, r *http.Request) {
-	var definition environment_repository.Definition
+	var definition domain.EnvironmentDefinition
 	if !decode(w, r, &definition) {
 		return
 	}
-	if err := h.environments.Create(definition); err != nil {
+	if err := h.environments.Create(r.Context(), definition); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return
 	}
@@ -69,11 +56,11 @@ func (h *Handler) CreateEnvironment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
-	var definition workflow_definition_repository.Definition
+	var definition domain.WorkflowDefinition
 	if !decode(w, r, &definition) {
 		return
 	}
-	if err := h.workflows.Create(definition); err != nil {
+	if err := h.workflows.Create(r.Context(), definition); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return
 	}
@@ -95,7 +82,7 @@ func (h *Handler) CreatePlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return
 	}
-	if err := h.plans.Save(request.Plan); err != nil {
+	if err := h.plans.Save(r.Context(), request.Plan); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return
 	}
@@ -103,7 +90,7 @@ func (h *Handler) CreatePlan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetPlan(w http.ResponseWriter, r *http.Request) {
-	plan, err := h.plans.Find(r.PathValue("planId"))
+	plan, err := h.plans.Find(r.Context(), r.PathValue("planId"))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -115,28 +102,30 @@ func (h *Handler) GetPlan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, plan)
 }
 
-func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
-	var request executionservice.Request
+func (h *Handler) CreateExecution(w http.ResponseWriter, r *http.Request) {
+	var request ports.ExecutionRequest
 	if !decode(w, r, &request) {
 		return
 	}
-	request.Run.Mode = domain.ExecutionModeSimulation
 	request.Run.SchedulePlanID = request.Plan.ID
-	request.Run.Status = domain.ExecutionRunRunning
-	if err := h.runs.Create(request.Run); err != nil {
-		writeError(w, http.StatusUnprocessableEntity, err)
+	payload, err := json.Marshal(request)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	trace, err := h.simulator.Execute(r.Context(), request)
+	job, err := domainqueue.New(domainqueue.CategoryExecution, eventloop.EventExecutionRunRequested, payload, time.Now().UTC())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	job.AggregateType, job.AggregateID = "execution_run", request.Run.ID
+	job.IdempotencyKey = "execution-run:" + request.Run.ID
+	stored, err := h.events.Publish(r.Context(), job)
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return
 	}
-	if err := h.runs.Complete(trace); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	writeJSON(w, http.StatusCreated, trace)
+	writeJSON(w, http.StatusAccepted, stored)
 }
 
 func decode(w http.ResponseWriter, r *http.Request, target any) bool {

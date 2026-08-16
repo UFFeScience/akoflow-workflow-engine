@@ -9,33 +9,53 @@ import (
 	"testing"
 
 	"github.com/UFFeScience/akoflow/internal/domain"
-	executionservice "github.com/UFFeScience/akoflow/internal/execution/simulation"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/environment_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/workflow_definition_repository"
+	domainqueue "github.com/UFFeScience/akoflow/internal/domain/queue"
 	"github.com/stretchr/testify/require"
 )
 
 type environmentRepositoryStub struct{ err error }
 
-func (s environmentRepositoryStub) Create(environment_repository.Definition) error { return s.err }
+func (s environmentRepositoryStub) Create(context.Context, domain.EnvironmentDefinition) error {
+	return s.err
+}
+func (s environmentRepositoryStub) UpdateStatus(context.Context, string, domain.EnvironmentStatus) error {
+	return s.err
+}
+func (s environmentRepositoryStub) UpsertConnection(context.Context, domain.EnvironmentConnection) error {
+	return s.err
+}
+func (s environmentRepositoryStub) ListConnections(context.Context, string) ([]domain.EnvironmentConnection, error) {
+	return nil, s.err
+}
 
 type workflowRepositoryStub struct{ err error }
 
-func (s workflowRepositoryStub) Create(workflow_definition_repository.Definition) error { return s.err }
-func (s workflowRepositoryStub) FindVersion(string) (*domain.WorkflowVersion, error)    { return nil, nil }
+func (s workflowRepositoryStub) Create(context.Context, domain.WorkflowDefinition) error {
+	return s.err
+}
+func (s workflowRepositoryStub) FindVersion(context.Context, string) (*domain.WorkflowVersion, error) {
+	return nil, nil
+}
 
 type planRepositoryStub struct {
 	plan *domain.SchedulePlan
 	err  error
 }
 
-func (s planRepositoryStub) Save(domain.SchedulePlan) error            { return s.err }
-func (s planRepositoryStub) Find(string) (*domain.SchedulePlan, error) { return s.plan, s.err }
+func (s planRepositoryStub) Save(context.Context, domain.SchedulePlan) error { return s.err }
+func (s planRepositoryStub) Find(context.Context, string) (*domain.SchedulePlan, error) {
+	return s.plan, s.err
+}
 
-type runRepositoryStub struct{ err error }
+type eventPublisherStub struct {
+	jobs []domainqueue.Job
+	err  error
+}
 
-func (s runRepositoryStub) Create(domain.ExecutionRun) error     { return s.err }
-func (s runRepositoryStub) Complete(domain.ExecutionTrace) error { return s.err }
+func (s *eventPublisherStub) Publish(_ context.Context, job domainqueue.Job) (domainqueue.Job, error) {
+	s.jobs = append(s.jobs, job)
+	return job, s.err
+}
 
 type validatorStub struct{ err error }
 
@@ -43,21 +63,21 @@ func (s validatorStub) Validate(domain.SchedulePlan, domain.WorkflowVersion, []d
 	return s.err
 }
 
-type simulatorStub struct {
-	trace domain.ExecutionTrace
-	err   error
-}
-
-func (s simulatorStub) Execute(context.Context, executionservice.Request) (domain.ExecutionTrace, error) {
-	return s.trace, s.err
-}
-
 func newTestHandler() *Handler {
-	return NewWithDependencies(Dependencies{
+	handler, err := New(Dependencies{
 		Environments: environmentRepositoryStub{}, Workflows: workflowRepositoryStub{},
-		Plans: planRepositoryStub{}, Runs: runRepositoryStub{}, Validator: validatorStub{},
-		Simulator: simulatorStub{trace: domain.ExecutionTrace{RunID: "run"}},
+		Plans: planRepositoryStub{}, Events: &eventPublisherStub{}, Validator: validatorStub{},
 	})
+	if err != nil {
+		panic(err)
+	}
+	return handler
+}
+
+func TestNewRejectsIncompleteDependencies(t *testing.T) {
+	if _, err := New(Dependencies{}); err == nil {
+		t.Fatal("missing dependencies must fail")
+	}
 }
 
 func TestCreateEnvironment(t *testing.T) {
@@ -101,10 +121,10 @@ func TestGetPlanReturnsPlanAndNotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, recorder.Code)
 }
 
-func TestSimulatePersistsAndReturnsTrace(t *testing.T) {
+func TestCreateExecutionPublishesPersistentCommand(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"run":{"id":"run"},"plan":{"id":"plan"},"workflow":{},"resources":[],"networkLinks":[],"activityProfiles":[]}`))
-	newTestHandler().Simulate(recorder, request)
-	require.Equal(t, http.StatusCreated, recorder.Code)
-	require.Contains(t, recorder.Body.String(), `"runId":"run"`)
+	request := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"run":{"id":"run","mode":"simulation"},"plan":{"id":"plan"},"workflow":{"id":"workflow"},"resources":[],"networkLinks":[],"activityProfiles":[]}`))
+	newTestHandler().CreateExecution(recorder, request)
+	require.Equal(t, http.StatusAccepted, recorder.Code)
+	require.Contains(t, recorder.Body.String(), `"eventType":"execution.run.requested"`)
 }

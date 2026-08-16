@@ -9,7 +9,7 @@ import (
 
 type adapterFake struct{ mode domain.ExecutionMode }
 
-func (a adapterFake) Mode() domain.ExecutionMode { return a.mode }
+func (a adapterFake) Modes() []domain.ExecutionMode { return []domain.ExecutionMode{a.mode} }
 func (adapterFake) Start(context.Context, domain.ActivityExecutionContext) (domain.ActivityHandle, error) {
 	return domain.ActivityHandle{}, nil
 }

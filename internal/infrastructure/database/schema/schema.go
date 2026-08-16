@@ -15,113 +15,6 @@ var statements = []string{
 		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		deleted_at DATETIME
 	)`,
-	`CREATE TABLE IF NOT EXISTS workflows (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		namespace TEXT NOT NULL DEFAULT '',
-		name TEXT NOT NULL,
-		raw_workflow TEXT NOT NULL,
-		status INTEGER NOT NULL DEFAULT 0,
-		runtime TEXT NOT NULL DEFAULT '',
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		deleted_at DATETIME
-	)`,
-	`CREATE TABLE IF NOT EXISTS activities (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		workflow_id INTEGER NOT NULL REFERENCES workflows(id),
-		namespace TEXT NOT NULL DEFAULT '',
-		name TEXT NOT NULL,
-		image TEXT NOT NULL DEFAULT '',
-		runtime TEXT NOT NULL DEFAULT '',
-		resource_k8s_base64 TEXT NOT NULL DEFAULT '',
-		status INTEGER NOT NULL DEFAULT 0,
-		proc_id TEXT,
-		resource_selector TEXT,
-		mount_path TEXT,
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		started_at DATETIME,
-		finished_at DATETIME
-	)`,
-	`CREATE TABLE IF NOT EXISTS activities_dependencies (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		workflow_id INTEGER NOT NULL REFERENCES workflows(id),
-		activity_id INTEGER NOT NULL REFERENCES activities(id),
-		depend_on_activity INTEGER NOT NULL REFERENCES activities(id)
-	)`,
-	`CREATE TABLE IF NOT EXISTS pre_activities (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		activity_id INTEGER NOT NULL REFERENCES activities(id),
-		workflow_id INTEGER NOT NULL REFERENCES workflows(id),
-		namespace TEXT NOT NULL DEFAULT '',
-		name TEXT NOT NULL,
-		resource_k8s_base64 TEXT,
-		status INTEGER NOT NULL DEFAULT 0,
-		log TEXT
-	)`,
-	`CREATE TABLE IF NOT EXISTS activities_schedules (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		workflow_id INTEGER NOT NULL REFERENCES workflows(id),
-		activity_id INTEGER NOT NULL REFERENCES activities(id),
-		resource_id TEXT NOT NULL,
-		schedule_name TEXT NOT NULL,
-		cpu_required REAL NOT NULL DEFAULT 0,
-		memory_required REAL NOT NULL DEFAULT 0,
-		metadata TEXT NOT NULL DEFAULT '{}',
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-	)`,
-	`CREATE TABLE IF NOT EXISTS storages (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		workflow_id INTEGER NOT NULL REFERENCES workflows(id),
-		activity_id INTEGER NOT NULL REFERENCES activities(id),
-		pvc_name TEXT,
-		namespace TEXT NOT NULL DEFAULT '',
-		status INTEGER NOT NULL DEFAULT 0,
-		storage_mount_path TEXT NOT NULL DEFAULT '',
-		storage_class TEXT NOT NULL DEFAULT '',
-		storage_size TEXT NOT NULL DEFAULT '',
-		initial_file_list TEXT NOT NULL DEFAULT '',
-		end_file_list TEXT NOT NULL DEFAULT '',
-		initial_disk_spec TEXT NOT NULL DEFAULT '',
-		end_disk_spec TEXT NOT NULL DEFAULT '',
-		keep_storage_after_finish INTEGER NOT NULL DEFAULT 0,
-		detached DATETIME,
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-	)`,
-	`CREATE TABLE IF NOT EXISTS logs (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		activity_id INTEGER NOT NULL REFERENCES activities(id),
-		logs TEXT NOT NULL DEFAULT '',
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-	)`,
-	`CREATE TABLE IF NOT EXISTS metrics (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		activity_id INTEGER NOT NULL REFERENCES activities(id),
-		cpu TEXT NOT NULL DEFAULT '',
-		memory TEXT NOT NULL DEFAULT '',
-		window TEXT NOT NULL DEFAULT '',
-		timestamp TEXT NOT NULL DEFAULT '',
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-	)`,
-	`CREATE TABLE IF NOT EXISTS workflow_executions (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		namespace TEXT NOT NULL DEFAULT '',
-		name TEXT NOT NULL DEFAULT '',
-		workflow_id INTEGER NOT NULL REFERENCES workflows(id),
-		status TEXT NOT NULL DEFAULT '',
-		runtime TEXT NOT NULL DEFAULT '',
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		deleted_at DATETIME
-	)`,
-	`CREATE TABLE IF NOT EXISTS schedules (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		type TEXT NOT NULL,
-		code TEXT NOT NULL,
-		name TEXT NOT NULL UNIQUE,
-		plugin_so_path TEXT NOT NULL DEFAULT '',
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-	)`,
 	`CREATE TABLE IF NOT EXISTS environments (
 		id TEXT PRIMARY KEY,
 		name TEXT NOT NULL,
@@ -465,51 +358,19 @@ var statements = []string{
 }
 
 func Apply(db *sql.DB) error {
+	if _, err := db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
+		return err
+	}
 	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	if _, err = tx.Exec(`PRAGMA foreign_keys = ON`); err != nil {
-		return err
-	}
 	for i, statement := range statements {
 		if _, err = tx.Exec(statement); err != nil {
 			return fmt.Errorf("apply schema statement %d: %w", i+1, err)
 		}
 	}
-	if err = ensureColumn(tx, "environments", "status", "TEXT NOT NULL DEFAULT 'defined'"); err != nil {
-		return fmt.Errorf("migrate environments status: %w", err)
-	}
 	return tx.Commit()
-}
-
-func ensureColumn(tx *sql.Tx, table, column, definition string) error {
-	rows, err := tx.Query(`PRAGMA table_info(` + table + `)`)
-	if err != nil {
-		return err
-	}
-	found := false
-	for rows.Next() {
-		var cid int
-		var name, columnType string
-		var notNull, primaryKey int
-		var defaultValue sql.NullString
-		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
-			rows.Close()
-			return err
-		}
-		if name == column {
-			found = true
-		}
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	if found {
-		return nil
-	}
-	_, err = tx.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + definition)
-	return err
 }

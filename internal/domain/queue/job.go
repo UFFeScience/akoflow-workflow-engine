@@ -27,24 +27,24 @@ const (
 )
 
 type Job struct {
-	ID             string
-	Category       string
-	Type           string
-	AggregateType  string
-	AggregateID    string
-	Payload        []byte
-	Status         Status
-	Priority       int
-	AvailableAt    time.Time
-	LeaseOwner     string
-	LeaseExpiresAt *time.Time
-	Attempts       int
-	MaxAttempts    int
-	IdempotencyKey string
-	LastError      string
-	CreatedAt      time.Time
-	StartedAt      *time.Time
-	CompletedAt    *time.Time
+	ID             string     `json:"id"`
+	Category       string     `json:"category"`
+	Type           string     `json:"eventType"`
+	AggregateType  string     `json:"aggregateType,omitempty"`
+	AggregateID    string     `json:"aggregateId,omitempty"`
+	Payload        []byte     `json:"-"`
+	Status         Status     `json:"status"`
+	Priority       int        `json:"priority"`
+	AvailableAt    time.Time  `json:"availableAt"`
+	LeaseOwner     string     `json:"leaseOwner,omitempty"`
+	LeaseExpiresAt *time.Time `json:"leaseExpiresAt,omitempty"`
+	Attempts       int        `json:"attempts"`
+	MaxAttempts    int        `json:"maxAttempts"`
+	IdempotencyKey string     `json:"idempotencyKey,omitempty"`
+	LastError      string     `json:"lastError,omitempty"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	StartedAt      *time.Time `json:"startedAt,omitempty"`
+	CompletedAt    *time.Time `json:"completedAt,omitempty"`
 }
 
 func New(category, eventType string, payload []byte, now time.Time) (Job, error) {

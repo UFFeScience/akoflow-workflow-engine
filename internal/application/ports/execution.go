@@ -20,7 +20,7 @@ type PlanExecutor interface {
 }
 
 type RuntimeAdapter interface {
-	Mode() domain.ExecutionMode
+	Modes() []domain.ExecutionMode
 	Start(context.Context, domain.ActivityExecutionContext) (domain.ActivityHandle, error)
 	Inspect(context.Context, domain.ActivityHandle) (domain.ActivityHandle, error)
 	Stop(context.Context, domain.ActivityHandle) error
@@ -33,7 +33,16 @@ type RuntimeResolver interface {
 	Resolve(domain.ExecutionMode, string) (RuntimeAdapter, error)
 }
 
-type ActivityHandleRepository interface {
+type ActivityExecutionStore interface {
 	Save(context.Context, domain.ActivityHandle) error
 	Find(context.Context, string) (*domain.ActivityHandle, error)
+}
+
+type ExecutionRepository interface {
+	ActivityExecutionStore
+	CreateRun(context.Context, domain.ExecutionRun) error
+	FindRun(context.Context, string) (*domain.ExecutionRun, error)
+	SaveTask(context.Context, domain.TaskExecution) error
+	CompleteRun(context.Context, domain.ExecutionTrace) error
+	FailRun(context.Context, string, string) error
 }
