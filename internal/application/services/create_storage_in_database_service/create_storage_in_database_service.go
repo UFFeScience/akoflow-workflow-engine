@@ -11,17 +11,26 @@ type CreateStorageInDatabaseService struct {
 	workflowRepository              ports.WorkflowRepository
 	activityRepository              ports.ActivityRepository
 	storageRepository               ports.StorageRepository
-	getMapActivitiesKeepDiskService get_map_activities_keep_disk_service.GetMapActivitiesKeepDiskService
+	getMapActivitiesKeepDiskService KeepDiskProvider
+}
+
+type KeepDiskProvider interface {
+	GetMapActivitiesKeepDisk(int) (get_map_activities_keep_disk_service.MapActivitiesKeepDisk, error)
 }
 
 func New() CreateStorageInDatabaseService {
+	keepDisk := get_map_activities_keep_disk_service.New()
 	return CreateStorageInDatabaseService{
 		namespace:                       "akoflow",
 		workflowRepository:              config.App().Repository.WorkflowRepository,
 		activityRepository:              config.App().Repository.ActivityRepository,
 		storageRepository:               config.App().Repository.StoragesRepository,
-		getMapActivitiesKeepDiskService: get_map_activities_keep_disk_service.New(),
+		getMapActivitiesKeepDiskService: &keepDisk,
 	}
+}
+
+func NewWithDependencies(namespace string, workflows ports.WorkflowRepository, storages ports.StorageRepository, keepDisk KeepDiskProvider) CreateStorageInDatabaseService {
+	return CreateStorageInDatabaseService{namespace: namespace, workflowRepository: workflows, storageRepository: storages, getMapActivitiesKeepDiskService: keepDisk}
 }
 
 func (c *CreateStorageInDatabaseService) CreateByWorkflow(wfId int) error {
@@ -31,11 +40,14 @@ func (c *CreateStorageInDatabaseService) CreateByWorkflow(wfId int) error {
 		return err
 	}
 
-	mapActivitiesKeepDisk, _ := c.getMapActivitiesKeepDiskService.GetMapActivitiesKeepDisk(workflow.Id)
+	mapActivitiesKeepDisk, err := c.getMapActivitiesKeepDiskService.GetMapActivitiesKeepDisk(workflow.Id)
+	if err != nil {
+		return err
+	}
 
 	println("mapActivitiesKeepDisk", len(mapActivitiesKeepDisk))
 
-	err = c.storageRepository.Create(ports.CreateStorageParams{
+	return c.storageRepository.Create(ports.CreateStorageParams{
 		WorkflowID:            wfId,
 		Namespace:             c.namespace,
 		Status:                ports.StorageStatusCreated,
@@ -44,7 +56,5 @@ func (c *CreateStorageInDatabaseService) CreateByWorkflow(wfId int) error {
 		StorageClass:          workflow.Spec.StoragePolicy.StorageClassName,
 		StorageSize:           workflow.Spec.StoragePolicy.StorageSize,
 	})
-
-	return nil
 
 }

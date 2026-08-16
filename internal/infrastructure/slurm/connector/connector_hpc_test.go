@@ -45,3 +45,22 @@ func TestHPCEncodingAndLocalCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestHPCRemoteAndVPNFailurePaths(t *testing.T) {
+	c := &ConnectorHPCRuntime{}
+	passwordRuntime := runtime_entity.Runtime{Name: "hpc", Metadata: map[string]string{"HPC_USER": "u", "HPC_HOST_CLUSTER": "127.0.0.1", "HPC_PASSWORD": "p"}}
+	c.SetRuntime(passwordRuntime)
+	if _, err := c.RunCommandWithOutputRemote("true"); err == nil {
+		t.Fatal("remote command should fail in test environment")
+	}
+	if ok, err := c.IsVPNConnected(); err != nil || !ok {
+		t.Fatalf("vpn process probe: %v %v", ok, err)
+	}
+	if getAvailableShell() == "" {
+		t.Fatal("shell")
+	}
+	if _, err := writeTempSSHKey("key", "nested/missing"); err == nil {
+		t.Fatal("write should fail")
+	}
+	removeTempSSHKey("/tmp/nonexistent-akoflow-key")
+}

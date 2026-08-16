@@ -20,6 +20,10 @@ func New() *ListWorkflowsApiService {
 	}
 }
 
+func NewWithDependencies(workflows ports.WorkflowRepository, activities ports.ActivityRepository) *ListWorkflowsApiService {
+	return &ListWorkflowsApiService{workflowRepository: workflows, activityRepository: activities}
+}
+
 func (h *ListWorkflowsApiService) ListAllWorkflows() ([]types_api.ApiWorkflowType, error) {
 	workflowsEngine, err := h.workflowRepository.ListAllWorkflows(nil)
 

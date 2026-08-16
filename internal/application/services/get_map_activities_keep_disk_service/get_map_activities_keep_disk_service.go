@@ -3,6 +3,7 @@ package get_map_activities_keep_disk_service
 import (
 	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/application/services/get_activity_dependencies_service"
+	"github.com/UFFeScience/akoflow/internal/domain/workflow/activity"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
 )
 
@@ -11,17 +12,26 @@ type GetMapActivitiesKeepDiskService struct {
 	workflowRepository            ports.WorkflowRepository
 	activityRepository            ports.ActivityRepository
 	storageRepository             ports.StorageRepository
-	getActivityDependeciesService get_activity_dependencies_service.GetActivityDependenciesService
+	getActivityDependeciesService DependencyProvider
+}
+
+type DependencyProvider interface {
+	GetActivityDependencies(int) workflow_activity_entity.MapActivityDependencies
 }
 
 func New() GetMapActivitiesKeepDiskService {
+	dependencies := get_activity_dependencies_service.New()
 	return GetMapActivitiesKeepDiskService{
 		namespace:                     "akoflow",
 		workflowRepository:            config.App().Repository.WorkflowRepository,
 		activityRepository:            config.App().Repository.ActivityRepository,
 		storageRepository:             config.App().Repository.StoragesRepository,
-		getActivityDependeciesService: get_activity_dependencies_service.New(),
+		getActivityDependeciesService: &dependencies,
 	}
+}
+
+func NewWithDependencies(activities ports.ActivityRepository, dependencies DependencyProvider) GetMapActivitiesKeepDiskService {
+	return GetMapActivitiesKeepDiskService{activityRepository: activities, getActivityDependeciesService: dependencies}
 }
 
 type MapActivitiesKeepDisk map[int]bool

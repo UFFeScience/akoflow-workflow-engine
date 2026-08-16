@@ -11,19 +11,30 @@ import (
 
 type RunScheduleService struct {
 	scheduleRepository schedule_repository.IScheduleRepository
+	pluginOpener       PluginOpener
 }
+
+type PluginLookup interface {
+	Lookup(string) (plugin.Symbol, error)
+}
+type PluginOpener func(string) (PluginLookup, error)
 
 func New() RunScheduleService {
 	return RunScheduleService{
 		scheduleRepository: config.App().Repository.ScheduleRepository,
+		pluginOpener:       func(path string) (PluginLookup, error) { return plugin.Open(path) },
 	}
+}
+
+func NewWithDependencies(repository schedule_repository.IScheduleRepository, opener PluginOpener) RunScheduleService {
+	return RunScheduleService{scheduleRepository: repository, pluginOpener: opener}
 }
 
 func (r *RunScheduleService) StartRunningSchedule(scheduleName string, input map[string]any) (float64, error) {
 	// Here you would implement the logic to start running the schedule
 	// For example, you might want to fetch the schedule by name and then execute it with the provided input
 
-	schedule, err := r.scheduleRepository.GetScheduleByName("schedule1")
+	schedule, err := r.scheduleRepository.GetScheduleByName(scheduleName)
 
 	if err != nil {
 		config.App().Logger.Error("Error getting schedule: " + err.Error())
@@ -32,7 +43,7 @@ func (r *RunScheduleService) StartRunningSchedule(scheduleName string, input map
 
 	println("Schedule found: ", schedule.Name)
 
-	p, err := plugin.Open(filepath.Clean(schedule.PluginSoPath))
+	p, err := r.pluginOpener(filepath.Clean(schedule.PluginSoPath))
 
 	if err != nil {
 		fmt.Println("Erro ao abrir plugin:", err)

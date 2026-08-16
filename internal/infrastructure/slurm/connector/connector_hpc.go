@@ -18,7 +18,7 @@ func New() IConnectorHPCRuntime {
 	return &ConnectorHPCRuntime{}
 }
 
-func (c *ConnectorHPCRuntime) SetRuntime(runtime runtime_entity.Runtime) *ConnectorHPCRuntime {
+func (c *ConnectorHPCRuntime) SetRuntime(runtime runtime_entity.Runtime) IConnectorHPCRuntime {
 	c.Runtime = runtime
 	return c
 }
@@ -29,7 +29,7 @@ type IConnectorHPCRuntime interface {
 	RunCommandWithOutputRemote(command string, args ...string) (string, error)
 	IsVPNConnected() (bool, error)
 	ExecuteMultiplesCommand(commands []string)
-	SetRuntime(runtime runtime_entity.Runtime) *ConnectorHPCRuntime
+	SetRuntime(runtime runtime_entity.Runtime) IConnectorHPCRuntime
 	BuildRemoteCommand(runtime runtime_entity.Runtime, command string) (string, error)
 }
 

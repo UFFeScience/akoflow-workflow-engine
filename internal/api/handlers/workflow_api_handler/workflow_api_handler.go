@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/UFFeScience/akoflow/internal/api/requests"
 	"github.com/UFFeScience/akoflow/internal/application/services/find_workflow_api_service"
 	"github.com/UFFeScience/akoflow/internal/application/services/list_workflows_api_service"
 	"github.com/UFFeScience/akoflow/internal/application/services/provenance_graph_service"
@@ -11,9 +12,15 @@ import (
 )
 
 type WorkflowApiHandler struct {
-	listWorkflowApiService *list_workflows_api_service.ListWorkflowsApiService
-	findWorkflowApiService *find_workflow_api_service.FindWorkflowApiService
-	provenanceGraphService *provenance_graph_service.ProvenanceGraphService
+	listWorkflowApiService interface {
+		ListAllWorkflows() ([]types_api.ApiWorkflowType, error)
+	}
+	findWorkflowApiService interface {
+		FindWorkflowById(int) (types_api.ApiWorkflowType, error)
+	}
+	provenanceGraphService interface {
+		BuildGraph(int) (*provenance_graph_service.ProvenanceGraph, error)
+	}
 }
 
 func New() *WorkflowApiHandler {
@@ -25,6 +32,16 @@ func New() *WorkflowApiHandler {
 			config.App().Repository.ActivityRepository,
 		),
 	}
+}
+
+func NewWithDependencies(list interface {
+	ListAllWorkflows() ([]types_api.ApiWorkflowType, error)
+}, find interface {
+	FindWorkflowById(int) (types_api.ApiWorkflowType, error)
+}, graph interface {
+	BuildGraph(int) (*provenance_graph_service.ProvenanceGraph, error)
+}) *WorkflowApiHandler {
+	return &WorkflowApiHandler{listWorkflowApiService: list, findWorkflowApiService: find, provenanceGraphService: graph}
 }
 
 func (h *WorkflowApiHandler) ListAllWorkflows(w http.ResponseWriter, r *http.Request) {

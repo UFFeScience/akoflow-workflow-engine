@@ -19,6 +19,10 @@ func New() GetActivityDependenciesService {
 	}
 }
 
+func NewWithDependencies(workflows ports.WorkflowRepository, activities ports.ActivityRepository) GetActivityDependenciesService {
+	return GetActivityDependenciesService{workflowRepository: workflows, activityRepository: activities}
+}
+
 // GetActivityDependencies recupera todas as dependências de atividades para um dado fluxo de trabalho.
 // Este método organiza e retorna um mapeamento onde cada chave é o ID de uma atividade e o valor é uma lista
 // de atividades das quais ela depende, incluindo dependências diretas e indiretas.

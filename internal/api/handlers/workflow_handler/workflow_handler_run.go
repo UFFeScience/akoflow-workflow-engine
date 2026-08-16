@@ -13,13 +13,21 @@ type RequestPostRunWorkflow struct {
 }
 
 type WorkflowHandler struct {
-	create_workflow_service *create_workflow_in_database_service.CreateWorkflowInDatabaseService
+	create_workflow_service WorkflowCreator
+}
+
+type WorkflowCreator interface {
+	Create(workflow_entity.Workflow) (int, error)
 }
 
 func New() *WorkflowHandler {
 	return &WorkflowHandler{
 		create_workflow_service: create_workflow_in_database_service.New(),
 	}
+}
+
+func NewWithDependencies(creator WorkflowCreator) *WorkflowHandler {
+	return &WorkflowHandler{create_workflow_service: creator}
 }
 
 func (h *WorkflowHandler) Create(w http.ResponseWriter, r *http.Request) {

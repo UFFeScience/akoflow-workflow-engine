@@ -14,24 +14,38 @@ type GetPendingStorageService struct {
 	workflowRepository         ports.WorkflowRepository
 	activityRepository         ports.ActivityRepository
 	storageRepository          ports.StorageRepository
-	getWorkflowByStatusService get_workflow_by_status_service.GetWorkflowByStatusService
-	getActivityDependencies    get_activity_dependencies_service.GetActivityDependenciesService
+	getWorkflowByStatusService ActivityStatusSelector
+	getActivityDependencies    DependencyProvider
 
 	connector connector_k8s.IConnector
 }
 
+type ActivityStatusSelector interface {
+	GetActivitiesByStatuses([]workflow_activity_entity.WorkflowActivities, int) []workflow_activity_entity.WorkflowActivities
+}
+
+type DependencyProvider interface {
+	GetActivityDependenciesByWorkflow(int) workflow_activity_entity.MapActivityDependencies
+}
+
 func New() GetPendingStorageService {
+	status := get_workflow_by_status_service.New()
+	dependencies := get_activity_dependencies_service.New()
 	return GetPendingStorageService{
 		namespace:          "akoflow",
 		workflowRepository: config.App().Repository.WorkflowRepository,
 		activityRepository: config.App().Repository.ActivityRepository,
 		storageRepository:  config.App().Repository.StoragesRepository,
 
-		getWorkflowByStatusService: get_workflow_by_status_service.New(),
-		getActivityDependencies:    get_activity_dependencies_service.New(),
+		getWorkflowByStatusService: &status,
+		getActivityDependencies:    &dependencies,
 
 		connector: connector_k8s.New(),
 	}
+}
+
+func NewWithDependencies(namespace string, activities ports.ActivityRepository, storages ports.StorageRepository, status ActivityStatusSelector, dependencies DependencyProvider) GetPendingStorageService {
+	return GetPendingStorageService{namespace: namespace, activityRepository: activities, storageRepository: storages, getWorkflowByStatusService: status, getActivityDependencies: dependencies}
 }
 
 func (g *GetPendingStorageService) GetPendingStorages() ([]workflow_activity_entity.WorkflowActivities, error) {
@@ -53,7 +67,10 @@ func (g *GetPendingStorageService) GetPendingStorages() ([]workflow_activity_ent
 		workflowsIds = append(workflowsIds, key)
 	}
 
-	wfActivities, _ := g.activityRepository.GetActivitiesByWorkflowIds(workflowsIds)
+	wfActivities, err := g.activityRepository.GetActivitiesByWorkflowIds(workflowsIds)
+	if err != nil {
+		return nil, err
+	}
 
 	allActivities := make([]workflow_activity_entity.WorkflowActivities, 0)
 

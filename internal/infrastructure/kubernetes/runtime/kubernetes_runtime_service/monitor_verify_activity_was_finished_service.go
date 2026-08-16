@@ -133,12 +133,11 @@ func (m *MonitorVerifyActivityWasFinishedService) handleVerifyActivityWasFinishe
 	}
 
 	runtime, err := m.runtimeRepository.GetByName(activity.GetRuntimeId())
-
+	if err != nil || runtime == nil {
+		return activity_repository.StatusCreated
+	}
 	if runtime.GetName() != m.runtimeName {
 		return activity_repository.StatusRunning
-	}
-	if err != nil {
-		return activity_repository.StatusCreated
 	}
 
 	jobResponse, _ := m.connector.Job(runtime).GetJob(m.namespace, activity.GetNameJob())

@@ -19,12 +19,39 @@ import (
 
 type CreateScheduleApiService struct {
 	scheduleRepository schedule_repository.IScheduleRepository
+	versionOutput      func() ([]byte, error)
+	statFile           func(string) (os.FileInfo, error)
+	writeFile          func(string, []byte, os.FileMode) error
+	buildPlugin        func(string, string) error
+	pluginOpener       func(string) (PluginLookup, error)
+	validateCode       func(string) (bool, string)
+}
+
+type PluginLookup interface {
+	Lookup(string) (plugin.Symbol, error)
 }
 
 func New() *CreateScheduleApiService {
-	return &CreateScheduleApiService{
+	service := &CreateScheduleApiService{
 		scheduleRepository: config.App().Repository.ScheduleRepository,
+		versionOutput:      func() ([]byte, error) { return exec.Command("go", "version").Output() },
+		statFile:           os.Stat, writeFile: os.WriteFile,
+		pluginOpener: func(path string) (PluginLookup, error) { return plugin.Open(path) },
 	}
+	service.buildPlugin = func(goFile, soFile string) error {
+		cmd := exec.Command("go", "build", "-gcflags=all=-N -l", "-buildmode=plugin", "-o", soFile, goFile)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+	service.validateCode = service.ValidateUserCode
+	return service
+}
+
+func NewWithDependencies(repository schedule_repository.IScheduleRepository, version func() ([]byte, error), stat func(string) (os.FileInfo, error), write func(string, []byte, os.FileMode) error, build func(string, string) error, opener func(string) (PluginLookup, error)) *CreateScheduleApiService {
+	service := &CreateScheduleApiService{scheduleRepository: repository, versionOutput: version, statFile: stat, writeFile: write, buildPlugin: build, pluginOpener: opener}
+	service.validateCode = service.ValidateUserCode
+	return service
 }
 
 func (h *CreateScheduleApiService) ValidateUserCode(userCode string) (bool, string) {
@@ -37,8 +64,7 @@ func (h *CreateScheduleApiService) ValidateUserCode(userCode string) (bool, stri
 
 	runtimeVersion := runtime.Version()
 
-	cmdVersion := exec.Command("go", "version")
-	output, err := cmdVersion.Output()
+	output, err := h.versionOutput()
 	if err != nil {
 		return false, ""
 	}
@@ -49,7 +75,7 @@ func (h *CreateScheduleApiService) ValidateUserCode(userCode string) (bool, stri
 		return false, ""
 	}
 
-	if _, err := os.Stat(soFile); os.IsNotExist(err) {
+	if _, err := h.statFile(soFile); os.IsNotExist(err) {
 		if !h.compilePlugin(goFile, soFile, userCode) {
 			return false, soFile
 		}
@@ -61,17 +87,13 @@ func (h *CreateScheduleApiService) ValidateUserCode(userCode string) (bool, stri
 }
 
 func (h *CreateScheduleApiService) compilePlugin(goFile, soFile, userCode string) bool {
-	if err := os.WriteFile(goFile, []byte(userCode), 0644); err != nil {
-		panic(err)
+	if err := h.writeFile(goFile, []byte(userCode), 0644); err != nil {
+		return false
 	}
-
-	cmd := exec.Command("go", "build", "-gcflags=all=-N -l", "-buildmode=plugin", "-o", soFile, goFile)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 
 	fmt.Println("Compilando plugin:", soFile)
 
-	if err := cmd.Run(); err != nil {
+	if err := h.buildPlugin(goFile, soFile); err != nil {
 		fmt.Println("Erro ao compilar plugin:", err)
 		return false
 	}
@@ -82,7 +104,7 @@ func (h *CreateScheduleApiService) compilePlugin(goFile, soFile, userCode string
 }
 
 func (h *CreateScheduleApiService) executePlugin(soFile string) bool {
-	p, err := plugin.Open(filepath.Clean(soFile))
+	p, err := h.pluginOpener(filepath.Clean(soFile))
 
 	if err != nil {
 		fmt.Println("Erro ao abrir plugin:", err)
@@ -127,7 +149,7 @@ func (h *CreateScheduleApiService) CreateSchedule(name string, scheduleType stri
 		return types_api.ApiScheduleType{}, fmt.Errorf("invalid base64 code: %v", err)
 	}
 
-	isValid, soFile := h.ValidateUserCode(string(codeDecoded))
+	isValid, soFile := h.validateCode(string(codeDecoded))
 	if !isValid {
 		return types_api.ApiScheduleType{}, fmt.Errorf("invalid user code")
 	}

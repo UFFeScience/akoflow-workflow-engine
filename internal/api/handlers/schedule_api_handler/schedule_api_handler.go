@@ -3,6 +3,7 @@ package schedule_api_handler
 import (
 	"net/http"
 
+	"github.com/UFFeScience/akoflow/internal/api/requests"
 	"github.com/UFFeScience/akoflow/internal/application/services/create_schedule_api_service"
 	"github.com/UFFeScience/akoflow/internal/application/services/get_schedule_api_service"
 	"github.com/UFFeScience/akoflow/internal/application/services/list_schedules_api_service"
@@ -10,9 +11,19 @@ import (
 )
 
 type ScheduleApiHandler struct {
-	listApiSchedulesService  *list_schedules_api_service.ListSchedulesApiService
-	createApiScheduleService *create_schedule_api_service.CreateScheduleApiService
-	getApiScheduleService    *get_schedule_api_service.GetScheduleApiService
+	listApiSchedulesService  ScheduleLister
+	createApiScheduleService ScheduleCreator
+	getApiScheduleService    ScheduleGetter
+}
+
+type ScheduleLister interface {
+	ListAllSchedules() ([]types_api.ApiScheduleType, error)
+}
+type ScheduleCreator interface {
+	CreateSchedule(string, string, string) (types_api.ApiScheduleType, error)
+}
+type ScheduleGetter interface {
+	GetScheduleByName(string) (*types_api.ApiScheduleType, error)
 }
 
 func New() *ScheduleApiHandler {
@@ -21,6 +32,10 @@ func New() *ScheduleApiHandler {
 		createApiScheduleService: create_schedule_api_service.New(),
 		getApiScheduleService:    get_schedule_api_service.New(),
 	}
+}
+
+func NewWithDependencies(list ScheduleLister, create ScheduleCreator, get ScheduleGetter) *ScheduleApiHandler {
+	return &ScheduleApiHandler{listApiSchedulesService: list, createApiScheduleService: create, getApiScheduleService: get}
 }
 
 func (h *ScheduleApiHandler) ListAllSchedules(w http.ResponseWriter, r *http.Request) {

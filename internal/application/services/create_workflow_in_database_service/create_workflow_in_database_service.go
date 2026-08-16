@@ -12,17 +12,24 @@ type CreateWorkflowInDatabaseService struct {
 	workflowRepository             ports.WorkflowRepository
 	activityRepository             ports.ActivityRepository
 	storageRepository              ports.StorageRepository
-	createStorageInDatabaseService create_storage_in_database_service.CreateStorageInDatabaseService
+	createStorageInDatabaseService StorageCreator
 }
 
+type StorageCreator interface{ CreateByWorkflow(int) error }
+
 func New() *CreateWorkflowInDatabaseService {
+	storageCreator := create_storage_in_database_service.New()
 	return &CreateWorkflowInDatabaseService{
 		namespace:                      "akoflow",
 		workflowRepository:             config.App().Repository.WorkflowRepository,
 		activityRepository:             config.App().Repository.ActivityRepository,
 		storageRepository:              config.App().Repository.StoragesRepository,
-		createStorageInDatabaseService: create_storage_in_database_service.New(),
+		createStorageInDatabaseService: &storageCreator,
 	}
+}
+
+func NewWithDependencies(namespace string, workflows ports.WorkflowRepository, activities ports.ActivityRepository, storageCreator StorageCreator) *CreateWorkflowInDatabaseService {
+	return &CreateWorkflowInDatabaseService{namespace: namespace, workflowRepository: workflows, activityRepository: activities, createStorageInDatabaseService: storageCreator}
 }
 
 func (c *CreateWorkflowInDatabaseService) Create(workflow workflow_entity.Workflow) (int, error) {

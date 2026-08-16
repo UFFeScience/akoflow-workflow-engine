@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/UFFeScience/akoflow/internal/infrastructure/system/utils/utils_read_file"
@@ -52,8 +53,12 @@ func SetupEnv() {
 
 func loadDotEnv() {
 
-	file := utils_read_file.New().GetRootProjectPath() + "/.env"
-	content := utils_read_file.New().ReadFile(file)
+	file := filepath.Join(utils_read_file.New().GetRootProjectPath(), ".env")
+	contentBytes, err := os.ReadFile(file)
+	if err != nil {
+		return
+	}
+	content := string(contentBytes)
 
 	splitedLine := strings.Split(content, "\n")
 
