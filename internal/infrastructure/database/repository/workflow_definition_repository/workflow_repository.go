@@ -42,7 +42,7 @@ func (r *Repository) Create(definition Definition) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err = tx.Exec(`INSERT INTO normalized_workflows (id, external_id, name, namespace)
+	if _, err = tx.Exec(`INSERT INTO workflow_definitions (id, external_id, name, namespace)
 		VALUES (?, ?, ?, ?)`, definition.ID, definition.ExternalID, definition.Name,
 		definition.Namespace); err != nil {
 		return err
@@ -67,20 +67,30 @@ func (r *Repository) Create(definition Definition) error {
 		}
 	}
 	for _, activity := range version.Activities {
+		if err = activity.Validate(); err != nil {
+			return err
+		}
 		metadata, _ := json.Marshal(activity.Metadata)
-		if _, err = tx.Exec(`INSERT INTO normalized_activities (
-			id, workflow_version_id, activity_type_id, external_id, name, command,
-			image, priority, cpu_required, memory_required_bytes,
-			storage_required_bytes, metadata
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, activity.ID, version.ID,
-			activity.ActivityTypeID, activity.ExternalID, activity.Name, activity.Command,
-			activity.Image, activity.Priority, activity.CPURequired,
-			activity.MemoryRequiredBytes, activity.StorageRequiredBytes, string(metadata)); err != nil {
+		capabilities, _ := json.Marshal(activity.Capabilities)
+		command, _ := json.Marshal(activity.Command)
+		resources, _ := json.Marshal(activity.Resources)
+		service, _ := json.Marshal(activity.Service)
+		simulation, _ := json.Marshal(activity.Simulation)
+		policy, _ := json.Marshal(activity.Policy)
+		if _, err = tx.Exec(`INSERT INTO activity_definitions (
+			id, workflow_version_id, activity_type_id, external_id, name, kind,
+			capabilities, command_spec, resource_requirements, service_spec,
+			simulation_spec, policy, priority, metadata
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, activity.ID, version.ID,
+			activity.ActivityTypeID, activity.ExternalID, activity.Name, activity.Kind,
+			string(capabilities), string(command), string(resources), nullableJSON(activity.Service, service),
+			nullableJSON(activity.Simulation, simulation), string(policy), activity.Priority,
+			string(metadata)); err != nil {
 			return err
 		}
 	}
 	for _, dependency := range version.Dependencies {
-		if _, err = tx.Exec(`INSERT INTO normalized_activity_dependencies (
+		if _, err = tx.Exec(`INSERT INTO activity_dependencies (
 			activity_id, depends_on_activity_id, dependency_type
 		) VALUES (?, ?, ?)`, dependency.ActivityID, dependency.DependsOnActivityID,
 			dependency.Type); err != nil {
@@ -104,30 +114,42 @@ func (r *Repository) FindVersion(id string) (*domain.WorkflowVersion, error) {
 		return nil, err
 	}
 	rows, err := db.Query(`SELECT id, workflow_version_id, activity_type_id,
-		external_id, name, command, image, priority, cpu_required,
-		memory_required_bytes, storage_required_bytes, metadata
-		FROM normalized_activities WHERE workflow_version_id=?`, id)
+		external_id, name, kind, capabilities, command_spec, resource_requirements,
+		service_spec, simulation_spec, policy, priority, metadata
+		FROM activity_definitions WHERE workflow_version_id=?`, id)
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
 		var activity domain.Activity
-		var metadata string
+		var capabilities, command, resources, policy, metadata string
+		var service, simulation sql.NullString
 		if err := rows.Scan(&activity.ID, &activity.WorkflowVersionID,
 			&activity.ActivityTypeID, &activity.ExternalID, &activity.Name,
-			&activity.Command, &activity.Image, &activity.Priority,
-			&activity.CPURequired, &activity.MemoryRequiredBytes,
-			&activity.StorageRequiredBytes, &metadata); err != nil {
+			&activity.Kind, &capabilities, &command, &resources, &service,
+			&simulation, &policy, &activity.Priority, &metadata); err != nil {
 			rows.Close()
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(metadata), &activity.Metadata)
+		_ = json.Unmarshal([]byte(capabilities), &activity.Capabilities)
+		_ = json.Unmarshal([]byte(command), &activity.Command)
+		_ = json.Unmarshal([]byte(resources), &activity.Resources)
+		_ = json.Unmarshal([]byte(policy), &activity.Policy)
+		if service.Valid {
+			activity.Service = &domain.ActivityService{}
+			_ = json.Unmarshal([]byte(service.String), activity.Service)
+		}
+		if simulation.Valid {
+			activity.Simulation = &domain.ActivitySimulation{}
+			_ = json.Unmarshal([]byte(simulation.String), activity.Simulation)
+		}
 		workflow.Activities = append(workflow.Activities, activity)
 	}
 	rows.Close()
 	deps, err := db.Query(`SELECT d.activity_id, d.depends_on_activity_id,
-		d.dependency_type FROM normalized_activity_dependencies d
-		JOIN normalized_activities a ON a.id=d.activity_id
+		d.dependency_type FROM activity_dependencies d
+		JOIN activity_definitions a ON a.id=d.activity_id
 		WHERE a.workflow_version_id=?`, id)
 	if err != nil {
 		return nil, err
@@ -142,4 +164,11 @@ func (r *Repository) FindVersion(id string) (*domain.WorkflowVersion, error) {
 		workflow.Dependencies = append(workflow.Dependencies, dependency)
 	}
 	return &workflow, deps.Err()
+}
+
+func nullableJSON(value any, encoded []byte) any {
+	if value == nil {
+		return nil
+	}
+	return string(encoded)
 }

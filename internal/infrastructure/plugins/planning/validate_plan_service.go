@@ -42,10 +42,10 @@ func (ValidatePlanService) Validate(plan domain.SchedulePlan, workflow domain.Wo
 		if !resource.Schedulable {
 			return fmt.Errorf("resource %q is not schedulable", resource.ID)
 		}
-		if resource.CPUCapacity < activity.CPURequired {
+		if resource.CPUCapacity < activity.Resources.CPU {
 			return fmt.Errorf("resource %q lacks CPU for activity %q", resource.ID, activity.ID)
 		}
-		if resource.MemoryBytes < activity.MemoryRequiredBytes {
+		if resource.MemoryBytes < activity.Resources.MemoryBytes {
 			return fmt.Errorf("resource %q lacks memory for activity %q", resource.ID, activity.ID)
 		}
 		if assignment.PredictedFinishAt < assignment.PredictedStartAt {

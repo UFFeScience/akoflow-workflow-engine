@@ -66,10 +66,10 @@ func TestValidatePlanRejectsInvalidCases(t *testing.T) {
 			(*r)[0].Schedulable = false
 		}, "not schedulable"},
 		{"insufficient cpu", func(w *domain.WorkflowVersion, _ *[]domain.Resource, _ *domain.SchedulePlan) {
-			w.Activities[0].CPURequired = 3
+			w.Activities[0].Resources.CPU = 3
 		}, "lacks CPU"},
 		{"insufficient memory", func(w *domain.WorkflowVersion, _ *[]domain.Resource, _ *domain.SchedulePlan) {
-			w.Activities[0].MemoryRequiredBytes = 3
+			w.Activities[0].Resources.MemoryBytes = 3
 		}, "lacks memory"},
 		{"negative interval", func(_ *domain.WorkflowVersion, _ *[]domain.Resource, p *domain.SchedulePlan) {
 			p.Assignments[0].PredictedStartAt = 2
@@ -103,8 +103,8 @@ func TestValidatePlanRejectsInvalidCases(t *testing.T) {
 func validPlanFixture() (domain.WorkflowVersion, []domain.Resource, domain.SchedulePlan) {
 	workflow := domain.WorkflowVersion{
 		ID: "wf", Activities: []domain.Activity{
-			{ID: "a", CPURequired: 1, MemoryRequiredBytes: 1},
-			{ID: "b", CPURequired: 1, MemoryRequiredBytes: 1},
+			{ID: "a", Resources: domain.ActivityResources{CPU: 1, MemoryBytes: 1}},
+			{ID: "b", Resources: domain.ActivityResources{CPU: 1, MemoryBytes: 1}},
 		}, Dependencies: []domain.ActivityDependency{{ActivityID: "b", DependsOnActivityID: "a"}},
 	}
 	resources := []domain.Resource{

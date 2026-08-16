@@ -12,8 +12,8 @@ func TestSimulationExecutesFrozenPlanWithRealNetworkModel(t *testing.T) {
 	workflow := domain.WorkflowVersion{
 		ID: "wf-v1",
 		Activities: []domain.Activity{
-			{ID: "a", ActivityTypeID: "type-a", CPURequired: 1, MemoryRequiredBytes: 1},
-			{ID: "b", ActivityTypeID: "type-b", CPURequired: 1, MemoryRequiredBytes: 1},
+			{ID: "a", ActivityTypeID: "type-a", Resources: domain.ActivityResources{CPU: 1, MemoryBytes: 1}},
+			{ID: "b", ActivityTypeID: "type-b", Resources: domain.ActivityResources{CPU: 1, MemoryBytes: 1}},
 		},
 		Dependencies:     []domain.ActivityDependency{{ActivityID: "b", DependsOnActivityID: "a"}},
 		DataDependencies: []domain.ActivityDataDependency{{ProducerActivityID: "a", ConsumerActivityID: "b", SizeBytes: 1_000_000}},

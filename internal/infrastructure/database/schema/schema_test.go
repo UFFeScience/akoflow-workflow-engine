@@ -24,7 +24,8 @@ func TestApplyCreatesCanonicalTables(t *testing.T) {
 		"metrics", "workflow_executions", "schedules", "environments",
 		"resources", "schedule_plans", "execution_runs", "data_transfers",
 		"queue_jobs", "environment_connections", "environment_runtime_capabilities",
-		"discovery_runs",
+		"discovery_runs", "workflow_definitions", "workflow_versions",
+		"activity_definitions", "activity_handles", "task_executions",
 	} {
 		var name string
 		err := db.QueryRow(

@@ -15,7 +15,8 @@ func setupRepository(t *testing.T) IRepository {
 
 func TestWorkflowDefinitionCreateAndFind(t *testing.T) {
 	repository := setupRepository(t)
-	definition := Definition{ID: "workflow", ExternalID: "external", Name: "WF", Namespace: "science", Types: []domain.ActivityType{{ID: "type", Name: "compute", Metadata: map[string]any{"kind": "cpu"}}}, Version: domain.WorkflowVersion{ID: "version", Version: 1, DefinitionHash: "hash", Activities: []domain.Activity{{ID: "a", ActivityTypeID: "type", ExternalID: "A", Name: "first", Command: "run", Metadata: map[string]any{"x": "y"}}, {ID: "b", ActivityTypeID: "type", ExternalID: "B", Name: "second"}}, Dependencies: []domain.ActivityDependency{{ActivityID: "b", DependsOnActivityID: "a", Type: "control"}}}}
+	simulation := &domain.ActivitySimulation{DurationSeconds: 1}
+	definition := Definition{ID: "workflow", ExternalID: "external", Name: "WF", Namespace: "science", Types: []domain.ActivityType{{ID: "type", Name: "compute", Metadata: map[string]any{"kind": "cpu"}}}, Version: domain.WorkflowVersion{ID: "version", Version: 1, DefinitionHash: "hash", Activities: []domain.Activity{{ID: "a", ActivityTypeID: "type", ExternalID: "A", Name: "first", Kind: domain.ActivityKindTask, Capabilities: []domain.ActivityCapability{domain.ActivityCapabilityReal, domain.ActivityCapabilitySimulation}, Command: domain.ActivityCommand{Entrypoint: "run"}, Simulation: simulation, Metadata: map[string]any{"x": "y"}}, {ID: "b", ActivityTypeID: "type", ExternalID: "B", Name: "second", Kind: domain.ActivityKindTask, Capabilities: []domain.ActivityCapability{domain.ActivityCapabilitySimulation}, Simulation: simulation}}, Dependencies: []domain.ActivityDependency{{ActivityID: "b", DependsOnActivityID: "a", Type: "control"}}}}
 	if err := repository.Create(definition); err != nil {
 		t.Fatal(err)
 	}

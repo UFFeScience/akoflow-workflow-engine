@@ -1,26 +1,15 @@
 package orchestrate_workflow_service
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
 	"reflect"
 	"testing"
 
-	"github.com/UFFeScience/akoflow/internal/domain/queue"
 	workflow_activity_entity "github.com/UFFeScience/akoflow/internal/domain/workflow/activity"
 	workflow_entity "github.com/UFFeScience/akoflow/internal/domain/workflow/definition"
 	"github.com/UFFeScience/akoflow/internal/execution/lifecycle/channel"
-	"github.com/UFFeScience/akoflow/internal/execution/lifecycle/eventloop"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/activity_repository"
 )
-
-type publisherStub struct{ jobs []queue.Job }
-
-func (p *publisherStub) Publish(_ context.Context, job queue.Job) (queue.Job, error) {
-	p.jobs = append(p.jobs, job)
-	return job, nil
-}
 
 type statusSelector struct{}
 
@@ -133,26 +122,5 @@ func TestConstructorsAndWorkflowsRunningState(t *testing.T) {
 	result, err := service.scheduleActivities(workflow_entity.Workflow{Spec: workflow_entity.WorkflowSpec{Schedule: "missing-schedule"}}, activities)
 	if err != nil || len(result) != 1 || result[0].Id != 12 {
 		t.Fatalf("default scheduler result=%v error=%v", result, err)
-	}
-}
-
-func TestOrchestratePersistsSubmissionEventWhenPublisherIsConfigured(t *testing.T) {
-	publisher := &publisherStub{}
-	service := NewWithPublisher("science", publisher, statusSelector{}, func(_ workflow_entity.Workflow, activities []workflow_activity_entity.WorkflowActivities) ([]workflow_activity_entity.WorkflowActivities, error) {
-		return activities, nil
-	})
-	service.Orchestrate([]workflow_entity.Workflow{workflowWithActivities(
-		workflow_activity_entity.WorkflowActivities{Id: 42, Name: "root", Status: activity_repository.StatusCreated},
-	)})
-	if len(publisher.jobs) != 1 {
-		t.Fatalf("jobs=%d", len(publisher.jobs))
-	}
-	job := publisher.jobs[0]
-	if job.Type != eventloop.EventActivitySubmissionRequested || job.IdempotencyKey != "activity-submission:42" {
-		t.Fatalf("unexpected job: %+v", job)
-	}
-	var payload eventloop.ActivitySubmissionPayload
-	if err := json.Unmarshal(job.Payload, &payload); err != nil || payload.ActivityID != 42 {
-		t.Fatalf("payload=%+v err=%v", payload, err)
 	}
 }

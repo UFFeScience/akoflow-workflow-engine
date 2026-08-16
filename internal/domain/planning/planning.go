@@ -10,10 +10,11 @@ type PlanningSource string
 type ExecutionMode string
 
 const (
-	PlanningSourcePlugin    PlanningSource = "plugin"
-	PlanningSourceImported  PlanningSource = "imported"
-	ExecutionModeReal       ExecutionMode  = "real"
-	ExecutionModeSimulation ExecutionMode  = "simulation"
+	PlanningSourcePlugin     PlanningSource = "plugin"
+	PlanningSourceImported   PlanningSource = "imported"
+	ExecutionModeReal        ExecutionMode  = "real"
+	ExecutionModeSimulation  ExecutionMode  = "simulation"
+	ExecutionModeInteractive ExecutionMode  = "interactive"
 )
 
 type PredictedMetrics struct {

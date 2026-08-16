@@ -1,0 +1,49 @@
+package orchestrator
+
+import (
+	"fmt"
+	"sync"
+
+	"github.com/UFFeScience/akoflow/internal/application/ports"
+	"github.com/UFFeScience/akoflow/internal/domain"
+)
+
+type RuntimeRegistry struct {
+	mu       sync.RWMutex
+	runtimes map[string]ports.RuntimeAdapter
+}
+
+func NewRuntimeRegistry() *RuntimeRegistry {
+	return &RuntimeRegistry{runtimes: make(map[string]ports.RuntimeAdapter)}
+}
+
+func (r *RuntimeRegistry) Register(runtimeID string, adapter ports.RuntimeAdapter) error {
+	if runtimeID == "" || adapter == nil {
+		return fmt.Errorf("runtime id and adapter are required")
+	}
+	key := runtimeKey(adapter.Mode(), runtimeID)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.runtimes[key]; exists {
+		return fmt.Errorf("runtime %q is already registered for mode %q", runtimeID, adapter.Mode())
+	}
+	r.runtimes[key] = adapter
+	return nil
+}
+
+func (r *RuntimeRegistry) Resolve(mode domain.ExecutionMode, runtimeID string) (ports.RuntimeAdapter, error) {
+	r.mu.RLock()
+	adapter := r.runtimes[runtimeKey(mode, runtimeID)]
+	if adapter == nil {
+		adapter = r.runtimes[runtimeKey(mode, "*")]
+	}
+	r.mu.RUnlock()
+	if adapter == nil {
+		return nil, fmt.Errorf("runtime %q is not registered for mode %q", runtimeID, mode)
+	}
+	return adapter, nil
+}
+
+func runtimeKey(mode domain.ExecutionMode, runtimeID string) string {
+	return string(mode) + "\x00" + runtimeID
+}

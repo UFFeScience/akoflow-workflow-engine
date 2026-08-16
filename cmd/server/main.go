@@ -7,13 +7,14 @@ import (
 	"time"
 
 	"github.com/UFFeScience/akoflow/internal/api/httpserver"
-	"github.com/UFFeScience/akoflow/internal/application/services/run_activity_in_cluster_service"
+	"github.com/UFFeScience/akoflow/internal/application/services/activity_execution_service"
 	"github.com/UFFeScience/akoflow/internal/execution/lifecycle/eventloop"
-	"github.com/UFFeScience/akoflow/internal/execution/lifecycle/garbagecollector"
-	"github.com/UFFeScience/akoflow/internal/execution/lifecycle/healthcheck"
-	"github.com/UFFeScience/akoflow/internal/execution/lifecycle/monitor"
-	"github.com/UFFeScience/akoflow/internal/execution/orchestrator/engine"
+	"github.com/UFFeScience/akoflow/internal/execution/orchestrator"
+	simulation "github.com/UFFeScience/akoflow/internal/execution/simulation"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
+	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository"
+	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/activity_handle_repository"
+	"github.com/UFFeScience/akoflow/internal/infrastructure/database/schema"
 )
 
 func main() {
@@ -22,12 +23,19 @@ func main() {
 
 	config.App().Logger.Info("Starting Akoflow Server")
 
-	go healthcheck.New().StartHealthCheck()
 	dispatcher := eventloop.NewDispatcher()
-	if err := dispatcher.Register(
-		eventloop.EventActivitySubmissionRequested,
-		eventloop.NewLegacyActivityHandler(run_activity_in_cluster_service.New()),
-	); err != nil {
+	db := (&repository.Database{}).Connect()
+	defer db.Close()
+	if err := schema.Apply(db); err != nil {
+		panic(err)
+	}
+	runtimes := orchestrator.NewRuntimeRegistry()
+	if err := runtimes.Register("*", simulation.NewActivityRuntime()); err != nil {
+		panic(err)
+	}
+	executions := activity_execution_service.New(runtimes, activity_handle_repository.New(db))
+	if err := dispatcher.Register(eventloop.EventActivityExecutionRequested,
+		eventloop.NewActivityExecutionHandler(executions)); err != nil {
 		panic(err)
 	}
 	owner, _ := os.Hostname()
@@ -43,10 +51,6 @@ func main() {
 			config.App().Logger.Error("Event loop stopped:", err)
 		}
 	}()
-	go orchestrator.StartOrchestrator()
-	go monitor.StartMonitor()
-	go garbagecollector.StartGarbageCollector()
-
 	httpserver.StartServer()
 
 }

@@ -8,6 +8,7 @@ import (
 
 type ExecutionRunStatus string
 type TaskExecutionStatus string
+type ActivityHandleStatus string
 
 const (
 	ExecutionRunCreated   ExecutionRunStatus = "created"
@@ -21,6 +22,13 @@ const (
 	TaskRunning   TaskExecutionStatus = "running"
 	TaskCompleted TaskExecutionStatus = "completed"
 	TaskFailed    TaskExecutionStatus = "failed"
+	TaskCancelled TaskExecutionStatus = "cancelled"
+
+	HandleStarting  ActivityHandleStatus = "starting"
+	HandleRunning   ActivityHandleStatus = "running"
+	HandleCompleted ActivityHandleStatus = "completed"
+	HandleFailed    ActivityHandleStatus = "failed"
+	HandleStopped   ActivityHandleStatus = "stopped"
 )
 
 type ExecutionRun struct {
@@ -96,4 +104,23 @@ type ActivityExecutionContext struct {
 	Activity   workflow.Activity        `json:"activity"`
 	Assignment planning.PlanAssignment  `json:"assignment"`
 	Resource   resource.Resource        `json:"resource"`
+}
+
+// ActivityHandle is the runtime-independent identity of a started activity.
+// ExternalID belongs to the adapter (PID, Kubernetes Job, Slurm Job or
+// simulation event); callers never need to understand its format.
+type ActivityHandle struct {
+	ID         string               `json:"id"`
+	RunID      string               `json:"runId"`
+	ActivityID string               `json:"activityId"`
+	ResourceID string               `json:"resourceId"`
+	RuntimeID  string               `json:"runtimeId"`
+	ExternalID string               `json:"externalId,omitempty"`
+	Status     ActivityHandleStatus `json:"status"`
+	Endpoints  []string             `json:"endpoints,omitempty"`
+	StartedAt  float64              `json:"startedAt"`
+	FinishedAt float64              `json:"finishedAt,omitempty"`
+	ExitCode   *int                 `json:"exitCode,omitempty"`
+	Failure    string               `json:"failure,omitempty"`
+	Metadata   map[string]any       `json:"metadata,omitempty"`
 }

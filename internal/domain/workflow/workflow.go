@@ -1,5 +1,57 @@
 package workflow
 
+import (
+	"fmt"
+)
+
+type ActivityKind string
+type ActivityCapability string
+
+const (
+	ActivityKindTask        ActivityKind = "task"
+	ActivityKindService     ActivityKind = "service"
+	ActivityKindInteractive ActivityKind = "interactive"
+
+	ActivityCapabilityReal        ActivityCapability = "real"
+	ActivityCapabilitySimulation  ActivityCapability = "simulation"
+	ActivityCapabilityInteractive ActivityCapability = "interactive"
+)
+
+type ActivityCommand struct {
+	Image            string            `json:"image,omitempty"`
+	Entrypoint       string            `json:"entrypoint"`
+	Arguments        []string          `json:"arguments,omitempty"`
+	Environment      map[string]string `json:"environment,omitempty"`
+	WorkingDirectory string            `json:"workingDirectory,omitempty"`
+}
+
+type ActivityResources struct {
+	CPU          float64 `json:"cpu"`
+	MemoryBytes  int64   `json:"memoryBytes"`
+	StorageBytes int64   `json:"storageBytes"`
+	GPU          int     `json:"gpu,omitempty"`
+}
+
+type ActivityService struct {
+	Ports                 []int   `json:"ports,omitempty"`
+	HealthCheck           string  `json:"healthCheck,omitempty"`
+	StartupTimeoutSeconds float64 `json:"startupTimeoutSeconds,omitempty"`
+	IdleTimeoutSeconds    float64 `json:"idleTimeoutSeconds,omitempty"`
+	KeepAlive             bool    `json:"keepAlive,omitempty"`
+}
+
+type ActivitySimulation struct {
+	Model           string         `json:"model,omitempty"`
+	DurationSeconds float64        `json:"durationSeconds,omitempty"`
+	Parameters      map[string]any `json:"parameters,omitempty"`
+}
+
+type ActivityPolicy struct {
+	TimeoutSeconds    float64 `json:"timeoutSeconds,omitempty"`
+	MaxAttempts       int     `json:"maxAttempts,omitempty"`
+	RetryDelaySeconds float64 `json:"retryDelaySeconds,omitempty"`
+}
+
 type WorkflowVersion struct {
 	ID               string                   `json:"id"`
 	WorkflowID       string                   `json:"workflowId"`
@@ -23,18 +75,54 @@ type ActivityType struct {
 }
 
 type Activity struct {
-	ID                   string         `json:"id"`
-	WorkflowVersionID    string         `json:"workflowVersionId"`
-	ActivityTypeID       string         `json:"activityTypeId"`
-	ExternalID           string         `json:"externalId"`
-	Name                 string         `json:"name"`
-	Command              string         `json:"command"`
-	Image                string         `json:"image"`
-	Priority             int            `json:"priority"`
-	CPURequired          float64        `json:"cpuRequired"`
-	MemoryRequiredBytes  int64          `json:"memoryRequiredBytes"`
-	StorageRequiredBytes int64          `json:"storageRequiredBytes"`
-	Metadata             map[string]any `json:"metadata,omitempty"`
+	ID                string               `json:"id"`
+	WorkflowVersionID string               `json:"workflowVersionId"`
+	ActivityTypeID    string               `json:"activityTypeId"`
+	ExternalID        string               `json:"externalId"`
+	Name              string               `json:"name"`
+	Kind              ActivityKind         `json:"kind"`
+	Capabilities      []ActivityCapability `json:"capabilities"`
+	Command           ActivityCommand      `json:"command"`
+	Resources         ActivityResources    `json:"resources"`
+	Service           *ActivityService     `json:"service,omitempty"`
+	Simulation        *ActivitySimulation  `json:"simulation,omitempty"`
+	Policy            ActivityPolicy       `json:"policy"`
+	Priority          int                  `json:"priority"`
+	Metadata          map[string]any       `json:"metadata,omitempty"`
+}
+
+func (a Activity) Supports(capability ActivityCapability) bool {
+	for _, supported := range a.Capabilities {
+		if supported == capability {
+			return true
+		}
+	}
+	return false
+}
+
+func (a Activity) Validate() error {
+	if a.ID == "" || a.Name == "" {
+		return fmt.Errorf("activity id and name are required")
+	}
+	if a.Kind == "" {
+		return fmt.Errorf("activity %q kind is required", a.ID)
+	}
+	if len(a.Capabilities) == 0 {
+		return fmt.Errorf("activity %q must declare at least one execution capability", a.ID)
+	}
+	if a.Supports(ActivityCapabilityReal) && a.Command.Entrypoint == "" {
+		return fmt.Errorf("activity %q requires an entrypoint for real execution", a.ID)
+	}
+	if a.Supports(ActivityCapabilitySimulation) && a.Simulation == nil {
+		return fmt.Errorf("activity %q requires a simulation definition", a.ID)
+	}
+	if (a.Kind == ActivityKindService || a.Kind == ActivityKindInteractive) && a.Service == nil {
+		return fmt.Errorf("activity %q requires a service definition", a.ID)
+	}
+	if a.Supports(ActivityCapabilityInteractive) && a.Kind != ActivityKindInteractive && a.Kind != ActivityKindService {
+		return fmt.Errorf("activity %q must be a service or interactive to support interactive execution", a.ID)
+	}
+	return nil
 }
 
 type ActivityDependency struct {

@@ -232,7 +232,7 @@ var statements = []string{
 		metadata TEXT NOT NULL DEFAULT '{}',
 		UNIQUE(environment_version_id, source_resource_id, target_resource_id)
 	)`,
-	`CREATE TABLE IF NOT EXISTS normalized_workflows (
+	`CREATE TABLE IF NOT EXISTS workflow_definitions (
 		id TEXT PRIMARY KEY,
 		external_id TEXT NOT NULL UNIQUE,
 		name TEXT NOT NULL,
@@ -241,7 +241,7 @@ var statements = []string{
 	)`,
 	`CREATE TABLE IF NOT EXISTS workflow_versions (
 		id TEXT PRIMARY KEY,
-		workflow_id TEXT NOT NULL REFERENCES normalized_workflows(id),
+		workflow_id TEXT NOT NULL REFERENCES workflow_definitions(id),
 		version INTEGER NOT NULL,
 		definition_hash TEXT NOT NULL,
 		raw_definition TEXT NOT NULL DEFAULT '',
@@ -260,24 +260,26 @@ var statements = []string{
 		network_intensity REAL NOT NULL DEFAULT 0,
 		metadata TEXT NOT NULL DEFAULT '{}'
 	)`,
-	`CREATE TABLE IF NOT EXISTS normalized_activities (
+	`CREATE TABLE IF NOT EXISTS activity_definitions (
 		id TEXT PRIMARY KEY,
 		workflow_version_id TEXT NOT NULL REFERENCES workflow_versions(id),
 		activity_type_id TEXT NOT NULL REFERENCES activity_types(id),
 		external_id TEXT NOT NULL,
 		name TEXT NOT NULL,
-		command TEXT NOT NULL,
-		image TEXT NOT NULL DEFAULT '',
+		kind TEXT NOT NULL CHECK(kind IN ('task', 'service', 'interactive')),
+		capabilities TEXT NOT NULL,
+		command_spec TEXT NOT NULL,
+		resource_requirements TEXT NOT NULL,
+		service_spec TEXT,
+		simulation_spec TEXT,
+		policy TEXT NOT NULL,
 		priority INTEGER NOT NULL DEFAULT 0,
-		cpu_required REAL NOT NULL DEFAULT 0,
-		memory_required_bytes INTEGER NOT NULL DEFAULT 0,
-		storage_required_bytes INTEGER NOT NULL DEFAULT 0,
 		metadata TEXT NOT NULL DEFAULT '{}',
 		UNIQUE(workflow_version_id, external_id)
 	)`,
-	`CREATE TABLE IF NOT EXISTS normalized_activity_dependencies (
-		activity_id TEXT NOT NULL REFERENCES normalized_activities(id),
-		depends_on_activity_id TEXT NOT NULL REFERENCES normalized_activities(id),
+	`CREATE TABLE IF NOT EXISTS activity_dependencies (
+		activity_id TEXT NOT NULL REFERENCES activity_definitions(id),
+		depends_on_activity_id TEXT NOT NULL REFERENCES activity_definitions(id),
 		dependency_type TEXT NOT NULL DEFAULT 'control',
 		PRIMARY KEY(activity_id, depends_on_activity_id),
 		CHECK(activity_id <> depends_on_activity_id)
@@ -319,7 +321,7 @@ var statements = []string{
 	`CREATE TABLE IF NOT EXISTS schedule_plan_assignments (
 		id TEXT PRIMARY KEY,
 		schedule_plan_id TEXT NOT NULL REFERENCES schedule_plans(id),
-		activity_id TEXT NOT NULL REFERENCES normalized_activities(id),
+		activity_id TEXT NOT NULL REFERENCES activity_definitions(id),
 		resource_id TEXT NOT NULL REFERENCES resources(id),
 		core_id TEXT NOT NULL DEFAULT '',
 		slot_id TEXT NOT NULL DEFAULT '',
@@ -338,7 +340,7 @@ var statements = []string{
 	`CREATE TABLE IF NOT EXISTS execution_runs (
 		id TEXT PRIMARY KEY,
 		schedule_plan_id TEXT NOT NULL REFERENCES schedule_plans(id),
-		mode TEXT NOT NULL CHECK(mode IN ('real', 'simulation')),
+		mode TEXT NOT NULL CHECK(mode IN ('real', 'simulation', 'interactive')),
 		seed INTEGER NOT NULL DEFAULT 0,
 		status TEXT NOT NULL DEFAULT 'created',
 		environment_snapshot_id TEXT NOT NULL DEFAULT '',
@@ -353,7 +355,7 @@ var statements = []string{
 		id TEXT PRIMARY KEY,
 		execution_run_id TEXT NOT NULL REFERENCES execution_runs(id),
 		plan_assignment_id TEXT NOT NULL REFERENCES schedule_plan_assignments(id),
-		activity_id TEXT NOT NULL REFERENCES normalized_activities(id),
+		activity_id TEXT NOT NULL REFERENCES activity_definitions(id),
 		planned_resource_id TEXT NOT NULL REFERENCES resources(id),
 		allocated_resource_id TEXT REFERENCES resources(id),
 		attempt INTEGER NOT NULL DEFAULT 1,
@@ -385,10 +387,26 @@ var statements = []string{
 		error TEXT NOT NULL DEFAULT '',
 		metadata TEXT NOT NULL DEFAULT '{}'
 	)`,
+	`CREATE TABLE IF NOT EXISTS activity_handles (
+		id TEXT PRIMARY KEY,
+		execution_run_id TEXT NOT NULL REFERENCES execution_runs(id),
+		activity_id TEXT NOT NULL REFERENCES activity_definitions(id),
+		resource_id TEXT NOT NULL REFERENCES resources(id),
+		runtime_id TEXT NOT NULL,
+		external_id TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL CHECK(status IN ('starting', 'running', 'completed', 'failed', 'stopped')),
+		endpoints TEXT NOT NULL DEFAULT '[]',
+		started_at REAL NOT NULL DEFAULT 0,
+		finished_at REAL NOT NULL DEFAULT 0,
+		exit_code INTEGER,
+		failure TEXT NOT NULL DEFAULT '',
+		metadata TEXT NOT NULL DEFAULT '{}',
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`,
 	`CREATE TABLE IF NOT EXISTS data_objects (
 		id TEXT PRIMARY KEY,
 		workflow_version_id TEXT NOT NULL REFERENCES workflow_versions(id),
-		producer_activity_id TEXT REFERENCES normalized_activities(id),
+		producer_activity_id TEXT REFERENCES activity_definitions(id),
 		logical_name TEXT NOT NULL,
 		relative_path TEXT NOT NULL DEFAULT '',
 		size_bytes INTEGER NOT NULL DEFAULT 0,
@@ -407,8 +425,8 @@ var statements = []string{
 		id TEXT PRIMARY KEY,
 		execution_run_id TEXT NOT NULL REFERENCES execution_runs(id),
 		data_object_id TEXT REFERENCES data_objects(id),
-		producer_activity_id TEXT REFERENCES normalized_activities(id),
-		consumer_activity_id TEXT REFERENCES normalized_activities(id),
+		producer_activity_id TEXT REFERENCES activity_definitions(id),
+		consumer_activity_id TEXT REFERENCES activity_definitions(id),
 		source_resource_id TEXT NOT NULL REFERENCES resources(id),
 		target_resource_id TEXT NOT NULL REFERENCES resources(id),
 		bytes INTEGER NOT NULL DEFAULT 0,

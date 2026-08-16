@@ -189,6 +189,9 @@ func resolveRuntime(activity domain.Activity, resource domain.Resource, profiles
 	if base, ok := numberMetadata(activity.Metadata, "baseRuntimeSeconds"); ok && resource.ComputeSpeedup > 0 {
 		return base / resource.ComputeSpeedup
 	}
+	if activity.Simulation != nil {
+		return activity.Simulation.DurationSeconds
+	}
 	return 0
 }
 

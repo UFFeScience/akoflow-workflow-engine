@@ -1,13 +1,7 @@
 package httpserver
 
 import (
-	"github.com/UFFeScience/akoflow/internal/api/handlers/internal_storage_handler"
-	"github.com/UFFeScience/akoflow/internal/api/handlers/runtime_api_handler"
-	"github.com/UFFeScience/akoflow/internal/api/handlers/schedule_api_handler"
-	"github.com/UFFeScience/akoflow/internal/api/handlers/storage_databasedump_handler"
-	"github.com/UFFeScience/akoflow/internal/api/handlers/workflow_api_handler"
 	"github.com/UFFeScience/akoflow/internal/api/handlers/workflow_engine_api_handler"
-	"github.com/UFFeScience/akoflow/internal/api/handlers/workflow_handler"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config/http_config"
 
@@ -24,47 +18,11 @@ func StartServer() {
 
 	http.HandleFunc("GET /", http_config.KernelHandler(HealthCheck))
 
-	http.HandleFunc("GET /akoflow-server/check-service/", http_config.KernelHandler(HealthCheck, "hello"))
-	http.HandleFunc("POST /akoflow-server/workflow/", http_config.KernelHandler(workflow_handler.New().Create))
-
-	http.HandleFunc("POST /akoflow-server/internal/storage/initial-file-list/", http_config.KernelHandler(internal_storage_handler.New().InitialFileListHandler))
-	http.HandleFunc("POST /akoflow-server/internal/storage/end-file-list/", http_config.KernelHandler(internal_storage_handler.New().EndFileListHandler))
-	http.HandleFunc("POST /akoflow-server/internal/storage/initial-disk-spec/", http_config.KernelHandler(internal_storage_handler.New().InitialDiskSpecHandler))
-	http.HandleFunc("POST /akoflow-server/internal/storage/end-disk-spec/", http_config.KernelHandler(internal_storage_handler.New().EndDiskSpecHandler))
-
-	http.HandleFunc("GET /akoflow-server/database-dump/", http_config.KernelHandler(storage_databasedump_handler.New().DatabaseDumpHandler))
-
-	http.HandleFunc("GET /akoflow-api/workflows/", http_config.KernelHandler(workflow_api_handler.New().ListAllWorkflows))
-	http.HandleFunc("POST /akoflow-api/workflows/", http_config.KernelHandler(workflow_handler.New().Create))
-	//http.HandleFunc("POST /akoflow-api/workflows/", http_config.KernelHandler(workflow_api_handler.New().CreateWorkflow))
-	//http.HandleFunc("POST /akoflow-api/validate-workflow/", http_config.KernelHandler(workflow_api_handler.New().ValidateWorkflow))
-	//
-	http.HandleFunc("GET /akoflow-api/workflows/{workflowId}/", http_config.KernelHandler(workflow_api_handler.New().GetWorkflow))
-	http.HandleFunc("GET /akoflow-api/runtimes/", http_config.KernelHandler(runtime_api_handler.New().ListAllRuntimes))
 	http.HandleFunc("POST /akoflow-api/environments/", http_config.KernelHandler(workflowEngine.CreateEnvironment))
 	http.HandleFunc("POST /akoflow-api/workflow-definitions/", http_config.KernelHandler(workflowEngine.CreateWorkflow))
 	http.HandleFunc("POST /akoflow-api/schedule-plans/", http_config.KernelHandler(workflowEngine.CreatePlan))
 	http.HandleFunc("GET /akoflow-api/schedule-plans/{planId}/", http_config.KernelHandler(workflowEngine.GetPlan))
-	http.HandleFunc("POST /akoflow-api/execution-runs/simulate/", http_config.KernelHandler(workflowEngine.Simulate))
-
-	http.HandleFunc("GET /akoflow-api/schedules/", http_config.KernelHandler(schedule_api_handler.New().ListAllSchedules))
-	http.HandleFunc("POST /akoflow-api/schedules/", http_config.KernelHandler(schedule_api_handler.New().CreateSchedule))
-	http.HandleFunc("GET /akoflow-api/schedules/{scheduleId}/", http_config.KernelHandler(schedule_api_handler.New().GetSchedule))
-
-	//http.HandleFunc("GET /akoflow-api/workflows/{workflowId}/activities/", http_config.KernelHandler(workflow_api_handler.New().ListAllActivities))
-	//http.HandleFunc("GET /akoflow-api/workflows/{workflowId}/activities/{activityId}/", http_config.KernelHandler(workflow_api_handler.New().GetActivity))
-	//http.HandleFunc("GET /akoflow-api/workflows/{workflowId}/activities/{activityId}/logs/", http_config.KernelHandler(workflow_api_handler.New().ListAllLogs))
-	//http.HandleFunc("GET /akoflow-api/workflows/{workflowId}/activities/{activityId}/metrics-cpu/", http_config.KernelHandler(workflow_api_handler.New().ListAllMetricsCPU))
-	//http.HandleFunc("GET /akoflow-api/workflows/{workflowId}/activities/{activityId}/metrics-memory/", http_config.KernelHandler(workflow_api_handler.New().ListAllMetricsMemory))
-	//
-	//http.HandleFunc("GET /akoflow-api/workflows/{workflowId}/metrics-cpu/", http_config.KernelHandler(workflow_api_handler.New().ListAllMetricsCPU))
-	//http.HandleFunc("GET /akoflow-api/workflows/{workflowId}/metrics-memory/", http_config.KernelHandler(workflow_api_handler.New().ListAllMetricsMemory))
-	//http.HandleFunc("GET /akoflow-api/workflows/{workflowId}/metrics-timeline/", http_config.KernelHandler(workflow_api_handler.New().ListAllMetricsTimeline))
-	//
-	//http.HandleFunc("GET /akoflow-api/workflows/{workflowId}/storages/", http_config.KernelHandler(workflow_api_handler.New().GetStorages))
-	//http.HandleFunc("GET /akoflow-api/workflows/{workflowId}/storages/{storageId}/", http_config.KernelHandler(workflow_api_handler.New().GetStorage))
-	http.HandleFunc("GET /akoflow-api/workflows/{workflowId}/storages/list-files/", http_config.KernelHandler(workflow_api_handler.New().ListStorageFiles))
-	//http.HandleFunc("GET /akoflow-api/workflows/{workflowId}/storages/{storageId}/download-file/", http_config.KernelHandler(workflow_api_handler.New().DownloadFile))
+	http.HandleFunc("POST /akoflow-api/execution-runs/", http_config.KernelHandler(workflowEngine.Simulate))
 
 	handler := AllowCORS(http.DefaultServeMux)
 	err := http.ListenAndServe(config.PORT_SERVER, handler)

@@ -9,7 +9,7 @@ import (
 	"github.com/UFFeScience/akoflow/internal/domain"
 )
 
-// GoPlugin loads the v2 planning contract. A plugin must export either a
+// GoPlugin loads the planning contract. A plugin must export either a
 // `Planner` value implementing Plugin or a `Plan` function with the exact
 // signature below.
 type GoPlugin struct{ Path string }

@@ -64,6 +64,13 @@ const (
 type WorkflowVersion = workflow.WorkflowVersion
 type ActivityType = workflow.ActivityType
 type Activity = workflow.Activity
+type ActivityKind = workflow.ActivityKind
+type ActivityCapability = workflow.ActivityCapability
+type ActivityCommand = workflow.ActivityCommand
+type ActivityResources = workflow.ActivityResources
+type ActivityService = workflow.ActivityService
+type ActivitySimulation = workflow.ActivitySimulation
+type ActivityPolicy = workflow.ActivityPolicy
 type ActivityDependency = workflow.ActivityDependency
 type ActivityDataDependency = workflow.ActivityDataDependency
 type ActivityResourceProfile = workflow.ActivityResourceProfile
@@ -76,10 +83,17 @@ type PlanAssignment = planning.PlanAssignment
 type PlanningRequest = planning.PlanningRequest
 
 const (
-	PlanningSourcePlugin    = planning.PlanningSourcePlugin
-	PlanningSourceImported  = planning.PlanningSourceImported
-	ExecutionModeReal       = planning.ExecutionModeReal
-	ExecutionModeSimulation = planning.ExecutionModeSimulation
+	PlanningSourcePlugin          = planning.PlanningSourcePlugin
+	PlanningSourceImported        = planning.PlanningSourceImported
+	ExecutionModeReal             = planning.ExecutionModeReal
+	ExecutionModeSimulation       = planning.ExecutionModeSimulation
+	ExecutionModeInteractive      = planning.ExecutionModeInteractive
+	ActivityKindTask              = workflow.ActivityKindTask
+	ActivityKindService           = workflow.ActivityKindService
+	ActivityKindInteractive       = workflow.ActivityKindInteractive
+	ActivityCapabilityReal        = workflow.ActivityCapabilityReal
+	ActivityCapabilitySimulation  = workflow.ActivityCapabilitySimulation
+	ActivityCapabilityInteractive = workflow.ActivityCapabilityInteractive
 )
 
 type ExecutionRunStatus = execution.ExecutionRunStatus
@@ -90,6 +104,8 @@ type ExecutionMetrics = execution.ExecutionMetrics
 type ExecutionTrace = execution.ExecutionTrace
 type DataTransfer = execution.DataTransfer
 type ActivityExecutionContext = execution.ActivityExecutionContext
+type ActivityHandle = execution.ActivityHandle
+type ActivityHandleStatus = execution.ActivityHandleStatus
 
 const (
 	ExecutionRunCreated   = execution.ExecutionRunCreated
@@ -102,4 +118,10 @@ const (
 	TaskRunning           = execution.TaskRunning
 	TaskCompleted         = execution.TaskCompleted
 	TaskFailed            = execution.TaskFailed
+	TaskCancelled         = execution.TaskCancelled
+	HandleStarting        = execution.HandleStarting
+	HandleRunning         = execution.HandleRunning
+	HandleCompleted       = execution.HandleCompleted
+	HandleFailed          = execution.HandleFailed
+	HandleStopped         = execution.HandleStopped
 )

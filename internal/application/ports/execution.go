@@ -20,7 +20,20 @@ type PlanExecutor interface {
 }
 
 type RuntimeAdapter interface {
-	Submit(context.Context, domain.ActivityExecutionContext) (string, error)
-	Status(context.Context, string) (domain.TaskExecutionStatus, error)
-	Cancel(context.Context, string) error
+	Mode() domain.ExecutionMode
+	Start(context.Context, domain.ActivityExecutionContext) (domain.ActivityHandle, error)
+	Inspect(context.Context, domain.ActivityHandle) (domain.ActivityHandle, error)
+	Stop(context.Context, domain.ActivityHandle) error
+}
+
+// RuntimeResolver selects an adapter from execution mode and runtime identity.
+// It is the only point where application code knows that multiple execution
+// technologies exist.
+type RuntimeResolver interface {
+	Resolve(domain.ExecutionMode, string) (RuntimeAdapter, error)
+}
+
+type ActivityHandleRepository interface {
+	Save(context.Context, domain.ActivityHandle) error
+	Find(context.Context, string) (*domain.ActivityHandle, error)
 }
