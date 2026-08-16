@@ -77,7 +77,7 @@ type ResponseGetJobByPodItemMetadata struct {
 					Field1 struct {
 					} `json:"."`
 					VBatchKubernetesIoJobTracking struct {
-					} `json:"v:"batch.kubernetes.io/job-tracking""`
+					} `json:"v:\"batch.kubernetes.io/job-tracking\""`
 				} `json:"f:finalizers"`
 				FGenerateName struct {
 				} `json:"f:generateName"`
@@ -93,7 +93,7 @@ type ResponseGetJobByPodItemMetadata struct {
 					Field1 struct {
 					} `json:"."`
 					KUid6230C1C6182147FcBa622383D0D31D4F struct {
-					} `json:"k:{"uid":"6230c1c6-1821-47fc-ba62-2383d0d31d4f"}"`
+					} `json:"k:{\"uid\":\"6230c1c6-1821-47fc-ba62-2383d0d31d4f\"}"`
 				} `json:"f:ownerReferences"`
 			} `json:"f:metadata,omitempty"`
 			FSpec struct {
@@ -115,7 +115,7 @@ type ResponseGetJobByPodItemMetadata struct {
 						} `json:"f:terminationMessagePath"`
 						FTerminationMessagePolicy struct {
 						} `json:"f:terminationMessagePolicy"`
-					} `json:"k:{"name":"activity-077"}"`
+					} `json:"k:{\"name\":\"activity-077\"}"`
 				} `json:"f:containers"`
 				FDnsPolicy struct {
 				} `json:"f:dnsPolicy"`
@@ -143,7 +143,7 @@ type ResponseGetJobByPodItemMetadata struct {
 						} `json:"f:status"`
 						FType struct {
 						} `json:"f:type"`
-					} `json:"k:{"type":"ContainersReady"}"`
+					} `json:"k:{\"type\":\"ContainersReady\"}"`
 					KTypeInitialized struct {
 						Field1 struct {
 						} `json:"."`
@@ -155,7 +155,7 @@ type ResponseGetJobByPodItemMetadata struct {
 						} `json:"f:status"`
 						FType struct {
 						} `json:"f:type"`
-					} `json:"k:{"type":"Initialized"}"`
+					} `json:"k:{\"type\":\"Initialized\"}"`
 					KTypeReady struct {
 						Field1 struct {
 						} `json:"."`
@@ -167,7 +167,7 @@ type ResponseGetJobByPodItemMetadata struct {
 						} `json:"f:status"`
 						FType struct {
 						} `json:"f:type"`
-					} `json:"k:{"type":"Ready"}"`
+					} `json:"k:{\"type\":\"Ready\"}"`
 				} `json:"f:conditions"`
 				FContainerStatuses struct {
 				} `json:"f:containerStatuses"`
@@ -185,7 +185,7 @@ type ResponseGetJobByPodItemMetadata struct {
 						} `json:"."`
 						FIp struct {
 						} `json:"f:ip"`
-					} `json:"k:{"ip":"10.1.0.81"}"`
+					} `json:"k:{\"ip\":\"10.1.0.81\"}"`
 				} `json:"f:podIPs"`
 				FStartTime struct {
 				} `json:"f:startTime"`

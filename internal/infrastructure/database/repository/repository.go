@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"net/url"
 	"os"
 	"path/filepath"
 
@@ -17,7 +18,7 @@ const File = "storage/database.db"
 func (d *Database) Connect() *sql.DB {
 	if configured := os.Getenv("AKOFLOW_DATABASE_PATH"); configured != "" {
 		createDirectoryIfNotExists(filepath.Dir(configured))
-		db, err := sql.Open("sqlite3", configured)
+		db, err := openSQLite(configured)
 		if err != nil {
 			panic(err)
 		}
@@ -32,12 +33,26 @@ func (d *Database) Connect() *sql.DB {
 
 	createDirectoryIfNotExists(filepath.Dir(dbPath))
 
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := openSQLite(dbPath)
 	if err != nil {
 		panic(err)
 	}
 
 	return db
+}
+
+func openSQLite(path string) (*sql.DB, error) {
+	location := (&url.URL{Scheme: "file", Path: path}).String()
+	// Foreign-key enforcement remains controlled by schema/application migrations
+	// until all existing repositories create their aggregates transactionally.
+	dsn := location + "?_busy_timeout=10000&_journal_mode=WAL"
+	db, err := sql.Open("sqlite3", dsn)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(4)
+	return db, nil
 }
 
 func createDirectoryIfNotExists(path string) {

@@ -12,14 +12,31 @@ import (
 )
 
 type EnvironmentVersionStatus = environment.EnvironmentVersionStatus
+type EnvironmentStatus = environment.EnvironmentStatus
+type ConnectionType = environment.ConnectionType
 type Environment = environment.Environment
 type EnvironmentVersion = environment.EnvironmentVersion
 type EnvironmentRuntime = environment.EnvironmentRuntime
+type EnvironmentConnection = environment.EnvironmentConnection
+type EnvironmentCapabilities = environment.Capabilities
+type DiscoveryRun = environment.DiscoveryRun
 
 const (
 	EnvironmentVersionDraft     = environment.EnvironmentVersionDraft
 	EnvironmentVersionPublished = environment.EnvironmentVersionPublished
 	EnvironmentVersionRetired   = environment.EnvironmentVersionRetired
+	EnvironmentDefined          = environment.EnvironmentDefined
+	EnvironmentConnecting       = environment.EnvironmentConnecting
+	EnvironmentConnected        = environment.EnvironmentConnected
+	EnvironmentDiscovering      = environment.EnvironmentDiscovering
+	EnvironmentReady            = environment.EnvironmentReady
+	EnvironmentDegraded         = environment.EnvironmentDegraded
+	EnvironmentUnreachable      = environment.EnvironmentUnreachable
+	ConnectionSSH               = environment.ConnectionSSH
+	ConnectionKubernetes        = environment.ConnectionKubernetes
+	ConnectionCloud             = environment.ConnectionCloud
+	ConnectionLocal             = environment.ConnectionLocal
+	ConnectionAgent             = environment.ConnectionAgent
 )
 
 type ResourceType = resource.ResourceType
@@ -28,15 +45,20 @@ type ResourceSnapshot = resource.ResourceSnapshot
 type NetworkLink = resource.NetworkLink
 
 const (
-	ResourceCluster           = resource.ResourceCluster
-	ResourceNodePool          = resource.ResourceNodePool
-	ResourceKubernetesMachine = resource.ResourceKubernetesMachine
-	ResourceHPCPartition      = resource.ResourceHPCPartition
-	ResourceHPCMachine        = resource.ResourceHPCMachine
-	ResourceCloudVM           = resource.ResourceCloudVM
-	ResourceFogDevice         = resource.ResourceFogDevice
-	ResourceLocalMachine      = resource.ResourceLocalMachine
-	ResourceStorage           = resource.ResourceStorage
+	ResourceCluster             = resource.ResourceCluster
+	ResourceNodePool            = resource.ResourceNodePool
+	ResourceKubernetesMachine   = resource.ResourceKubernetesMachine
+	ResourceHPCPartition        = resource.ResourceHPCPartition
+	ResourceHPCMachine          = resource.ResourceHPCMachine
+	ResourceCloudVM             = resource.ResourceCloudVM
+	ResourceFogDevice           = resource.ResourceFogDevice
+	ResourceLocalMachine        = resource.ResourceLocalMachine
+	ResourceStorage             = resource.ResourceStorage
+	ResourceServerlessPlatform  = resource.ResourceServerlessPlatform
+	ResourceServerlessFunction  = resource.ResourceServerlessFunction
+	ResourceBatchQueue          = resource.ResourceBatchQueue
+	ResourceKubernetesNamespace = resource.ResourceKubernetesNamespace
+	ResourceSlurmReservation    = resource.ResourceSlurmReservation
 )
 
 type WorkflowVersion = workflow.WorkflowVersion

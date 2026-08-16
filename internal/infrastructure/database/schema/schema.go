@@ -126,7 +126,20 @@ var statements = []string{
 		id TEXT PRIMARY KEY,
 		name TEXT NOT NULL,
 		description TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL DEFAULT 'defined',
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`,
+	`CREATE TABLE IF NOT EXISTS environment_connections (
+		id TEXT PRIMARY KEY,
+		environment_id TEXT NOT NULL REFERENCES environments(id),
+		name TEXT NOT NULL,
+		type TEXT NOT NULL,
+		endpoint TEXT NOT NULL DEFAULT '',
+		username TEXT NOT NULL DEFAULT '',
+		credential_ref TEXT NOT NULL DEFAULT '',
+		configuration TEXT NOT NULL DEFAULT '{}',
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(environment_id, name)
 	)`,
 	`CREATE TABLE IF NOT EXISTS environment_versions (
 		id TEXT PRIMARY KEY,
@@ -148,6 +161,24 @@ var statements = []string{
 		role TEXT NOT NULL DEFAULT '',
 		configuration TEXT NOT NULL DEFAULT '{}',
 		PRIMARY KEY(environment_version_id, runtime_id)
+	)`,
+	`CREATE TABLE IF NOT EXISTS environment_runtime_capabilities (
+		environment_version_id TEXT NOT NULL,
+		runtime_id TEXT NOT NULL,
+		capabilities TEXT NOT NULL DEFAULT '{}',
+		PRIMARY KEY(environment_version_id, runtime_id),
+		FOREIGN KEY(environment_version_id, runtime_id)
+			REFERENCES environment_runtimes(environment_version_id, runtime_id)
+	)`,
+	`CREATE TABLE IF NOT EXISTS discovery_runs (
+		id TEXT PRIMARY KEY,
+		environment_version_id TEXT NOT NULL REFERENCES environment_versions(id),
+		provider TEXT NOT NULL,
+		status TEXT NOT NULL,
+		resources_found INTEGER NOT NULL DEFAULT 0,
+		error TEXT NOT NULL DEFAULT '',
+		started_at DATETIME NOT NULL,
+		finished_at DATETIME
 	)`,
 	`CREATE TABLE IF NOT EXISTS resources (
 		id TEXT PRIMARY KEY,
@@ -388,6 +419,31 @@ var statements = []string{
 		cost REAL NOT NULL DEFAULT 0,
 		metadata TEXT NOT NULL DEFAULT '{}'
 	)`,
+	`CREATE TABLE IF NOT EXISTS queue_jobs (
+		id TEXT PRIMARY KEY,
+		category TEXT NOT NULL,
+		event_type TEXT NOT NULL,
+		aggregate_type TEXT NOT NULL DEFAULT '',
+		aggregate_id TEXT NOT NULL DEFAULT '',
+		payload BLOB NOT NULL DEFAULT X'',
+		status TEXT NOT NULL DEFAULT 'pending'
+			CHECK(status IN ('pending', 'leased', 'completed', 'failed', 'cancelled')),
+		priority INTEGER NOT NULL DEFAULT 0,
+		available_at DATETIME NOT NULL,
+		lease_owner TEXT NOT NULL DEFAULT '',
+		lease_expires_at DATETIME,
+		attempts INTEGER NOT NULL DEFAULT 0,
+		max_attempts INTEGER NOT NULL DEFAULT 5 CHECK(max_attempts > 0),
+		idempotency_key TEXT,
+		last_error TEXT NOT NULL DEFAULT '',
+		created_at DATETIME NOT NULL,
+		started_at DATETIME,
+		completed_at DATETIME
+	)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS queue_jobs_idempotency_idx
+		ON queue_jobs(idempotency_key) WHERE idempotency_key IS NOT NULL AND idempotency_key <> ''`,
+	`CREATE INDEX IF NOT EXISTS queue_jobs_available_idx
+		ON queue_jobs(status, category, available_at, priority DESC)`,
 }
 
 func Apply(db *sql.DB) error {
@@ -402,8 +458,40 @@ func Apply(db *sql.DB) error {
 	}
 	for i, statement := range statements {
 		if _, err = tx.Exec(statement); err != nil {
-			return fmt.Errorf("apply schema v2 statement %d: %w", i+1, err)
+			return fmt.Errorf("apply schema statement %d: %w", i+1, err)
 		}
 	}
+	if err = ensureColumn(tx, "environments", "status", "TEXT NOT NULL DEFAULT 'defined'"); err != nil {
+		return fmt.Errorf("migrate environments status: %w", err)
+	}
 	return tx.Commit()
+}
+
+func ensureColumn(tx *sql.Tx, table, column, definition string) error {
+	rows, err := tx.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return err
+	}
+	found := false
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull, primaryKey int
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return err
+		}
+		if name == column {
+			found = true
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if found {
+		return nil
+	}
+	_, err = tx.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + definition)
+	return err
 }

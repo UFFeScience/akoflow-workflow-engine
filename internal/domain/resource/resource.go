@@ -5,15 +5,20 @@ import "time"
 type ResourceType string
 
 const (
-	ResourceCluster           ResourceType = "cluster"
-	ResourceNodePool          ResourceType = "node_pool"
-	ResourceKubernetesMachine ResourceType = "kubernetes_machine"
-	ResourceHPCPartition      ResourceType = "hpc_partition"
-	ResourceHPCMachine        ResourceType = "hpc_machine"
-	ResourceCloudVM           ResourceType = "cloud_vm"
-	ResourceFogDevice         ResourceType = "fog_device"
-	ResourceLocalMachine      ResourceType = "local_machine"
-	ResourceStorage           ResourceType = "storage"
+	ResourceCluster             ResourceType = "cluster"
+	ResourceNodePool            ResourceType = "node_pool"
+	ResourceKubernetesMachine   ResourceType = "kubernetes_machine"
+	ResourceHPCPartition        ResourceType = "hpc_partition"
+	ResourceHPCMachine          ResourceType = "hpc_machine"
+	ResourceCloudVM             ResourceType = "cloud_vm"
+	ResourceFogDevice           ResourceType = "fog_device"
+	ResourceLocalMachine        ResourceType = "local_machine"
+	ResourceStorage             ResourceType = "storage"
+	ResourceServerlessPlatform  ResourceType = "serverless_platform"
+	ResourceServerlessFunction  ResourceType = "serverless_function"
+	ResourceBatchQueue          ResourceType = "batch_queue"
+	ResourceKubernetesNamespace ResourceType = "kubernetes_namespace"
+	ResourceSlurmReservation    ResourceType = "slurm_reservation"
 )
 
 type Resource struct {

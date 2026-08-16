@@ -11,6 +11,7 @@ import (
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/activity_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/logs_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/metrics_repository"
+	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/queue_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/resource_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/runtime_repository"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/schedule_repository"
@@ -47,6 +48,7 @@ type AppContainerRepository struct {
 	RuntimeRepository  runtime_repository.IRuntimeRepository
 	ResourceRepository resource_repository.IRepository
 	ScheduleRepository schedule_repository.IScheduleRepository
+	QueueRepository    ports.QueueRepository
 }
 
 type AppContainerConnector struct {
@@ -107,6 +109,7 @@ func MakeAppContainer() AppContainer {
 	runtimeRepository := runtime_repository.New()
 	resourceRepository := resource_repository.New()
 	scheduleRepository := schedule_repository.New()
+	queueRepository := queue_repository.New()
 
 	// create the Connector instances
 	k8sConnector := connector_k8s.New()
@@ -129,6 +132,7 @@ func MakeAppContainer() AppContainer {
 			RuntimeRepository:  runtimeRepository,
 			ResourceRepository: resourceRepository,
 			ScheduleRepository: scheduleRepository,
+			QueueRepository:    queueRepository,
 		},
 		Connector: AppContainerConnector{
 			K8sConnector:         k8sConnector,

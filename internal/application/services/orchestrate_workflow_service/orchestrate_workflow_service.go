@@ -1,14 +1,20 @@
 package orchestrate_workflow_service
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"strconv"
+	"time"
 
 	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/application/services/get_workflow_by_status_service"
 	"github.com/UFFeScience/akoflow/internal/application/services/orchestrate_schedule_service"
+	domainqueue "github.com/UFFeScience/akoflow/internal/domain/queue"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/activity"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow/definition"
 	"github.com/UFFeScience/akoflow/internal/execution/lifecycle/channel"
+	"github.com/UFFeScience/akoflow/internal/execution/lifecycle/eventloop"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/schedule_repository"
 )
@@ -16,6 +22,7 @@ import (
 type OrchestrateWorflowService struct {
 	namespace           string
 	channelManager      *channel.Manager
+	eventPublisher      ports.EventPublisher
 	getWorkflowByStatus ActivityStatusSelector
 	scheduleRepository  schedule_repository.IScheduleRepository
 	// runScheduleService  run_schedule_service.RunScheduleService
@@ -36,6 +43,7 @@ func New() *OrchestrateWorflowService {
 	service := &OrchestrateWorflowService{
 		namespace:           "akoflow",
 		channelManager:      channel.GetInstance(),
+		eventPublisher:      config.App().Repository.QueueRepository,
 		getWorkflowByStatus: &statusSelector,
 		scheduleRepository:  config.App().Repository.ScheduleRepository,
 		// runScheduleService:  run_schedule_service.New(),
@@ -45,6 +53,13 @@ func New() *OrchestrateWorflowService {
 		return service.orchestrateScheduleService.SetWorkflow(workflow).SetReadyToRunActivities(activities).Orchestrate()
 	}
 	return service
+}
+
+func NewWithPublisher(namespace string, publisher ports.EventPublisher, statusSelector ActivityStatusSelector, scheduleActivities ScheduleActivities) *OrchestrateWorflowService {
+	return &OrchestrateWorflowService{
+		namespace: namespace, eventPublisher: publisher, getWorkflowByStatus: statusSelector,
+		scheduleActivities: scheduleActivities, workflowsRunning: make(map[int][]workflow_activity_entity.WorkflowActivities),
+	}
 }
 
 func NewWithDependencies(namespace string, channelManager *channel.Manager, statusSelector ActivityStatusSelector, scheduleActivities ScheduleActivities) *OrchestrateWorflowService {
@@ -65,7 +80,28 @@ func (o *OrchestrateWorflowService) SetWorkflowsRunning(workflowsRunning map[int
 func (o *OrchestrateWorflowService) dispatchToWorker(activities []workflow_activity_entity.WorkflowActivities) {
 	for _, activity := range activities {
 		println("Dispatching to worker activity: ", activity.Name, " with id: ", activity.Id)
-		o.channelManager.WorfklowChannel <- channel.DataChannel{Namespace: o.namespace, Job: activity, Id: activity.Id}
+		if o.eventPublisher != nil {
+			payload, err := json.Marshal(eventloop.ActivitySubmissionPayload{ActivityID: activity.Id})
+			if err != nil {
+				config.App().Logger.Error("failed to encode activity event:", err)
+				continue
+			}
+			job, err := domainqueue.New(domainqueue.CategoryExecution, eventloop.EventActivitySubmissionRequested, payload, time.Now().UTC())
+			if err != nil {
+				config.App().Logger.Error("failed to create activity event:", err)
+				continue
+			}
+			job.AggregateType = "activity"
+			job.AggregateID = strconv.Itoa(activity.Id)
+			job.IdempotencyKey = "activity-submission:" + job.AggregateID
+			if _, err := o.eventPublisher.Publish(context.Background(), job); err != nil {
+				config.App().Logger.Error("failed to persist activity event:", err)
+			}
+			continue
+		}
+		if o.channelManager != nil {
+			o.channelManager.WorfklowChannel <- channel.DataChannel{Namespace: o.namespace, Job: activity, Id: activity.Id}
+		}
 	}
 }
 

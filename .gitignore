@@ -9,6 +9,8 @@ cmd/server/ako_plugin_*.go
 releases/bin/*
 **akoflow.log**
 *.db
+*.db-shm
+*.db-wal
 *.sif
 .env
 resources/

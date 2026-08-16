@@ -159,7 +159,7 @@ func (s *ConnectorHPCRuntime) ExecuteMultiplesCommand(commands []string) {
 
 			shell := getAvailableShell()
 
-			fullCommand := append([]string{"-c", command})
+			fullCommand := []string{"-c", command}
 			cmd := exec.Command(shell, fullCommand...)
 			output, err := cmd.CombinedOutput()
 
