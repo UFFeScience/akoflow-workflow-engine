@@ -5,6 +5,7 @@ import (
 	"database/sql"
 
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database"
+	dbdata "github.com/UFFeScience/akoflow/internal/infrastructure/database/data"
 	dbenvironment "github.com/UFFeScience/akoflow/internal/infrastructure/database/environment"
 	dbexecution "github.com/UFFeScience/akoflow/internal/infrastructure/database/execution"
 	dbnetwork "github.com/UFFeScience/akoflow/internal/infrastructure/database/network"
@@ -17,6 +18,7 @@ type persistence struct {
 	database     *sql.DB
 	environments *dbenvironment.Repository
 	executions   *dbexecution.Repository
+	data         *dbdata.Repository
 	topologies   *dbnetwork.Repository
 	plans        *dbplanning.Repository
 	events       *dbqueue.Repository
@@ -39,6 +41,7 @@ func openPersistence(ctx context.Context) (persistence, error) {
 	}
 	return persistence{
 		database: db, environments: dbenvironment.New(db), executions: dbexecution.New(db),
+		data:       dbdata.New(db),
 		topologies: dbnetwork.New(db), plans: dbplanning.New(db), events: events,
 		workflows: dbworkflow.New(db),
 	}, nil

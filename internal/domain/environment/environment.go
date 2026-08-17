@@ -105,6 +105,7 @@ type Definition struct {
 	Version     EnvironmentVersion                 `json:"version"`
 	Runtimes    []EnvironmentRuntime               `json:"runtimes"`
 	Resources   []resource.Resource                `json:"resources"`
+	Storages    []resource.StorageResource         `json:"storages,omitempty"`
 	Profiles    []workflow.ActivityResourceProfile `json:"activityResourceProfiles,omitempty"`
 	Connections []EnvironmentConnection            `json:"connections,omitempty"`
 }

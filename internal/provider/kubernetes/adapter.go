@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"strings"
 	"time"
 
@@ -44,7 +45,9 @@ func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionC
 		return domain.ActivityHandle{}, fmt.Errorf("activity image is required for Kubernetes")
 	}
 	name := kubernetesName("akoflow-" + execution.Run.ID + "-" + activity.ID)
-	job, service, err := resources(name, a.namespace, activity, execution.Resource, execution.Run.ID)
+	job, service, err := resources(
+		name, a.namespace, execution.Workflow, activity, execution.Resource, execution.Run.ID,
+	)
 	if err != nil {
 		return domain.ActivityHandle{}, err
 	}
@@ -64,7 +67,9 @@ func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionC
 		Endpoints: serviceEndpoints(name, a.namespace, activity),
 		Metadata: map[string]any{
 			"artifactObservationDriver": "filesystem-diff",
-			"artifactObservationRoot":   observationRoot(activity),
+			"artifactObservationRoot":   observationRoot(activity, execution.Run.ID),
+			"artifactStorageType":       storageBindingFor(activity).Type,
+			"artifactStorageResourceId": storageBindingFor(activity).ResourceID,
 		}}, nil
 }
 
@@ -207,11 +212,12 @@ func (a *Adapter) Stop(ctx context.Context, handle domain.ActivityHandle) error 
 func resources(
 	name string,
 	namespace string,
+	workflow domain.WorkflowVersion,
 	activity domain.Activity,
 	resource domain.Resource,
 	runID string,
 ) ([]byte, []byte, error) {
-	podSpec := observedPodSpec(activity, resource, runID)
+	podSpec := observedPodSpec(workflow, activity, resource, runID)
 	job := map[string]any{"apiVersion": "batch/v1", "kind": "Job",
 		"metadata": map[string]any{"name": name, "namespace": namespace,
 			"labels": map[string]string{"app.kubernetes.io/managed-by": "akoflow"}},
@@ -239,7 +245,12 @@ func resources(
 	return jobJSON, serviceJSON, err
 }
 
-func observedPodSpec(activity domain.Activity, resource domain.Resource, runID string) map[string]any {
+func observedPodSpec(
+	workflow domain.WorkflowVersion,
+	activity domain.Activity,
+	resource domain.Resource,
+	runID string,
+) map[string]any {
 	environment := make([]map[string]string, 0, len(activity.Command.Environment))
 	for key, value := range activity.Command.Environment {
 		environment = append(environment, map[string]string{"name": key, "value": value})
@@ -247,8 +258,23 @@ func observedPodSpec(activity domain.Activity, resource domain.Resource, runID s
 	environment = append(environment,
 		map[string]string{"name": "AKOFLOW_RUN_ID", "value": runID},
 		map[string]string{"name": "AKOFLOW_ACTIVITY_ID", "value": activity.ID},
-		map[string]string{"name": "AKOFLOW_OBSERVATION_ROOT", "value": observationRoot(activity)},
+		map[string]string{"name": "AKOFLOW_OBSERVATION_ROOT", "value": observationRoot(activity, runID)},
 	)
+	if binding := storageBindingFor(activity); binding.Type == "pvc" || binding.Type == "nfs" {
+		environment = append(environment,
+			map[string]string{"name": "AKOFLOW_RUN_DATA_ROOT", "value": path.Join(binding.MountPath, "runs", runID)},
+			map[string]string{"name": "AKOFLOW_ACTIVITY_DATA_ROOT", "value": observationRoot(activity, runID)},
+		)
+		for _, dependency := range workflow.DataDependencies {
+			if dependency.ConsumerActivityID != activity.ID || dependency.LogicalName == "" {
+				continue
+			}
+			environment = append(environment, map[string]string{
+				"name":  inputEnvironmentName(dependency.LogicalName),
+				"value": path.Join(binding.MountPath, "runs", runID, dependency.ProducerActivityID, dependency.LogicalName),
+			})
+		}
+	}
 	arguments := []string{
 		"-c", renderShellLifecycle(), "akoflow-entrypoint", activity.Command.Entrypoint,
 	}
@@ -259,9 +285,23 @@ func observedPodSpec(activity domain.Activity, resource domain.Resource, runID s
 		"resources": map[string]any{"requests": map[string]string{
 			"cpu":    fmt.Sprintf("%g", activity.Resources.CPU),
 			"memory": fmt.Sprintf("%d", activity.Resources.MemoryBytes)}}}
+	binding := storageBindingFor(activity)
+	if binding.Type != "" {
+		container["volumeMounts"] = []map[string]any{{
+			"name": "akoflow-data", "mountPath": binding.MountPath, "readOnly": binding.ReadOnly,
+		}}
+	}
 	podSpec := map[string]any{
 		"restartPolicy": "Never",
 		"containers":    []any{container},
+	}
+	switch binding.Type {
+	case "pvc":
+		podSpec["volumes"] = []map[string]any{{"name": "akoflow-data",
+			"persistentVolumeClaim": map[string]any{"claimName": binding.ClaimName, "readOnly": binding.ReadOnly}}}
+	case "nfs":
+		podSpec["volumes"] = []map[string]any{{"name": "akoflow-data",
+			"nfs": map[string]any{"server": binding.Server, "path": binding.Path, "readOnly": binding.ReadOnly}}}
 	}
 	if resource.Type == domain.ResourceKubernetesMachine && resource.ProviderID != "" {
 		podSpec["nodeSelector"] = map[string]string{
@@ -269,6 +309,19 @@ func observedPodSpec(activity domain.Activity, resource domain.Resource, runID s
 		}
 	}
 	return podSpec
+}
+
+func inputEnvironmentName(logicalName string) string {
+	name := strings.Map(func(character rune) rune {
+		if character >= 'a' && character <= 'z' {
+			return character - ('a' - 'A')
+		}
+		if character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' {
+			return character
+		}
+		return '_'
+	}, logicalName)
+	return "AKOFLOW_INPUT_" + strings.Trim(name, "_")
 }
 
 const manifestPrefixPlaceholder = "__AKOFLOW_MANIFEST_PREFIX__"
@@ -280,14 +333,45 @@ func renderShellLifecycle() string {
 	return strings.ReplaceAll(shellLifecycleTemplate, manifestPrefixPlaceholder, manifestLogPrefix)
 }
 
-func observationRoot(activity domain.Activity) string {
+type storageBinding struct {
+	Type, ResourceID, ClaimName, Server, Path, MountPath string
+	ReadOnly                                             bool
+}
+
+func storageBindingFor(activity domain.Activity) storageBinding {
+	value, ok := activity.Metadata["storage"].(map[string]any)
+	if !ok {
+		return storageBinding{}
+	}
+	binding := storageBinding{
+		Type: stringValue(value["type"]), ResourceID: stringValue(value["resourceId"]),
+		ClaimName: stringValue(value["claimName"]),
+		Server:    stringValue(value["server"]), Path: stringValue(value["path"]),
+		MountPath: stringValue(value["mountPath"]),
+	}
+	binding.ReadOnly, _ = value["readOnly"].(bool)
+	if binding.MountPath == "" {
+		binding.MountPath = "/akoflow/data"
+	}
+	return binding
+}
+
+func observationRoot(activity domain.Activity, runID string) string {
 	if configured, ok := activity.Metadata["artifactObservationRoot"].(string); ok && configured != "" {
 		return configured
+	}
+	if binding := storageBindingFor(activity); binding.Type == "pvc" || binding.Type == "nfs" {
+		return path.Join(binding.MountPath, "runs", runID, activity.ID)
 	}
 	if activity.Command.WorkingDirectory != "" {
 		return activity.Command.WorkingDirectory
 	}
 	return "/tmp/akoflow/workspace"
+}
+
+func stringValue(value any) string {
+	text, _ := value.(string)
+	return text
 }
 
 func ignoreNotFound(err error) error {

@@ -113,6 +113,12 @@ type ArtifactObservation = execution.ArtifactObservation
 type ArtifactManifest = execution.ArtifactManifest
 type LifecycleObservation = execution.LifecycleObservation
 type ArtifactSummary = execution.ArtifactSummary
+type StorageType = resource.StorageType
+type DataLocationStatus = execution.DataLocationStatus
+type StorageResource = resource.StorageResource
+type DataObject = execution.DataObject
+type DataObjectInstance = execution.DataObjectInstance
+type DataLocation = execution.DataLocation
 
 const (
 	ExecutionRunCreated   = execution.ExecutionRunCreated
@@ -134,4 +140,14 @@ const (
 	ArtifactCreated       = execution.ArtifactCreated
 	ArtifactModified      = execution.ArtifactModified
 	ArtifactDeleted       = execution.ArtifactDeleted
+	StorageLocal          = resource.StorageLocal
+	StoragePVC            = resource.StoragePVC
+	StorageNFS            = resource.StorageNFS
+	StorageS3             = resource.StorageS3
+	StorageLustre         = resource.StorageLustre
+	DataLocationEphemeral = execution.DataLocationEphemeral
+	DataLocationStaging   = execution.DataLocationStaging
+	DataLocationAvailable = execution.DataLocationAvailable
+	DataLocationFailed    = execution.DataLocationFailed
+	DataLocationDeleted   = execution.DataLocationDeleted
 )

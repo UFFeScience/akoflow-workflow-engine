@@ -70,6 +70,12 @@ workflow:
     policy:
       timeoutSeconds: 60
       maxAttempts: 1
+    metadata:
+      storage:
+        type: pvc
+        resourceId: kind-akoflow-data
+        claimName: akoflow-data
+        mountPath: /akoflow/data
     priority: 10
   - id: process
     workflowVersionId: kind-dag-v1
@@ -92,12 +98,22 @@ workflow:
     policy:
       timeoutSeconds: 60
       maxAttempts: 1
+    metadata:
+      storage:
+        type: pvc
+        resourceId: kind-akoflow-data
+        claimName: akoflow-data
+        mountPath: /akoflow/data
     priority: 5
   dependencies:
   - activityId: process
     dependsOnActivityId: prepare
     type: control
-  dataDependencies: []
+  dataDependencies:
+  - producerActivityId: prepare
+    consumerActivityId: process
+    logicalName: result.txt
+    sizeBytes: 0
 resources:
 - id: kind-worker
   environmentVersionId: kind-akoflow-v1

@@ -36,6 +36,20 @@ runtimes:
       container: true
       cancellation: true
 
+storages:
+  - id: kind-akoflow-data
+    environmentVersionId: kind-akoflow-v1
+    name: workflow-data
+    type: pvc
+    endpoint: pvc://akoflow/akoflow-data
+    capacityBytes: 1073741824
+    shared: true
+    readOnly: false
+    configuration:
+      namespace: akoflow
+      claimName: akoflow-data
+      mountPath: /akoflow/data
+
 resources:
   - id: kind-worker
     environmentVersionId: kind-akoflow-v1

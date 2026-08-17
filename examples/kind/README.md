@@ -128,6 +128,16 @@ Run the commands below directly inside the development container:
 cd /app
 ```
 
+Create the persistent workflow-data volume from the host before submitting the run:
+
+```bash
+kubectl apply -f examples/kind/storage.yaml
+kubectl -n akoflow get pvc akoflow-data
+```
+
+The Kind `standard` StorageClass uses `WaitForFirstConsumer`, so the claim stays
+`Pending` until the first activity Pod is scheduled. It becomes `Bound` at that point.
+
 Register the environment:
 
 ```bash

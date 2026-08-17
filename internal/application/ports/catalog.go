@@ -20,3 +20,9 @@ type PlanStore interface {
 	Save(context.Context, domain.SchedulePlan) error
 	Find(context.Context, string) (*domain.SchedulePlan, error)
 }
+
+type DataCatalog interface {
+	CatalogArtifacts(context.Context, domain.ActivityHandle) error
+	ListInstances(context.Context, string) ([]domain.DataObjectInstance, error)
+	ListLocations(context.Context, string) ([]domain.DataLocation, error)
+}

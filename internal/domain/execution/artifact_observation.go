@@ -14,6 +14,7 @@ type ArtifactObservation struct {
 	Path             string         `json:"path"`
 	Change           ArtifactChange `json:"change"`
 	SizeBytes        int64          `json:"sizeBytes"`
+	Checksum         string         `json:"checksum,omitempty"`
 	ModifiedUnixNano int64          `json:"modifiedUnixNano,omitempty"`
 }
 

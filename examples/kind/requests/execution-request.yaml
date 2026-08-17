@@ -68,7 +68,7 @@ workflow:
       entrypoint: sh
       arguments:
       - "-c"
-      - echo 'prepare started'; sleep 2; echo 'prepare completed'
+      - echo 'prepare started'; sleep 2; printf 'prepared\n' > result.txt; echo 'prepare completed'
     resources:
       cpu: 0.1
       memoryBytes: 16777216
@@ -76,6 +76,12 @@ workflow:
     policy:
       timeoutSeconds: 60
       maxAttempts: 1
+    metadata:
+      storage:
+        type: pvc
+        resourceId: kind-akoflow-data
+        claimName: akoflow-data
+        mountPath: /akoflow/data
     priority: 10
   - id: process
     workflowVersionId: kind-dag-v1
@@ -90,7 +96,7 @@ workflow:
       entrypoint: sh
       arguments:
       - "-c"
-      - echo 'process started after prepare'; sleep 2; echo 'process completed'
+      - echo 'process started after prepare'; sleep 2; cat "$AKOFLOW_INPUT_RESULT_TXT" > consumed.txt; echo 'process completed'
     resources:
       cpu: 0.1
       memoryBytes: 16777216
@@ -98,12 +104,22 @@ workflow:
     policy:
       timeoutSeconds: 60
       maxAttempts: 1
+    metadata:
+      storage:
+        type: pvc
+        resourceId: kind-akoflow-data
+        claimName: akoflow-data
+        mountPath: /akoflow/data
     priority: 5
   dependencies:
   - activityId: process
     dependsOnActivityId: prepare
     type: control
-  dataDependencies: []
+  dataDependencies:
+  - producerActivityId: prepare
+    consumerActivityId: process
+    logicalName: result.txt
+    sizeBytes: 0
 resources:
 - id: kind-worker
   environmentVersionId: kind-akoflow-v1

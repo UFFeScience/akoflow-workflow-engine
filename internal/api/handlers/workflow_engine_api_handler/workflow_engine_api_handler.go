@@ -38,6 +38,7 @@ type Dependencies struct {
 	Validator    PlanValidator
 	Executions   ExecutionQuery
 	Topologies   ports.NetworkTopologyStore
+	Data         ports.DataCatalog
 }
 
 type Handler struct {
@@ -48,6 +49,7 @@ type Handler struct {
 	validator    PlanValidator
 	executions   ExecutionQuery
 	topologies   ports.NetworkTopologyStore
+	data         ports.DataCatalog
 }
 
 func New(dependencies Dependencies) (*Handler, error) {
@@ -59,6 +61,7 @@ func New(dependencies Dependencies) (*Handler, error) {
 		plans: dependencies.Plans, events: dependencies.Events,
 		validator: dependencies.Validator, executions: dependencies.Executions,
 		topologies: dependencies.Topologies,
+		data:       dependencies.Data,
 	}, nil
 }
 
@@ -112,9 +115,23 @@ func (h *Handler) GetExecution(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	response := map[string]any{
 		"run": run, "activities": tasks, "handles": handles, "events": events,
-	})
+	}
+	if h.data != nil {
+		instances, dataErr := h.data.ListInstances(r.Context(), run.ID)
+		if dataErr != nil {
+			writeError(w, http.StatusInternalServerError, dataErr)
+			return
+		}
+		locations, locationErr := h.data.ListLocations(r.Context(), run.ID)
+		if locationErr != nil {
+			writeError(w, http.StatusInternalServerError, locationErr)
+			return
+		}
+		response["dataObjects"], response["dataLocations"] = instances, locations
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (h *Handler) CreateEnvironment(w http.ResponseWriter, r *http.Request) {

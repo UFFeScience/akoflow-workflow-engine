@@ -37,6 +37,8 @@ var requiredTables = []string{
 	"activity_lifecycle_events",
 	"activity_handles",
 	"data_objects",
+	"data_object_instances",
+	"storage_resources",
 	"data_locations",
 	"data_transfers",
 	"queue_jobs",

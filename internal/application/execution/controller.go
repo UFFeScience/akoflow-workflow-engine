@@ -11,10 +11,15 @@ import (
 type Controller struct {
 	runtimes ports.RuntimeResolver
 	handles  ports.ActivityExecutionStore
+	data     ports.DataCatalog
 }
 
-func New(runtimes ports.RuntimeResolver, handles ports.ActivityExecutionStore) *Controller {
-	return &Controller{runtimes: runtimes, handles: handles}
+func New(runtimes ports.RuntimeResolver, handles ports.ActivityExecutionStore, catalogs ...ports.DataCatalog) *Controller {
+	controller := &Controller{runtimes: runtimes, handles: handles}
+	if len(catalogs) > 0 {
+		controller.data = catalogs[0]
+	}
+	return controller
 }
 
 func (s *Controller) Start(ctx context.Context, execution domain.ActivityExecutionContext) (domain.ActivityHandle, error) {
@@ -67,6 +72,15 @@ func (s *Controller) Inspect(ctx context.Context, handleID string, mode domain.E
 	updated, err := runtime.Inspect(ctx, *handle)
 	if err != nil {
 		return nil, err
+	}
+	if s.data != nil && updated.Artifacts != nil &&
+		(updated.Status == domain.HandleCompleted || updated.Status == domain.HandleFailed) {
+		if catalogErr := s.data.CatalogArtifacts(ctx, updated); catalogErr != nil {
+			if updated.Metadata == nil {
+				updated.Metadata = make(map[string]any)
+			}
+			updated.Metadata["artifactCatalogError"] = catalogErr.Error()
+		}
 	}
 	if err := s.handles.Save(ctx, updated); err != nil {
 		return nil, err

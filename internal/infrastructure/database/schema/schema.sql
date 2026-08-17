@@ -303,22 +303,57 @@ CREATE TABLE data_objects (
 		producer_activity_id TEXT REFERENCES activity_definitions(id),
 		logical_name TEXT NOT NULL,
 		relative_path TEXT NOT NULL DEFAULT '',
-		size_bytes INTEGER NOT NULL DEFAULT 0,
-		checksum TEXT NOT NULL DEFAULT '',
+		declared INTEGER NOT NULL DEFAULT 0,
 		metadata TEXT NOT NULL DEFAULT '{}'
 	);
-CREATE TABLE data_locations (
+CREATE TABLE data_object_instances (
+		id TEXT PRIMARY KEY,
 		data_object_id TEXT NOT NULL REFERENCES data_objects(id),
-		resource_id TEXT NOT NULL REFERENCES resources(id),
-		execution_run_id TEXT REFERENCES execution_runs(id),
+		execution_run_id TEXT NOT NULL REFERENCES execution_runs(id),
+		producer_activity_id TEXT NOT NULL REFERENCES activity_definitions(id),
+		attempt INTEGER NOT NULL DEFAULT 1,
+		relative_path TEXT NOT NULL,
+		size_bytes INTEGER NOT NULL DEFAULT 0 CHECK(size_bytes >= 0),
+		checksum TEXT NOT NULL DEFAULT '',
+		media_type TEXT NOT NULL DEFAULT '',
+		discovered INTEGER NOT NULL DEFAULT 1,
+		metadata TEXT NOT NULL DEFAULT '{}',
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(execution_run_id, producer_activity_id, attempt, relative_path)
+	);
+CREATE TABLE storage_resources (
+		id TEXT PRIMARY KEY,
+		environment_version_id TEXT NOT NULL REFERENCES environment_versions(id),
+		name TEXT NOT NULL,
+		type TEXT NOT NULL CHECK(type IN ('local', 'pvc', 'nfs', 's3', 'lustre')),
+		endpoint TEXT NOT NULL DEFAULT '',
+		capacity_bytes INTEGER NOT NULL DEFAULT 0 CHECK(capacity_bytes >= 0),
+		shared INTEGER NOT NULL DEFAULT 0,
+		read_only INTEGER NOT NULL DEFAULT 0,
+		configuration TEXT NOT NULL DEFAULT '{}',
+		credential_reference TEXT NOT NULL DEFAULT '',
+		metadata TEXT NOT NULL DEFAULT '{}',
+		UNIQUE(environment_version_id, name)
+	);
+CREATE TABLE data_locations (
+		id TEXT PRIMARY KEY,
+		data_object_instance_id TEXT NOT NULL REFERENCES data_object_instances(id),
+		storage_resource_id TEXT REFERENCES storage_resources(id),
+		resource_id TEXT REFERENCES resources(id),
+		execution_run_id TEXT NOT NULL REFERENCES execution_runs(id),
+		uri TEXT NOT NULL,
 		available_at REAL NOT NULL DEFAULT 0,
-		status TEXT NOT NULL DEFAULT 'available',
-		PRIMARY KEY(data_object_id, resource_id, execution_run_id)
+		verified_at REAL NOT NULL DEFAULT 0,
+		status TEXT NOT NULL DEFAULT 'ephemeral'
+			CHECK(status IN ('ephemeral', 'staging', 'available', 'failed', 'deleted')),
+		metadata TEXT NOT NULL DEFAULT '{}',
+		UNIQUE(data_object_instance_id, uri)
 	);
 CREATE TABLE data_transfers (
 		id TEXT PRIMARY KEY,
 		execution_run_id TEXT NOT NULL REFERENCES execution_runs(id),
 		data_object_id TEXT REFERENCES data_objects(id),
+		data_object_instance_id TEXT REFERENCES data_object_instances(id),
 		producer_activity_id TEXT REFERENCES activity_definitions(id),
 		consumer_activity_id TEXT REFERENCES activity_definitions(id),
 		source_resource_id TEXT NOT NULL REFERENCES resources(id),

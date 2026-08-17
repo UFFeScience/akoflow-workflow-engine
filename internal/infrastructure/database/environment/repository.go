@@ -37,10 +37,36 @@ func (r *Repository) Create(ctx context.Context, definition Definition) error {
 	if err := insertResources(tx, definition); err != nil {
 		return err
 	}
+	if err := insertStorages(tx, definition); err != nil {
+		return err
+	}
 	if err := insertProfiles(tx, definition); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+func insertStorages(tx *sql.Tx, definition Definition) error {
+	for _, storage := range definition.Storages {
+		configuration, err := json.Marshal(storage.Configuration)
+		if err != nil {
+			return err
+		}
+		metadata, err := json.Marshal(storage.Metadata)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO storage_resources (
+			id, environment_version_id, name, type, endpoint, capacity_bytes,
+			shared, read_only, configuration, credential_reference, metadata
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, storage.ID, definition.Version.ID,
+			storage.Name, storage.Type, storage.Endpoint, storage.CapacityBytes,
+			storage.Shared, storage.ReadOnly, string(configuration),
+			storage.CredentialReference, string(metadata)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func insertEnvironment(tx *sql.Tx, definition Definition) error {

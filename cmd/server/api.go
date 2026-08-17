@@ -14,5 +14,6 @@ func buildAPI(storage persistence) (*workflow_engine_api_handler.Handler, error)
 		Validator:    planningplugin.NewValidator(),
 		Executions:   storage.executions,
 		Topologies:   storage.topologies,
+		Data:         storage.data,
 	})
 }

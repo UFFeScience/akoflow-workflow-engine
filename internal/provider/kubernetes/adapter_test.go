@@ -127,23 +127,38 @@ func TestShellLifecycleExecutesActivityAndPublishesManifest(t *testing.T) {
 	if err := json.Unmarshal(payload, &manifest); err != nil {
 		t.Fatalf("decode manifest: %v: %s", err, payload)
 	}
-	if manifest.ExitCode != 0 || manifest.RunID != "run" || manifest.Summary.FinalFiles < 1 {
+	if manifest.ExitCode != 0 || manifest.RunID != "run" || manifest.Summary.FinalFiles < 1 ||
+		manifest.Summary.CreatedFiles != 1 || len(manifest.Files) != 1 ||
+		manifest.Files[0].Checksum == "" {
 		t.Fatalf("manifest=%+v", manifest)
 	}
 }
 
 func TestObservationRootUsesIsolatedWorkspaceByDefault(t *testing.T) {
 	activity := domain.Activity{}
-	if root := observationRoot(activity); root != "/tmp/akoflow/workspace" {
+	if root := observationRoot(activity, "run"); root != "/tmp/akoflow/workspace" {
 		t.Fatalf("default observation root=%q", root)
 	}
 	activity.Command.WorkingDirectory = "/work"
-	if root := observationRoot(activity); root != "/work" {
+	if root := observationRoot(activity, "run"); root != "/work" {
 		t.Fatalf("working directory observation root=%q", root)
 	}
 	activity.Metadata = map[string]any{"artifactObservationRoot": "/outputs"}
-	if root := observationRoot(activity); root != "/outputs" {
+	if root := observationRoot(activity, "run"); root != "/outputs" {
 		t.Fatalf("configured observation root=%q", root)
+	}
+}
+
+func TestObservedPodMountsDeclaredPVC(t *testing.T) {
+	activity := domain.Activity{ID: "activity", Metadata: map[string]any{"storage": map[string]any{
+		"type": "pvc", "claimName": "results", "mountPath": "/data",
+	}}}
+	spec := observedPodSpec(domain.WorkflowVersion{}, activity, domain.Resource{}, "run")
+	if observationRoot(activity, "run") != "/data/runs/run/activity" {
+		t.Fatalf("root=%s", observationRoot(activity, "run"))
+	}
+	if _, ok := spec["volumes"]; !ok {
+		t.Fatalf("PVC volume was not created: %v", spec)
 	}
 }
 
