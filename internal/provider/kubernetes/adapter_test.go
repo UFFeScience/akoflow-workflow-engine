@@ -103,7 +103,7 @@ func TestAdapterExplainsMissingShellContract(t *testing.T) {
 
 func TestShellLifecycleExecutesActivityAndPublishesManifest(t *testing.T) {
 	command := exec.Command(
-		"/bin/sh", "-c", shellLifecycleWrapper, "akoflow-entrypoint",
+		"/bin/sh", "-c", renderShellLifecycle(), "akoflow-entrypoint",
 		"/bin/sh", "-c", "printf result > result.txt",
 	)
 	command.Dir = t.TempDir()
