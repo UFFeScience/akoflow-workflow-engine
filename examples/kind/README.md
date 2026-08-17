@@ -83,7 +83,15 @@ Keep these application settings in `/app/.env` as well:
 AKOFLOW_DATABASE_PATH="$PWD/storage/kind-demo-v3.db"
 AKOFLOW_HTTP_ADDRESS=":8080"
 AKOFLOW_NAMESPACE="akoflow"
+AKOFLOW_KUBERNETES_HISTORY_CLEANUP_ENABLED="true"
+AKOFLOW_KUBERNETES_HISTORY_CLEANUP_INTERVAL="15m"
+AKOFLOW_KUBERNETES_HISTORY_RETENTION="24h"
 ```
+
+The history cleaner runs once when the server starts and then at the configured
+interval. It deletes only completed or failed Jobs labeled as managed by
+Akoflow whose completion time is older than the retention period. Associated
+Pods and Services are removed as well; active Jobs and Pods are preserved.
 
 Stop and restart `Launch AkoFlow Server` after changing `.env` because the
 Kubernetes client is composed during application startup.

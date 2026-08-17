@@ -66,6 +66,30 @@ func main() {
 		if err != nil {
 			panic(fmt.Errorf("configure Kubernetes API: %w", err))
 		}
+		if settings.KubernetesCleanupEnabled {
+			cleaner, cleanerErr := kubernetes.NewHistoryCleaner(
+				kubernetesAPI, settings.DefaultNamespace, settings.KubernetesHistoryRetention,
+			)
+			if cleanerErr != nil {
+				panic(cleanerErr)
+			}
+			go func() {
+				err := cleaner.Run(context.Background(), settings.KubernetesCleanupInterval,
+					func(result kubernetes.CleanupResult, cleanupErr error) {
+						if cleanupErr != nil {
+							log.Error("Kubernetes history cleanup failed:", cleanupErr)
+							return
+						}
+						if result.JobsDeleted > 0 || result.PodsDeleted > 0 {
+							log.Infof("Kubernetes history cleanup removed %d jobs and %d pods",
+								result.JobsDeleted, result.PodsDeleted)
+						}
+					})
+				if err != nil && err != context.Canceled {
+					log.Error("Kubernetes history cleaner stopped:", err)
+				}
+			}()
+		}
 	}
 	for runtimeID, adapter := range map[string]ports.RuntimeAdapter{
 		"local": local.New(),
