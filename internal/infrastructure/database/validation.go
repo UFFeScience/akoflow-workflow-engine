@@ -23,6 +23,7 @@ var requiredTables = []string{
 	"resources",
 	"resource_snapshots",
 	"network_links",
+	"network_topologies",
 	"workflow_definitions",
 	"workflow_versions",
 	"activity_types",

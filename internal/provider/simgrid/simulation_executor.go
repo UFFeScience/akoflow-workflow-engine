@@ -21,7 +21,7 @@ func (e *SimulationExecutor) Execute(ctx context.Context, request Request) (doma
 	if request.Run.Mode != domain.ExecutionModeSimulation {
 		return domain.ExecutionTrace{}, fmt.Errorf("simulation executor cannot execute mode %q", request.Run.Mode)
 	}
-	if err := e.validator.Validate(request.Plan, request.Workflow, request.Resources); err != nil {
+	if err := e.validator.Validate(request.Plan, request.Workflow, request.Resources, request.NetworkTopology); err != nil {
 		return domain.ExecutionTrace{}, err
 	}
 	select {
@@ -160,20 +160,21 @@ func resolveTransfers(
 		readyAt := predecessor.FinishedAt
 		bytes := model.dataBytes[predecessorID+"\x00"+activity.ID]
 		if predecessor.AllocatedResourceID != resource.ID && bytes > 0 {
-			link, ok := resolveLink(request.NetworkLinks, predecessor.AllocatedResourceID, resource.ID)
+			duration, transferCost, ok := resolveNetworkPath(
+				request.NetworkTopology.Links, predecessor.AllocatedResourceID, resource.ID, bytes,
+			)
 			if !ok {
 				return 0, 0, nil, fmt.Errorf(
 					"no network link from %q to %q", predecessor.AllocatedResourceID, resource.ID,
 				)
 			}
-			duration := link.TransferSeconds(bytes)
 			transfer := domain.DataTransfer{
 				ID:             fmt.Sprintf("%s:%s:%s", request.Run.ID, predecessorID, activity.ID),
 				ExecutionRunID: request.Run.ID, ProducerActivityID: predecessorID,
 				ConsumerActivityID: activity.ID, SourceResourceID: predecessor.AllocatedResourceID,
 				TargetResourceID: resource.ID, Bytes: bytes, StartedAt: predecessor.FinishedAt,
 				FinishedAt: predecessor.FinishedAt + duration, DurationSeconds: duration,
-				Cost: float64(bytes) * link.PricePerByte,
+				Cost: transferCost,
 			}
 			transfers = append(transfers, transfer)
 			readyAt, transferTotal = transfer.FinishedAt, transferTotal+duration
@@ -256,16 +257,48 @@ func numberMetadata(metadata map[string]any, key string) (float64, bool) {
 	}
 }
 
-func resolveLink(links []domain.NetworkLink, source, target string) (domain.NetworkLink, bool) {
+func resolveNetworkPath(links []domain.NetworkLink, source, target string, bytes int64) (float64, float64, bool) {
+	type edge struct {
+		to      string
+		seconds float64
+		cost    float64
+	}
+	graph := make(map[string][]edge)
 	for _, link := range links {
-		if link.SourceResourceID == source && link.TargetResourceID == target {
-			return link, true
-		}
-		if link.Bidirectional && link.SourceResourceID == target && link.TargetResourceID == source {
-			return link, true
+		value := edge{to: link.TargetResourceID, seconds: link.TransferSeconds(bytes), cost: float64(bytes) * link.PricePerByte}
+		graph[link.SourceResourceID] = append(graph[link.SourceResourceID], value)
+		if link.Bidirectional {
+			value.to = link.SourceResourceID
+			graph[link.TargetResourceID] = append(graph[link.TargetResourceID], value)
 		}
 	}
-	return domain.NetworkLink{}, false
+	distance := map[string]float64{source: 0}
+	cost := map[string]float64{source: 0}
+	visited := make(map[string]bool)
+	for {
+		current := ""
+		best := 0.0
+		for node, value := range distance {
+			if !visited[node] && (current == "" || value < best) {
+				current, best = node, value
+			}
+		}
+		if current == "" {
+			return 0, 0, false
+		}
+		if current == target {
+			return distance[current], cost[current], true
+		}
+		visited[current] = true
+		for _, candidate := range graph[current] {
+			newDistance := distance[current] + candidate.seconds
+			oldDistance, exists := distance[candidate.to]
+			if !exists || newDistance < oldDistance {
+				distance[candidate.to] = newDistance
+				cost[candidate.to] = cost[current] + candidate.cost
+			}
+		}
+	}
 }
 
 func max(a, b float64) float64 {

@@ -19,6 +19,8 @@ var ErrNotFound = errors.New("kubernetes resource not found")
 type API interface {
 	Create(context.Context, string, string, []byte) error
 	Get(context.Context, string, string, string) ([]byte, error)
+	List(context.Context, string, string, string) ([]byte, error)
+	Logs(context.Context, string, string, string) ([]byte, error)
 	Delete(context.Context, string, string, string) error
 }
 
@@ -90,12 +92,37 @@ func (c *Client) Get(ctx context.Context, namespace, resource, name string) ([]b
 	return c.request(ctx, http.MethodGet, resourcePath(namespace, resource, name), nil)
 }
 
+func (c *Client) List(ctx context.Context, namespace, resource, labelSelector string) ([]byte, error) {
+	path := collectionPath(namespace, resource)
+	if labelSelector != "" {
+		query := url.Values{"labelSelector": []string{labelSelector}}
+		path += "?" + query.Encode()
+	}
+	return c.request(ctx, http.MethodGet, path, nil)
+}
+
+func (c *Client) Logs(ctx context.Context, namespace, pod, container string) ([]byte, error) {
+	query := url.Values{"container": []string{container}}
+	path := resourcePath(namespace, "pods", pod) + "/log?" + query.Encode()
+	return c.requestWithLimit(ctx, http.MethodGet, path, nil, 64<<20)
+}
+
 func (c *Client) Delete(ctx context.Context, namespace, resource, name string) error {
 	_, err := c.request(ctx, http.MethodDelete, resourcePath(namespace, resource, name), []byte(`{"kind":"DeleteOptions","apiVersion":"v1","propagationPolicy":"Background"}`))
 	return err
 }
 
 func (c *Client) request(ctx context.Context, method, path string, body []byte) ([]byte, error) {
+	return c.requestWithLimit(ctx, method, path, body, 1<<20)
+}
+
+func (c *Client) requestWithLimit(
+	ctx context.Context,
+	method string,
+	path string,
+	body []byte,
+	limit int64,
+) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.endpoint+path, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -109,7 +136,7 @@ func (c *Client) request(ctx context.Context, method, path string, body []byte) 
 		return nil, fmt.Errorf("Kubernetes API request: %w", err)
 	}
 	defer response.Body.Close()
-	payload, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	payload, err := io.ReadAll(io.LimitReader(response.Body, limit))
 	if err != nil {
 		return nil, fmt.Errorf("read Kubernetes API response: %w", err)
 	}

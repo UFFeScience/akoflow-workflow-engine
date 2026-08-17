@@ -20,12 +20,13 @@ import (
 )
 
 type PlanValidator interface {
-	Validate(domain.SchedulePlan, domain.WorkflowVersion, []domain.Resource) error
+	Validate(domain.SchedulePlan, domain.WorkflowVersion, []domain.Resource, domain.NetworkTopology) error
 }
 
 type ExecutionQuery interface {
 	FindRun(context.Context, string) (*domain.ExecutionRun, error)
 	ListTasks(context.Context, string) ([]domain.TaskExecution, error)
+	ListHandles(context.Context, string) ([]domain.ActivityHandle, error)
 	ListEvents(context.Context, string) ([]domainevents.Event, error)
 }
 
@@ -36,6 +37,7 @@ type Dependencies struct {
 	Events       ports.EventPublisher
 	Validator    PlanValidator
 	Executions   ExecutionQuery
+	Topologies   ports.NetworkTopologyStore
 }
 
 type Handler struct {
@@ -45,17 +47,44 @@ type Handler struct {
 	events       ports.EventPublisher
 	validator    PlanValidator
 	executions   ExecutionQuery
+	topologies   ports.NetworkTopologyStore
 }
 
 func New(dependencies Dependencies) (*Handler, error) {
-	if dependencies.Environments == nil || dependencies.Workflows == nil || dependencies.Plans == nil || dependencies.Events == nil || dependencies.Validator == nil || dependencies.Executions == nil {
+	if dependencies.Environments == nil || dependencies.Workflows == nil || dependencies.Plans == nil || dependencies.Events == nil || dependencies.Validator == nil || dependencies.Executions == nil || dependencies.Topologies == nil {
 		return nil, fmt.Errorf("workflow API dependencies are required")
 	}
 	return &Handler{
 		environments: dependencies.Environments, workflows: dependencies.Workflows,
 		plans: dependencies.Plans, events: dependencies.Events,
 		validator: dependencies.Validator, executions: dependencies.Executions,
+		topologies: dependencies.Topologies,
 	}, nil
+}
+
+func (h *Handler) CreateNetworkTopology(w http.ResponseWriter, r *http.Request) {
+	var topology domain.NetworkTopology
+	if !decode(w, r, &topology) {
+		return
+	}
+	if err := h.topologies.Create(r.Context(), topology); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, topology)
+}
+
+func (h *Handler) GetNetworkTopology(w http.ResponseWriter, r *http.Request) {
+	topology, err := h.topologies.Find(r.Context(), r.PathValue("topologyId"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if topology == nil {
+		writeError(w, http.StatusNotFound, nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, topology)
 }
 
 func (h *Handler) GetExecution(w http.ResponseWriter, r *http.Request) {
@@ -73,12 +102,19 @@ func (h *Handler) GetExecution(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	handles, err := h.executions.ListHandles(r.Context(), run.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
 	events, err := h.executions.ListEvents(r.Context(), run.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"run": run, "activities": tasks, "events": events})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"run": run, "activities": tasks, "handles": handles, "events": events,
+	})
 }
 
 func (h *Handler) CreateEnvironment(w http.ResponseWriter, r *http.Request) {
@@ -111,9 +147,10 @@ func (h *Handler) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
 }
 
 type CreatePlanRequest struct {
-	Plan      domain.SchedulePlan    `json:"plan"`
-	Workflow  domain.WorkflowVersion `json:"workflow"`
-	Resources []domain.Resource      `json:"resources"`
+	Plan            domain.SchedulePlan    `json:"plan"`
+	Workflow        domain.WorkflowVersion `json:"workflow"`
+	Resources       []domain.Resource      `json:"resources"`
+	NetworkTopology domain.NetworkTopology `json:"networkTopology"`
 }
 
 func (h *Handler) CreatePlan(w http.ResponseWriter, r *http.Request) {
@@ -121,7 +158,10 @@ func (h *Handler) CreatePlan(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &request) {
 		return
 	}
-	if err := h.validator.Validate(request.Plan, request.Workflow, request.Resources); err != nil {
+	if request.Plan.NetworkTopologyID == "" {
+		request.Plan.NetworkTopologyID = request.NetworkTopology.ID
+	}
+	if err := h.validator.Validate(request.Plan, request.Workflow, request.Resources, request.NetworkTopology); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return
 	}

@@ -22,11 +22,11 @@ func (r *Repository) Save(ctx context.Context, plan domain.SchedulePlan) error {
 	}
 	defer tx.Rollback()
 	if _, err = tx.Exec(`INSERT INTO schedule_plans (
-		id, workflow_version_id, environment_version_id, source, algorithm,
+		id, workflow_version_id, environment_version_id, network_topology_id, source, algorithm,
 		algorithm_version, objective, status, deadline_seconds, budget,
 		predicted_makespan_seconds, predicted_cost, predicted_feasible
-	) VALUES (?, ?, ?, ?, ?, ?, ?, 'valid', ?, ?, ?, ?, ?)`, plan.ID,
-		plan.WorkflowVersionID, plan.EnvironmentVersionID, plan.Source, plan.Algorithm,
+	) VALUES (?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, 'valid', ?, ?, ?, ?, ?)`, plan.ID,
+		plan.WorkflowVersionID, plan.EnvironmentVersionID, plan.NetworkTopologyID, plan.Source, plan.Algorithm,
 		plan.AlgorithmVersion, plan.Objective, plan.DeadlineSeconds, plan.Budget,
 		plan.Predicted.MakespanSeconds, plan.Predicted.Cost, plan.Predicted.Feasible); err != nil {
 		return err
@@ -57,10 +57,10 @@ func (r *Repository) Find(ctx context.Context, id string) (*domain.SchedulePlan,
 	var plan domain.SchedulePlan
 	var source string
 	err := r.db.QueryRowContext(ctx, `SELECT id, workflow_version_id, environment_version_id,
-		source, algorithm, algorithm_version, objective, deadline_seconds, budget,
+		COALESCE(network_topology_id, ''), source, algorithm, algorithm_version, objective, deadline_seconds, budget,
 		predicted_makespan_seconds, predicted_cost, predicted_feasible
 		FROM schedule_plans WHERE id = ?`, id).Scan(&plan.ID, &plan.WorkflowVersionID,
-		&plan.EnvironmentVersionID, &source, &plan.Algorithm, &plan.AlgorithmVersion,
+		&plan.EnvironmentVersionID, &plan.NetworkTopologyID, &source, &plan.Algorithm, &plan.AlgorithmVersion,
 		&plan.Objective, &plan.DeadlineSeconds, &plan.Budget,
 		&plan.Predicted.MakespanSeconds, &plan.Predicted.Cost, &plan.Predicted.Feasible)
 	if err == sql.ErrNoRows {

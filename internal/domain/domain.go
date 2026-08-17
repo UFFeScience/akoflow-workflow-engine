@@ -44,6 +44,7 @@ type ResourceType = resource.ResourceType
 type Resource = resource.Resource
 type ResourceSnapshot = resource.ResourceSnapshot
 type NetworkLink = resource.NetworkLink
+type NetworkTopology = resource.NetworkTopology
 
 const (
 	ResourceCluster             = resource.ResourceCluster
@@ -107,6 +108,11 @@ type DataTransfer = execution.DataTransfer
 type ActivityExecutionContext = execution.ActivityExecutionContext
 type ActivityHandle = execution.ActivityHandle
 type ActivityHandleStatus = execution.ActivityHandleStatus
+type ArtifactChange = execution.ArtifactChange
+type ArtifactObservation = execution.ArtifactObservation
+type ArtifactManifest = execution.ArtifactManifest
+type LifecycleObservation = execution.LifecycleObservation
+type ArtifactSummary = execution.ArtifactSummary
 
 const (
 	ExecutionRunCreated   = execution.ExecutionRunCreated
@@ -125,4 +131,7 @@ const (
 	HandleCompleted       = execution.HandleCompleted
 	HandleFailed          = execution.HandleFailed
 	HandleStopped         = execution.HandleStopped
+	ArtifactCreated       = execution.ArtifactCreated
+	ArtifactModified      = execution.ArtifactModified
+	ArtifactDeleted       = execution.ArtifactDeleted
 )

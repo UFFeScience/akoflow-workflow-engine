@@ -18,6 +18,7 @@ import (
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database"
 	dbenvironment "github.com/UFFeScience/akoflow/internal/infrastructure/database/environment"
 	dbexecution "github.com/UFFeScience/akoflow/internal/infrastructure/database/execution"
+	dbnetwork "github.com/UFFeScience/akoflow/internal/infrastructure/database/network"
 	dbplanning "github.com/UFFeScience/akoflow/internal/infrastructure/database/planning"
 	dbqueue "github.com/UFFeScience/akoflow/internal/infrastructure/database/queue"
 	dbworkflow "github.com/UFFeScience/akoflow/internal/infrastructure/database/workflow"
@@ -67,9 +68,10 @@ func main() {
 		}
 	}
 	for runtimeID, adapter := range map[string]ports.RuntimeAdapter{
-		"local":      local.New(),
-		"kubernetes": kubernetes.New(kubernetesAPI, settings.DefaultNamespace),
-		"slurm":      slurm.New(commandExecutor, ""),
+		"local": local.New(),
+		"kubernetes": kubernetes.New(kubernetesAPI, settings.DefaultNamespace).
+			WithObserverImage(settings.KubernetesObserverImage),
+		"slurm": slurm.New(commandExecutor, ""),
 	} {
 		if err := runtimes.Register(runtimeID, adapter); err != nil {
 			panic(err)
@@ -119,6 +121,7 @@ func main() {
 		Environments: dbenvironment.New(db), Workflows: dbworkflow.New(db),
 		Plans: dbplanning.New(db), Events: events,
 		Validator: planningplugin.NewValidator(), Executions: executionStore,
+		Topologies: dbnetwork.New(db),
 	})
 	if err != nil {
 		panic(err)

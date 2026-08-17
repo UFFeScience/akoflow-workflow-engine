@@ -20,6 +20,7 @@ func TestLoadSettings(t *testing.T) {
 	t.Setenv("K8S_API_SERVER_TOKEN", "token")
 	t.Setenv("K8S_API_SERVER_CA_FILE", "/tmp/kind-ca.crt")
 	t.Setenv("K8S_API_SERVER_INSECURE_SKIP_TLS_VERIFY", "true")
+	t.Setenv("AKOFLOW_KUBERNETES_OBSERVER_IMAGE", "registry.example/observer:v1")
 	settings := Load()
 	if settings.HTTPAddress != ":9090" || settings.DefaultNamespace != "science" {
 		t.Fatalf("settings=%+v", settings)
@@ -27,7 +28,8 @@ func TestLoadSettings(t *testing.T) {
 	if settings.KubernetesAPIServer != "kind-control-plane:6443" ||
 		settings.KubernetesToken != "token" ||
 		settings.KubernetesCAFile != "/tmp/kind-ca.crt" ||
-		!settings.KubernetesInsecureSkipTLS {
+		!settings.KubernetesInsecureSkipTLS ||
+		settings.KubernetesObserverImage != "registry.example/observer:v1" {
 		t.Fatalf("Kubernetes settings=%+v", settings)
 	}
 }

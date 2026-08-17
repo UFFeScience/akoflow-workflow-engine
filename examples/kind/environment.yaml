@@ -55,7 +55,26 @@ resources:
     containerOverheadSeconds: 0
     schedulable: true
     metadata:
-      kubernetesNode: kind-worker
+      kubernetesNode: akoflow-worker
 
-networkLinks: []
+  - id: kind-worker-2
+    environmentVersionId: kind-akoflow-v1
+    runtimeId: kubernetes
+    type: kubernetes_machine
+    name: kind-worker-2
+    providerId: akoflow-worker2
+    tier: local
+    architecture: amd64
+    cpuCores: 4
+    cpuCapacity: 4
+    memoryBytes: 8589934592
+    storageBytes: 21474836480
+    computeSpeedup: 1
+    pricePerSecond: 0
+    bootOverheadSeconds: 0
+    containerOverheadSeconds: 0
+    schedulable: true
+    metadata:
+      kubernetesNode: akoflow-worker2
+
 activityResourceProfiles: []

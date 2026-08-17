@@ -38,7 +38,7 @@ func TestImportedSourceMarksPlanOrigin(t *testing.T) {
 
 func TestValidatePlanAcceptsCompleteCompatiblePlan(t *testing.T) {
 	workflow, resources, plan := validPlanFixture()
-	require.NoError(t, NewValidator().Validate(plan, workflow, resources))
+	require.NoError(t, NewValidator().Validate(plan, workflow, resources, domain.NetworkTopology{}))
 }
 
 func TestValidatePlanRejectsInvalidCases(t *testing.T) {
@@ -94,10 +94,21 @@ func TestValidatePlanRejectsInvalidCases(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			workflow, resources, plan := validPlanFixture()
 			test.mutate(&workflow, &resources, &plan)
-			err := NewValidator().Validate(plan, workflow, resources)
+			err := NewValidator().Validate(plan, workflow, resources, domain.NetworkTopology{})
 			require.ErrorContains(t, err, test.want)
 		})
 	}
+}
+
+func TestValidatePlanAllowsResourcesAcrossEnvironmentsForFederatedTopology(t *testing.T) {
+	workflow, resources, plan := validPlanFixture()
+	resources[1].EnvironmentVersionID = "cloud-v1"
+	require.NoError(t, NewValidator().Validate(
+		plan,
+		workflow,
+		resources,
+		domain.NetworkTopology{ID: "federated-v1", Scope: "federated"},
+	))
 }
 
 func validPlanFixture() (domain.WorkflowVersion, []domain.Resource, domain.SchedulePlan) {

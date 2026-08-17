@@ -2,6 +2,7 @@ package kubernetes
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,16 +13,32 @@ import (
 	runtimecommon "github.com/UFFeScience/akoflow/internal/provider"
 )
 
+const (
+	defaultObserverImage = "ghcr.io/uffescience/akoflow-observer:latest"
+	activityContainer    = "activity"
+	observerExecutable   = "/akoflow/observer/akoflow-observer"
+	manifestPath         = "/tmp/akoflow/artifact-manifest.json"
+	manifestLogPrefix    = "AKOFLOW_ARTIFACT_MANIFEST="
+)
+
 type Adapter struct {
-	api       API
-	namespace string
+	api           API
+	namespace     string
+	observerImage string
 }
 
 func New(api API, namespace string) *Adapter {
 	if namespace == "" {
 		namespace = "default"
 	}
-	return &Adapter{api: api, namespace: namespace}
+	return &Adapter{api: api, namespace: namespace, observerImage: defaultObserverImage}
+}
+
+func (a *Adapter) WithObserverImage(image string) *Adapter {
+	if strings.TrimSpace(image) != "" {
+		a.observerImage = image
+	}
+	return a
 }
 
 func (*Adapter) Modes() []domain.ExecutionMode {
@@ -37,7 +54,9 @@ func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionC
 		return domain.ActivityHandle{}, fmt.Errorf("activity image is required for Kubernetes")
 	}
 	name := kubernetesName("akoflow-" + execution.Run.ID + "-" + activity.ID)
-	job, service, err := resources(name, a.namespace, activity, execution.Resource)
+	job, service, err := resources(
+		name, a.namespace, a.observerImage, activity, execution.Resource, execution.Run.ID,
+	)
 	if err != nil {
 		return domain.ActivityHandle{}, err
 	}
@@ -54,7 +73,11 @@ func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionC
 		ActivityID: activity.ID, ResourceID: execution.Resource.ID,
 		RuntimeID: execution.Resource.RuntimeID, ExternalID: name,
 		Status: domain.HandleStarting, StartedAt: runtimecommon.UnixSeconds(time.Now()),
-		Endpoints: serviceEndpoints(name, a.namespace, activity)}, nil
+		Endpoints: serviceEndpoints(name, a.namespace, activity),
+		Metadata: map[string]any{
+			"artifactObservationDriver": "filesystem-diff",
+			"artifactObservationRoot":   observationRoot(activity),
+		}}, nil
 }
 
 func (a *Adapter) Inspect(ctx context.Context, handle domain.ActivityHandle) (domain.ActivityHandle, error) {
@@ -89,7 +112,59 @@ func (a *Adapter) Inspect(ctx context.Context, handle domain.ActivityHandle) (do
 			handle.Failure = condition.Message
 		}
 	}
+	if handle.Status == domain.HandleCompleted || handle.Status == domain.HandleFailed {
+		manifest, observationErr := a.collectArtifacts(ctx, handle.ExternalID)
+		if observationErr != nil {
+			if handle.Metadata == nil {
+				handle.Metadata = make(map[string]any)
+			}
+			handle.Metadata["artifactObservationError"] = observationErr.Error()
+		} else {
+			handle.Artifacts = manifest
+		}
+	}
 	return handle, nil
+}
+
+func (a *Adapter) collectArtifacts(ctx context.Context, jobName string) (*domain.ArtifactManifest, error) {
+	payload, err := a.api.List(ctx, a.namespace, "pods", "job-name="+jobName)
+	if err != nil {
+		return nil, fmt.Errorf("list activity pods: %w", err)
+	}
+	var pods struct {
+		Items []struct {
+			Metadata struct {
+				Name string `json:"name"`
+			} `json:"metadata"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(payload, &pods); err != nil {
+		return nil, fmt.Errorf("decode activity pods: %w", err)
+	}
+	if len(pods.Items) == 0 {
+		return nil, fmt.Errorf("no pod found for job %q", jobName)
+	}
+	logs, err := a.api.Logs(ctx, a.namespace, pods.Items[0].Metadata.Name, activityContainer)
+	if err != nil {
+		return nil, fmt.Errorf("read artifact observer logs: %w", err)
+	}
+	for _, line := range strings.Split(string(logs), "\n") {
+		prefixAt := strings.Index(line, manifestLogPrefix)
+		if prefixAt < 0 {
+			continue
+		}
+		encoded := strings.TrimSpace(line[prefixAt+len(manifestLogPrefix):])
+		manifestJSON, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			return nil, fmt.Errorf("decode artifact manifest: %w", err)
+		}
+		var manifest domain.ArtifactManifest
+		if err := json.Unmarshal(manifestJSON, &manifest); err != nil {
+			return nil, fmt.Errorf("parse artifact manifest: %w", err)
+		}
+		return &manifest, nil
+	}
+	return nil, fmt.Errorf("artifact manifest was not published")
 }
 
 func (a *Adapter) Stop(ctx context.Context, handle domain.ActivityHandle) error {
@@ -101,25 +176,12 @@ func (a *Adapter) Stop(ctx context.Context, handle domain.ActivityHandle) error 
 func resources(
 	name string,
 	namespace string,
+	observerImage string,
 	activity domain.Activity,
 	resource domain.Resource,
+	runID string,
 ) ([]byte, []byte, error) {
-	environment := make([]map[string]string, 0, len(activity.Command.Environment))
-	for key, value := range activity.Command.Environment {
-		environment = append(environment, map[string]string{"name": key, "value": value})
-	}
-	container := map[string]any{"name": "activity", "image": activity.Command.Image,
-		"command": []string{activity.Command.Entrypoint}, "args": activity.Command.Arguments,
-		"env": environment, "workingDir": activity.Command.WorkingDirectory,
-		"resources": map[string]any{"requests": map[string]string{
-			"cpu":    fmt.Sprintf("%g", activity.Resources.CPU),
-			"memory": fmt.Sprintf("%d", activity.Resources.MemoryBytes)}}}
-	podSpec := map[string]any{"restartPolicy": "Never", "containers": []any{container}}
-	if resource.Type == domain.ResourceKubernetesMachine && resource.ProviderID != "" {
-		podSpec["nodeSelector"] = map[string]string{
-			"kubernetes.io/hostname": resource.ProviderID,
-		}
-	}
+	podSpec := observedPodSpec(observerImage, activity, resource, runID)
 	job := map[string]any{"apiVersion": "batch/v1", "kind": "Job",
 		"metadata": map[string]any{"name": name, "namespace": namespace,
 			"labels": map[string]string{"app.kubernetes.io/managed-by": "akoflow"}},
@@ -132,19 +194,70 @@ func resources(
 	if err != nil {
 		return nil, nil, err
 	}
-	if activity.Service != nil && len(activity.Service.Ports) > 0 {
-		ports := make([]map[string]any, 0, len(activity.Service.Ports))
-		for _, port := range activity.Service.Ports {
-			ports = append(ports, map[string]any{"port": port, "targetPort": port})
-		}
-		service := map[string]any{"apiVersion": "v1", "kind": "Service",
-			"metadata": map[string]any{"name": name, "namespace": namespace,
-				"labels": map[string]string{"app.kubernetes.io/managed-by": "akoflow"}},
-			"spec": map[string]any{"selector": map[string]string{"akoflow.io/activity": activity.ID}, "ports": ports}}
-		serviceJSON, err := json.Marshal(service)
-		return jobJSON, serviceJSON, err
+	if activity.Service == nil || len(activity.Service.Ports) == 0 {
+		return jobJSON, nil, nil
 	}
-	return jobJSON, nil, nil
+	ports := make([]map[string]any, 0, len(activity.Service.Ports))
+	for _, port := range activity.Service.Ports {
+		ports = append(ports, map[string]any{"port": port, "targetPort": port})
+	}
+	service := map[string]any{"apiVersion": "v1", "kind": "Service",
+		"metadata": map[string]any{"name": name, "namespace": namespace,
+			"labels": map[string]string{"app.kubernetes.io/managed-by": "akoflow"}},
+		"spec": map[string]any{"selector": map[string]string{"akoflow.io/activity": activity.ID}, "ports": ports}}
+	serviceJSON, err := json.Marshal(service)
+	return jobJSON, serviceJSON, err
+}
+
+func observedPodSpec(
+	observerImage string,
+	activity domain.Activity,
+	resource domain.Resource,
+	runID string,
+) map[string]any {
+	environment := make([]map[string]string, 0, len(activity.Command.Environment))
+	for key, value := range activity.Command.Environment {
+		environment = append(environment, map[string]string{"name": key, "value": value})
+	}
+	environment = append(environment, map[string]string{"name": "AKOFLOW_ARTIFACT_MANIFEST", "value": manifestPath})
+	observerArguments := []string{
+		"run", "--run-id", runID, "--activity-id", activity.ID,
+		"--attempt", "1", "--runtime", "kubernetes", "--root", observationRoot(activity),
+		"--manifest", manifestPath, "--", activity.Command.Entrypoint,
+	}
+	observerArguments = append(observerArguments, activity.Command.Arguments...)
+	volumeMounts := []map[string]any{
+		{"name": "akoflow-observer", "mountPath": "/akoflow/observer", "readOnly": true},
+	}
+	container := map[string]any{"name": activityContainer, "image": activity.Command.Image,
+		"command": []string{observerExecutable}, "args": observerArguments,
+		"env": environment, "workingDir": activity.Command.WorkingDirectory,
+		"volumeMounts": volumeMounts,
+		"resources": map[string]any{"requests": map[string]string{
+			"cpu":    fmt.Sprintf("%g", activity.Resources.CPU),
+			"memory": fmt.Sprintf("%d", activity.Resources.MemoryBytes)}}}
+	podSpec := map[string]any{
+		"restartPolicy": "Never",
+		"containers":    []any{container},
+		"volumes": []map[string]any{
+			{"name": "akoflow-observer", "image": map[string]any{
+				"reference": observerImage, "pullPolicy": "IfNotPresent",
+			}},
+		},
+	}
+	if resource.Type == domain.ResourceKubernetesMachine && resource.ProviderID != "" {
+		podSpec["nodeSelector"] = map[string]string{
+			"kubernetes.io/hostname": resource.ProviderID,
+		}
+	}
+	return podSpec
+}
+
+func observationRoot(activity domain.Activity) string {
+	if configured, ok := activity.Metadata["artifactObservationRoot"].(string); ok && configured != "" {
+		return configured
+	}
+	return "."
 }
 
 func ignoreNotFound(err error) error {

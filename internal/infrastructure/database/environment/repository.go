@@ -37,9 +37,6 @@ func (r *Repository) Create(ctx context.Context, definition Definition) error {
 	if err := insertResources(tx, definition); err != nil {
 		return err
 	}
-	if err := insertNetworkLinks(tx, definition); err != nil {
-		return err
-	}
 	if err := insertProfiles(tx, definition); err != nil {
 		return err
 	}
@@ -135,26 +132,6 @@ func insertResources(tx *sql.Tx, definition Definition) error {
 			resource.ComputeSpeedup, resource.PricePerSecond,
 			resource.BootOverheadSeconds, resource.ContainerOverhead,
 			resource.Schedulable, string(metadata)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func insertNetworkLinks(tx *sql.Tx, definition Definition) error {
-	for _, link := range definition.Links {
-		metadata, err := json.Marshal(link.Metadata)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`INSERT INTO network_links (
-			id, environment_version_id, source_resource_id, target_resource_id,
-			bandwidth_bits_per_second, latency_seconds, price_per_byte,
-			bidirectional, sharing_policy, max_concurrent_transfers, metadata
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, link.ID, definition.Version.ID,
-			link.SourceResourceID, link.TargetResourceID, link.BandwidthBitsPerSecond,
-			link.LatencySeconds, link.PricePerByte, link.Bidirectional,
-			link.SharingPolicy, link.MaxConcurrentTransfers, string(metadata)); err != nil {
 			return err
 		}
 	}

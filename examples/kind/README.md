@@ -80,7 +80,7 @@ docker exec \
 Keep these application settings in `/app/.env` as well:
 
 ```env
-AKOFLOW_DATABASE_PATH="$PWD/storage/kind-demo.db"
+AKOFLOW_DATABASE_PATH="$PWD/storage/kind-demo-v3.db"
 AKOFLOW_HTTP_ADDRESS=":8080"
 AKOFLOW_NAMESPACE="akoflow"
 ```
@@ -127,6 +127,17 @@ curl -fsS \
   -H 'Content-Type: application/yaml' \
   --data-binary @examples/kind/environment.yaml \
   http://localhost:8080/akoflow-api/environments/
+```
+
+Register the versioned network topology. The topology is independent from the
+environment catalog, so its endpoints can belong to one environment or span
+multiple environments:
+
+```bash
+curl -fsS \
+  -H 'Content-Type: application/yaml' \
+  --data-binary @examples/kind/topology.yaml \
+  http://localhost:8080/akoflow-api/network-topologies/
 ```
 
 Register the workflow:
@@ -196,6 +207,7 @@ to the logical ID, while the Kubernetes adapter uses `providerId` in the pod's
 ## Example definitions
 
 - `environment.yaml`: Kind environment, Kubernetes runtime and worker resource.
+- `topology.yaml`: versioned links between the two Kind resources.
 - `dag.yaml`: two activities with a control dependency.
 - `plan.yaml`: explicit schedule that places both activities on `kind-worker`.
 - `run.yaml`: real execution request identity.

@@ -50,6 +50,15 @@ func (f *executionStoreFake) Find(_ context.Context, id string) (*domain.Activit
 	}
 	return &h, nil
 }
+func (f *executionStoreFake) ListHandles(_ context.Context, runID string) ([]domain.ActivityHandle, error) {
+	result := make([]domain.ActivityHandle, 0, len(f.handles))
+	for _, handle := range f.handles {
+		if handle.RunID == runID {
+			result = append(result, handle)
+		}
+	}
+	return result, nil
+}
 
 type activityControllerFake struct {
 	started     []string

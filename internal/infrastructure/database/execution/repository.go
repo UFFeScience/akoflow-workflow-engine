@@ -119,41 +119,71 @@ func (r *Repository) Save(ctx context.Context, handle domain.ActivityHandle) err
 	if err != nil {
 		return fmt.Errorf("marshal handle metadata: %w", err)
 	}
+	artifacts, err := json.Marshal(handle.Artifacts)
+	if err != nil {
+		return fmt.Errorf("marshal handle artifacts: %w", err)
+	}
 	_, err = r.db.ExecContext(ctx, `INSERT INTO activity_handles (
 		id, execution_run_id, activity_id, resource_id, runtime_id, external_id,
-		status, endpoints, started_at, finished_at, exit_code, failure, metadata
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		status, endpoints, started_at, finished_at, exit_code, failure, artifacts, metadata
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET external_id=excluded.external_id,
 		status=excluded.status, endpoints=excluded.endpoints,
 		started_at=excluded.started_at, finished_at=excluded.finished_at,
 		exit_code=excluded.exit_code, failure=excluded.failure,
-		metadata=excluded.metadata, updated_at=CURRENT_TIMESTAMP`,
+		artifacts=excluded.artifacts, metadata=excluded.metadata, updated_at=CURRENT_TIMESTAMP`,
 		handle.ID, handle.RunID, handle.ActivityID, handle.ResourceID, handle.RuntimeID,
 		handle.ExternalID, handle.Status, string(endpoints), handle.StartedAt,
-		handle.FinishedAt, handle.ExitCode, handle.Failure, string(metadata))
+		handle.FinishedAt, handle.ExitCode, handle.Failure, string(artifacts), string(metadata))
 	return err
 }
 
 func (r *Repository) Find(ctx context.Context, id string) (*domain.ActivityHandle, error) {
-	var handle domain.ActivityHandle
-	var endpoints, metadata string
-	err := r.db.QueryRowContext(ctx, `SELECT id, execution_run_id, activity_id,
+	handle, err := scanHandle(r.db.QueryRowContext(ctx, `SELECT id, execution_run_id, activity_id,
 		resource_id, runtime_id, external_id, status, endpoints, started_at,
-		finished_at, exit_code, failure, metadata FROM activity_handles WHERE id=?`, id).
-		Scan(&handle.ID, &handle.RunID, &handle.ActivityID, &handle.ResourceID,
-			&handle.RuntimeID, &handle.ExternalID, &handle.Status, &endpoints,
-			&handle.StartedAt, &handle.FinishedAt, &handle.ExitCode, &handle.Failure,
-			&metadata)
+		finished_at, exit_code, failure, artifacts, metadata FROM activity_handles WHERE id=?`, id))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
+	return handle, err
+}
+
+func (r *Repository) ListHandles(ctx context.Context, runID string) ([]domain.ActivityHandle, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id, execution_run_id, activity_id,
+		resource_id, runtime_id, external_id, status, endpoints, started_at,
+		finished_at, exit_code, failure, artifacts, metadata FROM activity_handles
+		WHERE execution_run_id=? ORDER BY activity_id`, runID)
 	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var handles []domain.ActivityHandle
+	for rows.Next() {
+		handle, err := scanHandle(rows)
+		if err != nil {
+			return nil, err
+		}
+		handles = append(handles, *handle)
+	}
+	return handles, rows.Err()
+}
+
+func scanHandle(scanner interface{ Scan(...any) error }) (*domain.ActivityHandle, error) {
+	var handle domain.ActivityHandle
+	var endpoints, artifacts, metadata string
+	if err := scanner.Scan(&handle.ID, &handle.RunID, &handle.ActivityID, &handle.ResourceID,
+		&handle.RuntimeID, &handle.ExternalID, &handle.Status, &endpoints,
+		&handle.StartedAt, &handle.FinishedAt, &handle.ExitCode, &handle.Failure,
+		&artifacts, &metadata); err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal([]byte(endpoints), &handle.Endpoints); err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal([]byte(metadata), &handle.Metadata); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(artifacts), &handle.Artifacts); err != nil {
 		return nil, err
 	}
 	return &handle, nil

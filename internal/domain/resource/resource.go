@@ -61,7 +61,7 @@ type ResourceSnapshot struct {
 
 type NetworkLink struct {
 	ID                     string         `json:"id"`
-	EnvironmentVersionID   string         `json:"environmentVersionId"`
+	TopologyID             string         `json:"topologyId"`
 	SourceResourceID       string         `json:"sourceResourceId"`
 	TargetResourceID       string         `json:"targetResourceId"`
 	BandwidthBitsPerSecond float64        `json:"bandwidthBitsPerSecond"`
@@ -71,6 +71,15 @@ type NetworkLink struct {
 	SharingPolicy          string         `json:"sharingPolicy,omitempty"`
 	MaxConcurrentTransfers int            `json:"maxConcurrentTransfers,omitempty"`
 	Metadata               map[string]any `json:"metadata,omitempty"`
+}
+
+type NetworkTopology struct {
+	ID       string         `json:"id"`
+	Name     string         `json:"name"`
+	Version  int            `json:"version"`
+	Scope    string         `json:"scope"`
+	Links    []NetworkLink  `json:"links"`
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 func (l NetworkLink) TransferSeconds(bytes int64) float64 {

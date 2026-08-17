@@ -19,10 +19,10 @@ type DiscoveryRequest struct {
 }
 
 type DiscoveryResult struct {
-	Resources    []domain.Resource
-	Snapshots    []domain.ResourceSnapshot
-	NetworkLinks []domain.NetworkLink
-	Capabilities domain.EnvironmentCapabilities
+	Resources       []domain.Resource
+	Snapshots       []domain.ResourceSnapshot
+	NetworkTopology domain.NetworkTopology
+	Capabilities    domain.EnvironmentCapabilities
 }
 
 type EnvironmentConnector interface {
@@ -39,4 +39,9 @@ type EnvironmentStore interface {
 	UpdateStatus(context.Context, string, domain.EnvironmentStatus) error
 	UpsertConnection(context.Context, domain.EnvironmentConnection) error
 	ListConnections(context.Context, string) ([]domain.EnvironmentConnection, error)
+}
+
+type NetworkTopologyStore interface {
+	Create(context.Context, domain.NetworkTopology) error
+	Find(context.Context, string) (*domain.NetworkTopology, error)
 }

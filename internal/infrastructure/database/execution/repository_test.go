@@ -61,12 +61,24 @@ func TestRepositoryOwnsCompleteExecutionAggregate(t *testing.T) {
 	if err != nil || got == nil || got.Mode != domain.ExecutionModeReal {
 		t.Fatalf("run=%+v err=%v", got, err)
 	}
-	handle := domain.ActivityHandle{ID: "handle", RunID: "run", ActivityID: "activity", ResourceID: "resource", RuntimeID: "local", Status: domain.HandleRunning, Metadata: map[string]any{"pid": 1}}
+	handle := domain.ActivityHandle{
+		ID: "handle", RunID: "run", ActivityID: "activity", ResourceID: "resource",
+		RuntimeID: "local", Status: domain.HandleRunning,
+		Artifacts: &domain.ArtifactManifest{SchemaVersion: 1, Files: []domain.ArtifactObservation{{
+			Path: "result.csv", Change: domain.ArtifactCreated, SizeBytes: 42,
+		}}},
+		Metadata: map[string]any{"pid": 1},
+	}
 	if err := repository.Save(ctx, handle); err != nil {
 		t.Fatal(err)
 	}
-	if stored, err := repository.Find(ctx, "handle"); err != nil || stored == nil || stored.Metadata["pid"].(float64) != 1 {
+	if stored, err := repository.Find(ctx, "handle"); err != nil || stored == nil ||
+		stored.Metadata["pid"].(float64) != 1 || stored.Artifacts.Files[0].SizeBytes != 42 {
 		t.Fatalf("handle=%+v err=%v", stored, err)
+	}
+	if handles, err := repository.ListHandles(ctx, "run"); err != nil ||
+		len(handles) != 1 || handles[0].Artifacts.Files[0].Path != "result.csv" {
+		t.Fatalf("handles=%+v err=%v", handles, err)
 	}
 	task := domain.TaskExecution{ID: "task", ExecutionRunID: "run", PlanAssignmentID: "assignment", ActivityID: "activity", PlannedResourceID: "resource", Attempt: 1, Status: domain.TaskRunning}
 	if err := repository.SaveTask(ctx, task); err != nil {

@@ -40,6 +40,7 @@ func seedPlanParents(t *testing.T, repository *Repository) {
 			capabilities, command_spec, resource_requirements, policy
 		) VALUES ('task', 'w1', 'type', 'task', 'task', 'task', '{}', '{}', '{}', '{}')`,
 		`INSERT INTO resources(id, environment_version_id, runtime_id, type, name, provider_id) VALUES ('r1', 'e1', 'local', 'host', 'local', 'r1')`,
+		`INSERT INTO network_topologies(id, name, version, scope) VALUES ('network-v1', 'Network', 1, 'environment')`,
 	}
 	for _, statement := range statements {
 		if _, err := repository.db.Exec(statement); err != nil {
@@ -51,7 +52,7 @@ func seedPlanParents(t *testing.T, repository *Repository) {
 func TestSchedulePlanSaveAndFind(t *testing.T) {
 	repository := setup(t)
 	plan := domain.SchedulePlan{
-		ID: "p1", WorkflowVersionID: "w1", EnvironmentVersionID: "e1",
+		ID: "p1", WorkflowVersionID: "w1", EnvironmentVersionID: "e1", NetworkTopologyID: "network-v1",
 		Source: domain.PlanningSourcePlugin, Algorithm: "prism", AlgorithmVersion: "1",
 		Objective: "time", DeadlineSeconds: 10, Budget: 2,
 		Predicted: domain.PredictedMetrics{MakespanSeconds: 8, Cost: 1, Feasible: true},
@@ -70,7 +71,7 @@ func TestSchedulePlanSaveAndFind(t *testing.T) {
 	if err != nil || got == nil {
 		t.Fatalf("find failed: %+v %v", got, err)
 	}
-	if got.Algorithm != "prism" || got.Source != domain.PlanningSourcePlugin || len(got.Assignments) != 1 || got.Assignments[0].PlanID != "p1" || got.Assignments[0].Metadata["reason"] != "best" {
+	if got.Algorithm != "prism" || got.Source != domain.PlanningSourcePlugin || got.NetworkTopologyID != "network-v1" || len(got.Assignments) != 1 || got.Assignments[0].PlanID != "p1" || got.Assignments[0].Metadata["reason"] != "best" {
 		t.Fatalf("unexpected plan: %+v", got)
 	}
 	missing, err := repository.Find(context.Background(), "missing")

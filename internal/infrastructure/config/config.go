@@ -11,6 +11,7 @@ type Settings struct {
 	KubernetesToken           string
 	KubernetesCAFile          string
 	KubernetesInsecureSkipTLS bool
+	KubernetesObserverImage   string
 }
 
 func Load() Settings {
@@ -25,6 +26,7 @@ func Load() Settings {
 	settings.KubernetesToken = os.Getenv("K8S_API_SERVER_TOKEN")
 	settings.KubernetesCAFile = os.Getenv("K8S_API_SERVER_CA_FILE")
 	settings.KubernetesInsecureSkipTLS = os.Getenv("K8S_API_SERVER_INSECURE_SKIP_TLS_VERIFY") == "true"
+	settings.KubernetesObserverImage = os.Getenv("AKOFLOW_KUBERNETES_OBSERVER_IMAGE")
 	return settings
 }
 

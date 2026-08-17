@@ -102,9 +102,17 @@ CREATE TABLE resource_snapshots (
 		queue_length INTEGER NOT NULL DEFAULT 0,
 		metadata TEXT NOT NULL DEFAULT '{}'
 	);
+CREATE TABLE network_topologies (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		version INTEGER NOT NULL CHECK(version > 0),
+		scope TEXT NOT NULL CHECK(scope IN ('environment', 'federated')),
+		metadata TEXT NOT NULL DEFAULT '{}',
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
 CREATE TABLE network_links (
 		id TEXT PRIMARY KEY,
-		environment_version_id TEXT NOT NULL REFERENCES environment_versions(id),
+		topology_id TEXT NOT NULL REFERENCES network_topologies(id) ON DELETE CASCADE,
 		source_resource_id TEXT NOT NULL REFERENCES resources(id),
 		target_resource_id TEXT NOT NULL REFERENCES resources(id),
 		bandwidth_bits_per_second REAL NOT NULL CHECK(bandwidth_bits_per_second > 0),
@@ -114,7 +122,7 @@ CREATE TABLE network_links (
 		sharing_policy TEXT NOT NULL DEFAULT 'independent',
 		max_concurrent_transfers INTEGER NOT NULL DEFAULT 0,
 		metadata TEXT NOT NULL DEFAULT '{}',
-		UNIQUE(environment_version_id, source_resource_id, target_resource_id)
+		UNIQUE(topology_id, source_resource_id, target_resource_id)
 	);
 CREATE TABLE workflow_definitions (
 		id TEXT PRIMARY KEY,
@@ -189,6 +197,7 @@ CREATE TABLE schedule_plans (
 		id TEXT PRIMARY KEY,
 		workflow_version_id TEXT NOT NULL REFERENCES workflow_versions(id),
 		environment_version_id TEXT NOT NULL REFERENCES environment_versions(id),
+		network_topology_id TEXT REFERENCES network_topologies(id),
 		source TEXT NOT NULL CHECK(source IN ('plugin', 'imported')),
 		algorithm TEXT NOT NULL,
 		algorithm_version TEXT NOT NULL DEFAULT '',
@@ -284,6 +293,7 @@ CREATE TABLE activity_handles (
 		finished_at REAL NOT NULL DEFAULT 0,
 		exit_code INTEGER,
 		failure TEXT NOT NULL DEFAULT '',
+		artifacts TEXT NOT NULL DEFAULT 'null',
 		metadata TEXT NOT NULL DEFAULT '{}',
 		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);

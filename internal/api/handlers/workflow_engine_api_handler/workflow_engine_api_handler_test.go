@@ -60,14 +60,29 @@ func (s *eventPublisherStub) Publish(_ context.Context, job domainqueue.Job) (do
 
 type validatorStub struct{ err error }
 
-func (s validatorStub) Validate(domain.SchedulePlan, domain.WorkflowVersion, []domain.Resource) error {
+func (s validatorStub) Validate(domain.SchedulePlan, domain.WorkflowVersion, []domain.Resource, domain.NetworkTopology) error {
 	return s.err
 }
 
 type executionQueryStub struct {
-	run    *domain.ExecutionRun
-	tasks  []domain.TaskExecution
-	events []domainevents.Event
+	run     *domain.ExecutionRun
+	tasks   []domain.TaskExecution
+	handles []domain.ActivityHandle
+	events  []domainevents.Event
+}
+
+type topologyStoreStub struct {
+	topology *domain.NetworkTopology
+	created  *domain.NetworkTopology
+	err      error
+}
+
+func (s *topologyStoreStub) Create(_ context.Context, topology domain.NetworkTopology) error {
+	s.created = &topology
+	return s.err
+}
+func (s *topologyStoreStub) Find(context.Context, string) (*domain.NetworkTopology, error) {
+	return s.topology, s.err
 }
 
 func (s executionQueryStub) FindRun(context.Context, string) (*domain.ExecutionRun, error) {
@@ -75,6 +90,9 @@ func (s executionQueryStub) FindRun(context.Context, string) (*domain.ExecutionR
 }
 func (s executionQueryStub) ListTasks(context.Context, string) ([]domain.TaskExecution, error) {
 	return s.tasks, nil
+}
+func (s executionQueryStub) ListHandles(context.Context, string) ([]domain.ActivityHandle, error) {
+	return s.handles, nil
 }
 func (s executionQueryStub) ListEvents(context.Context, string) ([]domainevents.Event, error) {
 	return s.events, nil
@@ -85,6 +103,7 @@ func newTestHandler() *Handler {
 		Environments: environmentRepositoryStub{}, Workflows: workflowRepositoryStub{},
 		Plans: planRepositoryStub{}, Events: &eventPublisherStub{}, Validator: validatorStub{},
 		Executions: executionQueryStub{},
+		Topologies: &topologyStoreStub{},
 	})
 	if err != nil {
 		panic(err)
@@ -122,6 +141,46 @@ version:
 	newTestHandler().CreateEnvironment(recorder, request)
 	require.Equal(t, http.StatusCreated, recorder.Code)
 	require.Contains(t, recorder.Body.String(), `"id":"env-yaml"`)
+}
+
+func TestCreateAndGetNetworkTopology(t *testing.T) {
+	store := &topologyStoreStub{}
+	handler := newTestHandler()
+	handler.topologies = store
+	recorder := httptest.NewRecorder()
+	request := yamlRequest(`
+id: federated-v1
+name: Federated network
+version: 1
+scope: federated
+links:
+  - id: hpc-cloud
+    sourceResourceId: hpc-node
+    targetResourceId: cloud-vm
+    bandwidthBitsPerSecond: 500000000
+    latencySeconds: 0.1
+    bidirectional: true
+`)
+	handler.CreateNetworkTopology(recorder, request)
+	require.Equal(t, http.StatusCreated, recorder.Code)
+	require.Equal(t, "federated-v1", store.created.ID)
+	require.Equal(t, 0.1, store.created.Links[0].LatencySeconds)
+
+	store.topology = store.created
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/network-topologies/federated-v1", nil)
+	request.SetPathValue("topologyId", "federated-v1")
+	handler.GetNetworkTopology(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Contains(t, recorder.Body.String(), `"scope":"federated"`)
+}
+
+func TestGetNetworkTopologyReturnsNotFound(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/network-topologies/missing", nil)
+	request.SetPathValue("topologyId", "missing")
+	newTestHandler().GetNetworkTopology(recorder, request)
+	require.Equal(t, http.StatusNotFound, recorder.Code)
 }
 
 func TestYAMLRejectsUnknownField(t *testing.T) {
@@ -170,6 +229,9 @@ func TestGetExecutionReturnsActivitiesAndEvents(t *testing.T) {
 	handler.executions = executionQueryStub{
 		run:   &domain.ExecutionRun{ID: "run", Status: domain.ExecutionRunRunning},
 		tasks: []domain.TaskExecution{{ID: "run:activity", ActivityID: "activity", Status: domain.TaskRunning}},
+		handles: []domain.ActivityHandle{{ID: "run:activity", Artifacts: &domain.ArtifactManifest{
+			SchemaVersion: 1,
+		}}},
 		events: []domainevents.Event{{ID: "event", Type: domainevents.ActivityStarted,
 			AggregateType: "activity_execution", AggregateID: "run:activity"}},
 	}
@@ -179,11 +241,12 @@ func TestGetExecutionReturnsActivitiesAndEvents(t *testing.T) {
 	handler.GetExecution(recorder, request)
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.Contains(t, recorder.Body.String(), `"eventType":"activity.started"`)
+	require.Contains(t, recorder.Body.String(), `"schemaVersion":1`)
 }
 
 func TestCreateExecutionPublishesPersistentCommand(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	request := yamlRequest("run:\n  id: run\n  mode: simulation\nplan:\n  id: plan\nworkflow:\n  id: workflow\nresources: []\nnetworkLinks: []\nactivityProfiles: []\n")
+	request := yamlRequest("run:\n  id: run\n  mode: simulation\nplan:\n  id: plan\nworkflow:\n  id: workflow\nresources: []\nnetworkTopology: {}\nactivityProfiles: []\n")
 	newTestHandler().CreateExecution(recorder, request)
 	require.Equal(t, http.StatusAccepted, recorder.Code)
 	require.Contains(t, recorder.Body.String(), `"eventType":"execution.run.requested"`)

@@ -27,6 +27,7 @@ type SchedulePlan struct {
 	ID                   string           `json:"id"`
 	WorkflowVersionID    string           `json:"workflowVersionId"`
 	EnvironmentVersionID string           `json:"environmentVersionId"`
+	NetworkTopologyID    string           `json:"networkTopologyId,omitempty"`
 	Source               PlanningSource   `json:"source"`
 	Algorithm            string           `json:"algorithm"`
 	AlgorithmVersion     string           `json:"algorithmVersion,omitempty"`
@@ -59,7 +60,7 @@ type PlanningRequest struct {
 	Workflow         workflow.WorkflowVersion           `json:"workflow"`
 	Environment      environment.EnvironmentVersion     `json:"environment"`
 	Resources        []resource.Resource                `json:"resources"`
-	NetworkLinks     []resource.NetworkLink             `json:"networkLinks"`
+	NetworkTopology  resource.NetworkTopology           `json:"networkTopology"`
 	ActivityProfiles []workflow.ActivityResourceProfile `json:"activityProfiles"`
 	DeadlineSeconds  float64                            `json:"deadlineSeconds"`
 	Budget           float64                            `json:"budget"`

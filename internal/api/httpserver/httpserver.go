@@ -17,6 +17,8 @@ func NewMux(workflowEngine *workflow_engine_api_handler.Handler) *http.ServeMux 
 	mux.HandleFunc("GET /", http_config.KernelHandler(HealthCheck))
 
 	mux.HandleFunc("POST /akoflow-api/environments/", http_config.KernelHandler(workflowEngine.CreateEnvironment))
+	mux.HandleFunc("POST /akoflow-api/network-topologies/", http_config.KernelHandler(workflowEngine.CreateNetworkTopology))
+	mux.HandleFunc("GET /akoflow-api/network-topologies/{topologyId}/", http_config.KernelHandler(workflowEngine.GetNetworkTopology))
 	mux.HandleFunc("POST /akoflow-api/workflow-definitions/", http_config.KernelHandler(workflowEngine.CreateWorkflow))
 	mux.HandleFunc("POST /akoflow-api/schedule-plans/", http_config.KernelHandler(workflowEngine.CreatePlan))
 	mux.HandleFunc("GET /akoflow-api/schedule-plans/{planId}/", http_config.KernelHandler(workflowEngine.GetPlan))

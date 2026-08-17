@@ -122,5 +122,6 @@ type ActivityHandle struct {
 	FinishedAt float64              `json:"finishedAt,omitempty"`
 	ExitCode   *int                 `json:"exitCode,omitempty"`
 	Failure    string               `json:"failure,omitempty"`
+	Artifacts  *ArtifactManifest    `json:"artifacts,omitempty"`
 	Metadata   map[string]any       `json:"metadata,omitempty"`
 }

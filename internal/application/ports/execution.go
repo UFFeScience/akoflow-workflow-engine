@@ -11,7 +11,7 @@ type ExecutionRequest struct {
 	Plan             domain.SchedulePlan
 	Workflow         domain.WorkflowVersion
 	Resources        []domain.Resource
-	NetworkLinks     []domain.NetworkLink
+	NetworkTopology  domain.NetworkTopology
 	ActivityProfiles []domain.ActivityResourceProfile
 }
 

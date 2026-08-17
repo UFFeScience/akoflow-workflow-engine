@@ -37,16 +37,26 @@ func TestSimulationExecutesFrozenPlanWithRealNetworkModel(t *testing.T) {
 	trace, err := NewSimulationExecutor().Execute(context.Background(), Request{
 		Run:  domain.ExecutionRun{ID: "run", Mode: domain.ExecutionModeSimulation},
 		Plan: plan, Workflow: workflow, Resources: resources, ActivityProfiles: profiles,
-		NetworkLinks: []domain.NetworkLink{{
-			SourceResourceID: "edge", TargetResourceID: "cloud", Bidirectional: true,
-			BandwidthBitsPerSecond: 8_000_000, LatencySeconds: 0.1,
-		}},
+		NetworkTopology: domain.NetworkTopology{ID: "topology", Links: []domain.NetworkLink{{
+			TopologyID: "topology", SourceResourceID: "edge", TargetResourceID: "cloud",
+			Bidirectional: true, BandwidthBitsPerSecond: 8_000_000, LatencySeconds: 0.1,
+		}}},
 	})
 	require.NoError(t, err)
 	require.Len(t, trace.Transfers, 1)
 	require.InDelta(t, 1.1, trace.Transfers[0].DurationSeconds, 1e-9)
 	require.InDelta(t, 6.1, trace.Executed.MakespanSeconds, 1e-9)
 	require.True(t, trace.Executed.Feasible)
+}
+
+func TestSimulationResolvesMultiHopNetworkPath(t *testing.T) {
+	duration, cost, ok := resolveNetworkPath([]domain.NetworkLink{
+		{SourceResourceID: "edge", TargetResourceID: "gateway", Bidirectional: true, BandwidthBitsPerSecond: 8_000_000, LatencySeconds: .1, PricePerByte: 1e-9},
+		{SourceResourceID: "gateway", TargetResourceID: "cloud", Bidirectional: true, BandwidthBitsPerSecond: 16_000_000, LatencySeconds: .2, PricePerByte: 2e-9},
+	}, "edge", "cloud", 1_000_000)
+	require.True(t, ok)
+	require.InDelta(t, 1.8, duration, 1e-9)
+	require.InDelta(t, .003, cost, 1e-9)
 }
 
 func TestSimulationRejectsPlanThatDoesNotCoverWorkflow(t *testing.T) {

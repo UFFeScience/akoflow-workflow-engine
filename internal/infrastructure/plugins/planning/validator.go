@@ -11,9 +11,17 @@ type Validator struct{}
 
 func NewValidator() Validator { return Validator{} }
 
-func (Validator) Validate(plan domain.SchedulePlan, workflow domain.WorkflowVersion, resources []domain.Resource) error {
+func (Validator) Validate(
+	plan domain.SchedulePlan,
+	workflow domain.WorkflowVersion,
+	resources []domain.Resource,
+	topology domain.NetworkTopology,
+) error {
 	if plan.WorkflowVersionID != workflow.ID {
 		return fmt.Errorf("plan workflow version %q does not match %q", plan.WorkflowVersionID, workflow.ID)
+	}
+	if plan.NetworkTopologyID != "" && plan.NetworkTopologyID != topology.ID {
+		return fmt.Errorf("plan network topology %q does not match %q", plan.NetworkTopologyID, topology.ID)
 	}
 	resourceByID := make(map[string]domain.Resource, len(resources))
 	for _, resource := range resources {
@@ -36,7 +44,7 @@ func (Validator) Validate(plan domain.SchedulePlan, workflow domain.WorkflowVers
 		if !exists {
 			return fmt.Errorf("assignment %q references unknown resource %q", assignment.ID, assignment.ResourceID)
 		}
-		if resource.EnvironmentVersionID != plan.EnvironmentVersionID {
+		if topology.Scope != "federated" && resource.EnvironmentVersionID != plan.EnvironmentVersionID {
 			return fmt.Errorf("resource %q belongs to another environment version", resource.ID)
 		}
 		if !resource.Schedulable {
