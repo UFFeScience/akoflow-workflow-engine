@@ -8,16 +8,26 @@ import (
 	"github.com/UFFeScience/akoflow/internal/domain"
 )
 
-type executorFake struct{ input, output []byte }
-
-func (f *executorFake) Run(_ context.Context, _ string, _ []string, input []byte) ([]byte, error) {
-	f.input = input
-	return f.output, nil
+type apiFake struct {
+	created   map[string][]byte
+	getOutput []byte
 }
 
+func (f *apiFake) Create(_ context.Context, _, resource string, body []byte) error {
+	if f.created == nil {
+		f.created = map[string][]byte{}
+	}
+	f.created[resource] = body
+	return nil
+}
+func (f *apiFake) Get(context.Context, string, string, string) ([]byte, error) {
+	return f.getOutput, nil
+}
+func (f *apiFake) Delete(context.Context, string, string, string) error { return nil }
+
 func TestAdapterCreatesJobAndServiceFromActivity(t *testing.T) {
-	executor := &executorFake{}
-	adapter := New(executor, "science")
+	api := &apiFake{}
+	adapter := New(api, "science")
 	activity := domain.Activity{
 		ID: "A 1",
 		Command: domain.ActivityCommand{
@@ -27,12 +37,9 @@ func TestAdapterCreatesJobAndServiceFromActivity(t *testing.T) {
 		Service:   &domain.ServiceSpec{Ports: []int{8080}},
 	}
 	handle, err := adapter.Start(context.Background(), domain.ActivityExecutionContext{
-		Run:      domain.ExecutionRun{ID: "run"},
-		Activity: activity,
-		Resource: domain.Resource{
-			ID: "node", RuntimeID: "kubernetes",
-			Type: domain.ResourceKubernetesMachine, ProviderID: "kind-worker",
-		},
+		Run: domain.ExecutionRun{ID: "run"}, Activity: activity,
+		Resource: domain.Resource{ID: "node", RuntimeID: "kubernetes",
+			Type: domain.ResourceKubernetesMachine, ProviderID: "kind-worker"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -40,16 +47,14 @@ func TestAdapterCreatesJobAndServiceFromActivity(t *testing.T) {
 	if handle.Status != domain.HandleStarting || len(handle.Endpoints) != 1 {
 		t.Fatalf("handle=%+v", handle)
 	}
-	var manifest struct {
-		Items []map[string]any `json:"items"`
+	if len(api.created) != 2 {
+		t.Fatalf("created resources=%d", len(api.created))
 	}
-	if err := json.Unmarshal(executor.input, &manifest); err != nil {
+	var job map[string]any
+	if err := json.Unmarshal(api.created["jobs"], &job); err != nil {
 		t.Fatal(err)
 	}
-	if len(manifest.Items) != 2 {
-		t.Fatalf("items=%d", len(manifest.Items))
-	}
-	template := manifest.Items[0]["spec"].(map[string]any)["template"].(map[string]any)
+	template := job["spec"].(map[string]any)["template"].(map[string]any)
 	podSpec := template["spec"].(map[string]any)
 	selector := podSpec["nodeSelector"].(map[string]any)
 	if selector["kubernetes.io/hostname"] != "kind-worker" {
@@ -58,8 +63,10 @@ func TestAdapterCreatesJobAndServiceFromActivity(t *testing.T) {
 }
 
 func TestAdapterMapsKubernetesStatus(t *testing.T) {
-	executor := &executorFake{output: []byte(`{"status":{"succeeded":1}}`)}
-	handle, err := New(executor, "default").Inspect(context.Background(), domain.ActivityHandle{ExternalID: "job", Status: domain.HandleRunning})
+	api := &apiFake{getOutput: []byte(`{"status":{"succeeded":1}}`)}
+	handle, err := New(api, "default").Inspect(context.Background(), domain.ActivityHandle{
+		ExternalID: "job", Status: domain.HandleRunning,
+	})
 	if err != nil || handle.Status != domain.HandleCompleted {
 		t.Fatalf("handle=%+v err=%v", handle, err)
 	}

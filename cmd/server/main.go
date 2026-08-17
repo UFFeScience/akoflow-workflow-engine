@@ -53,9 +53,21 @@ func main() {
 		panic(err)
 	}
 	commandExecutor := provider.OSCommandExecutor{}
+	var kubernetesAPI kubernetes.API
+	if settings.KubernetesAPIServer != "" || settings.KubernetesToken != "" {
+		kubernetesAPI, err = kubernetes.NewClient(kubernetes.ClientConfig{
+			Endpoint:              settings.KubernetesAPIServer,
+			Token:                 settings.KubernetesToken,
+			CAFile:                settings.KubernetesCAFile,
+			InsecureSkipTLSVerify: settings.KubernetesInsecureSkipTLS,
+		})
+		if err != nil {
+			panic(fmt.Errorf("configure Kubernetes API: %w", err))
+		}
+	}
 	for runtimeID, adapter := range map[string]ports.RuntimeAdapter{
 		"local":      local.New(),
-		"kubernetes": kubernetes.New(commandExecutor, settings.DefaultNamespace),
+		"kubernetes": kubernetes.New(kubernetesAPI, settings.DefaultNamespace),
 		"slurm":      slurm.New(commandExecutor, ""),
 	} {
 		if err := runtimes.Register(runtimeID, adapter); err != nil {

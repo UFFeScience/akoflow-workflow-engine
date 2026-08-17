@@ -3,6 +3,7 @@ package kubernetes
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -12,15 +13,15 @@ import (
 )
 
 type Adapter struct {
-	executor  runtimecommon.CommandExecutor
+	api       API
 	namespace string
 }
 
-func New(executor runtimecommon.CommandExecutor, namespace string) *Adapter {
+func New(api API, namespace string) *Adapter {
 	if namespace == "" {
 		namespace = "default"
 	}
-	return &Adapter{executor: executor, namespace: namespace}
+	return &Adapter{api: api, namespace: namespace}
 }
 
 func (*Adapter) Modes() []domain.ExecutionMode {
@@ -28,20 +29,26 @@ func (*Adapter) Modes() []domain.ExecutionMode {
 }
 
 func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionContext) (domain.ActivityHandle, error) {
-	if a.executor == nil {
-		return domain.ActivityHandle{}, fmt.Errorf("kubernetes command executor is required")
+	if a.api == nil {
+		return domain.ActivityHandle{}, fmt.Errorf("Kubernetes API client is required")
 	}
 	activity := execution.Activity
 	if activity.Command.Image == "" {
 		return domain.ActivityHandle{}, fmt.Errorf("activity image is required for Kubernetes")
 	}
 	name := kubernetesName("akoflow-" + execution.Run.ID + "-" + activity.ID)
-	manifest, err := jobManifest(name, a.namespace, activity, execution.Resource)
+	job, service, err := resources(name, a.namespace, activity, execution.Resource)
 	if err != nil {
 		return domain.ActivityHandle{}, err
 	}
-	if _, err := a.executor.Run(ctx, "kubectl", []string{"apply", "-f", "-"}, manifest); err != nil {
+	if err := a.api.Create(ctx, a.namespace, "jobs", job); err != nil {
 		return domain.ActivityHandle{}, err
+	}
+	if service != nil {
+		if err := a.api.Create(ctx, a.namespace, "services", service); err != nil {
+			_ = a.api.Delete(ctx, a.namespace, "jobs", name)
+			return domain.ActivityHandle{}, err
+		}
 	}
 	return domain.ActivityHandle{ID: runtimecommon.NewID("activity"), RunID: execution.Run.ID,
 		ActivityID: activity.ID, ResourceID: execution.Resource.ID,
@@ -51,8 +58,7 @@ func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionC
 }
 
 func (a *Adapter) Inspect(ctx context.Context, handle domain.ActivityHandle) (domain.ActivityHandle, error) {
-	output, err := a.executor.Run(ctx, "kubectl", []string{"get", "job", handle.ExternalID,
-		"-n", a.namespace, "-o", "json"}, nil)
+	output, err := a.api.Get(ctx, a.namespace, "jobs", handle.ExternalID)
 	if err != nil {
 		return handle, err
 	}
@@ -87,17 +93,17 @@ func (a *Adapter) Inspect(ctx context.Context, handle domain.ActivityHandle) (do
 }
 
 func (a *Adapter) Stop(ctx context.Context, handle domain.ActivityHandle) error {
-	_, err := a.executor.Run(ctx, "kubectl", []string{"delete", "job,service", handle.ExternalID,
-		"-n", a.namespace, "--ignore-not-found=true"}, nil)
-	return err
+	jobErr := ignoreNotFound(a.api.Delete(ctx, a.namespace, "jobs", handle.ExternalID))
+	serviceErr := ignoreNotFound(a.api.Delete(ctx, a.namespace, "services", handle.ExternalID))
+	return errors.Join(jobErr, serviceErr)
 }
 
-func jobManifest(
+func resources(
 	name string,
 	namespace string,
 	activity domain.Activity,
 	resource domain.Resource,
-) ([]byte, error) {
+) ([]byte, []byte, error) {
 	environment := make([]map[string]string, 0, len(activity.Command.Environment))
 	for key, value := range activity.Command.Environment {
 		environment = append(environment, map[string]string{"name": key, "value": value})
@@ -122,18 +128,30 @@ func jobManifest(
 				"metadata": map[string]any{"labels": map[string]string{"akoflow.io/activity": activity.ID}},
 				"spec":     podSpec,
 			}}}
-	items := []any{job}
+	jobJSON, err := json.Marshal(job)
+	if err != nil {
+		return nil, nil, err
+	}
 	if activity.Service != nil && len(activity.Service.Ports) > 0 {
 		ports := make([]map[string]any, 0, len(activity.Service.Ports))
 		for _, port := range activity.Service.Ports {
 			ports = append(ports, map[string]any{"port": port, "targetPort": port})
 		}
-		items = append(items, map[string]any{"apiVersion": "v1", "kind": "Service",
+		service := map[string]any{"apiVersion": "v1", "kind": "Service",
 			"metadata": map[string]any{"name": name, "namespace": namespace,
 				"labels": map[string]string{"app.kubernetes.io/managed-by": "akoflow"}},
-			"spec": map[string]any{"selector": map[string]string{"akoflow.io/activity": activity.ID}, "ports": ports}})
+			"spec": map[string]any{"selector": map[string]string{"akoflow.io/activity": activity.ID}, "ports": ports}}
+		serviceJSON, err := json.Marshal(service)
+		return jobJSON, serviceJSON, err
 	}
-	return json.Marshal(map[string]any{"apiVersion": "v1", "kind": "List", "items": items})
+	return jobJSON, nil, nil
+}
+
+func ignoreNotFound(err error) error {
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	return err
 }
 
 func kubernetesName(value string) string {

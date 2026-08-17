@@ -5,8 +5,12 @@ import (
 )
 
 type Settings struct {
-	HTTPAddress      string
-	DefaultNamespace string
+	HTTPAddress               string
+	DefaultNamespace          string
+	KubernetesAPIServer       string
+	KubernetesToken           string
+	KubernetesCAFile          string
+	KubernetesInsecureSkipTLS bool
 }
 
 func Load() Settings {
@@ -17,6 +21,10 @@ func Load() Settings {
 	if value := os.Getenv("AKOFLOW_NAMESPACE"); value != "" {
 		settings.DefaultNamespace = value
 	}
+	settings.KubernetesAPIServer = os.Getenv("K8S_API_SERVER_HOST")
+	settings.KubernetesToken = os.Getenv("K8S_API_SERVER_TOKEN")
+	settings.KubernetesCAFile = os.Getenv("K8S_API_SERVER_CA_FILE")
+	settings.KubernetesInsecureSkipTLS = os.Getenv("K8S_API_SERVER_INSECURE_SKIP_TLS_VERIFY") == "true"
 	return settings
 }
 
