@@ -1,19 +1,32 @@
 package workflow_engine_api_handler
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 
+	apirequests "github.com/UFFeScience/akoflow/internal/api/requests"
 	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/controlplane/eventloop"
 	"github.com/UFFeScience/akoflow/internal/domain"
+	domainevents "github.com/UFFeScience/akoflow/internal/domain/events"
 	domainqueue "github.com/UFFeScience/akoflow/internal/domain/queue"
+	"gopkg.in/yaml.v3"
 )
 
 type PlanValidator interface {
 	Validate(domain.SchedulePlan, domain.WorkflowVersion, []domain.Resource) error
+}
+
+type ExecutionQuery interface {
+	FindRun(context.Context, string) (*domain.ExecutionRun, error)
+	ListTasks(context.Context, string) ([]domain.TaskExecution, error)
+	ListEvents(context.Context, string) ([]domainevents.Event, error)
 }
 
 type Dependencies struct {
@@ -22,6 +35,7 @@ type Dependencies struct {
 	Plans        ports.PlanStore
 	Events       ports.EventPublisher
 	Validator    PlanValidator
+	Executions   ExecutionQuery
 }
 
 type Handler struct {
@@ -30,17 +44,41 @@ type Handler struct {
 	plans        ports.PlanStore
 	events       ports.EventPublisher
 	validator    PlanValidator
+	executions   ExecutionQuery
 }
 
 func New(dependencies Dependencies) (*Handler, error) {
-	if dependencies.Environments == nil || dependencies.Workflows == nil || dependencies.Plans == nil || dependencies.Events == nil || dependencies.Validator == nil {
+	if dependencies.Environments == nil || dependencies.Workflows == nil || dependencies.Plans == nil || dependencies.Events == nil || dependencies.Validator == nil || dependencies.Executions == nil {
 		return nil, fmt.Errorf("workflow API dependencies are required")
 	}
 	return &Handler{
 		environments: dependencies.Environments, workflows: dependencies.Workflows,
 		plans: dependencies.Plans, events: dependencies.Events,
-		validator: dependencies.Validator,
+		validator: dependencies.Validator, executions: dependencies.Executions,
 	}, nil
+}
+
+func (h *Handler) GetExecution(w http.ResponseWriter, r *http.Request) {
+	run, err := h.executions.FindRun(r.Context(), r.PathValue("runId"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if run == nil {
+		writeError(w, http.StatusNotFound, nil)
+		return
+	}
+	tasks, err := h.executions.ListTasks(r.Context(), run.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	events, err := h.executions.ListEvents(r.Context(), run.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"run": run, "activities": tasks, "events": events})
 }
 
 func (h *Handler) CreateEnvironment(w http.ResponseWriter, r *http.Request) {
@@ -56,8 +94,13 @@ func (h *Handler) CreateEnvironment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
-	var definition domain.WorkflowDefinition
-	if !decode(w, r, &definition) {
+	var request apirequests.Workflow
+	if !decode(w, r, &request) {
+		return
+	}
+	definition, err := request.Domain()
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
 		return
 	}
 	if err := h.workflows.Create(r.Context(), definition); err != nil {
@@ -129,13 +172,37 @@ func (h *Handler) CreateExecution(w http.ResponseWriter, r *http.Request) {
 }
 
 func decode(w http.ResponseWriter, r *http.Request, target any) bool {
-	decoder := json.NewDecoder(r.Body)
+	if !isYAML(r.Header.Get("Content-Type")) {
+		writeError(w, http.StatusUnsupportedMediaType, fmt.Errorf("request Content-Type must be application/yaml"))
+		return false
+	}
+	payload, err := io.ReadAll(io.LimitReader(r.Body, 10<<20))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return false
+	}
+	var document any
+	if err := yaml.Unmarshal(payload, &document); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("decode YAML: %w", err))
+		return false
+	}
+	payload, err = json.Marshal(document)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("normalize YAML: %w", err))
+		return false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return false
 	}
 	return true
+}
+
+func isYAML(contentType string) bool {
+	contentType = strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
+	return contentType == "application/yaml" || contentType == "application/x-yaml" || contentType == "text/yaml"
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

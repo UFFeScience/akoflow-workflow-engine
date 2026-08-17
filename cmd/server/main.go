@@ -12,6 +12,7 @@ import (
 	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/controlplane/eventloop"
 	controlexecution "github.com/UFFeScience/akoflow/internal/controlplane/execution"
+	domainevents "github.com/UFFeScience/akoflow/internal/domain/events"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config/logger"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database"
@@ -76,6 +77,10 @@ func main() {
 	}
 	executionStore := dbexecution.New(db)
 	activities := applicationexecution.New(runtimes, executionStore)
+	if err := dispatcher.Register(eventloop.EventActivityExecutionRequested,
+		eventloop.NewActivityExecutionHandler(activities)); err != nil {
+		panic(err)
+	}
 	supervisor, err := controlexecution.New(executionStore, activities,
 		simgrid.NewSimulationExecutor(), controlexecution.Config{PollInterval: time.Second, MaxParallel: 8})
 	if err != nil {
@@ -84,6 +89,18 @@ func main() {
 	if err := dispatcher.Register(eventloop.EventExecutionRunRequested,
 		eventloop.NewExecutionRunHandler(supervisor)); err != nil {
 		panic(err)
+	}
+	for _, eventType := range []string{
+		domainevents.ExecutionStarted,
+		domainevents.ExecutionCompleted,
+		domainevents.ExecutionFailed,
+		domainevents.ActivityStarted,
+		domainevents.ActivityCompleted,
+		domainevents.ActivityFailed,
+	} {
+		if err := dispatcher.Register(eventType, eventloop.DomainEventHandler{}); err != nil {
+			panic(err)
+		}
 	}
 	owner, _ := os.Hostname()
 	owner = fmt.Sprintf("%s-%d", owner, os.Getpid())
@@ -101,7 +118,7 @@ func main() {
 	api, err := workflow_engine_api_handler.New(workflow_engine_api_handler.Dependencies{
 		Environments: dbenvironment.New(db), Workflows: dbworkflow.New(db),
 		Plans: dbplanning.New(db), Events: events,
-		Validator: planningplugin.NewValidator(),
+		Validator: planningplugin.NewValidator(), Executions: executionStore,
 	})
 	if err != nil {
 		panic(err)

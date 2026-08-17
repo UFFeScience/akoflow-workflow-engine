@@ -39,6 +39,7 @@ var requiredTables = []string{
 	"data_locations",
 	"data_transfers",
 	"queue_jobs",
+	"domain_events",
 }
 
 func Validate(ctx context.Context, db *sql.DB) error {

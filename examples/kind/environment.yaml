@@ -17,19 +17,19 @@ version:
 connections:
   - id: kind-akoflow-connection
     environmentId: kind-akoflow
-    name: local-kubeconfig
+    name: kind-api
     type: kubernetes
-    endpoint: kind-akoflow
+    endpoint: https://host.docker.internal:63395
+    credentialRef: K8S_API_SERVER_TOKEN
     configuration:
-      context: kind-akoflow
       namespace: akoflow
+      insecureSkipTLSVerify: true
 
 runtimes:
   - environmentVersionId: kind-akoflow-v1
     runtimeId: kubernetes
     role: compute
     configuration:
-      context: kind-akoflow
       namespace: akoflow
     capabilities:
       batch: true
@@ -42,7 +42,7 @@ resources:
     runtimeId: kubernetes
     type: kubernetes_machine
     name: kind-worker
-    providerId: kind-worker
+    providerId: akoflow-worker
     tier: local
     architecture: amd64
     cpuCores: 4

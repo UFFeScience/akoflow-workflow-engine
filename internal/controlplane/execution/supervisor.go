@@ -271,11 +271,17 @@ func readyActivities(activities map[string]domain.Activity, predecessors map[str
 func completedTrace(request ports.ExecutionRequest, tasks map[string]domain.TaskExecution) domain.ExecutionTrace {
 	trace := runningTrace(request, tasks)
 	trace.Executed.Feasible = true
+	firstStart := 0.0
+	lastFinish := 0.0
 	for _, task := range trace.Tasks {
-		trace.Executed.MakespanSeconds = maxFloat(trace.Executed.MakespanSeconds, task.FinishedAt)
+		if firstStart == 0 || task.StartedAt < firstStart {
+			firstStart = task.StartedAt
+		}
+		lastFinish = maxFloat(lastFinish, task.FinishedAt)
 		trace.Executed.ComputeSeconds += task.RuntimeSeconds
 		trace.Executed.Cost += task.Cost
 	}
+	trace.Executed.MakespanSeconds = maxFloat(0, lastFinish-firstStart)
 	return trace
 }
 func runningTrace(request ports.ExecutionRequest, tasks map[string]domain.TaskExecution) domain.ExecutionTrace {

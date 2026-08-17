@@ -346,6 +346,19 @@ CREATE UNIQUE INDEX queue_jobs_idempotency_idx
 		ON queue_jobs(idempotency_key) WHERE idempotency_key IS NOT NULL AND idempotency_key <> '';
 CREATE INDEX queue_jobs_available_idx
 		ON queue_jobs(status, category, available_at, priority DESC);
+CREATE TABLE domain_events (
+		id TEXT PRIMARY KEY,
+		event_type TEXT NOT NULL,
+		aggregate_type TEXT NOT NULL,
+		aggregate_id TEXT NOT NULL,
+		payload BLOB NOT NULL DEFAULT X'',
+		occurred_at DATETIME NOT NULL,
+		metadata TEXT NOT NULL DEFAULT '{}'
+	);
+CREATE INDEX domain_events_aggregate_idx
+		ON domain_events(aggregate_type, aggregate_id, occurred_at);
+CREATE INDEX domain_events_type_idx
+		ON domain_events(event_type, occurred_at);
 CREATE TABLE schema_metadata (
 	version INTEGER NOT NULL,
 	applied_at DATETIME NOT NULL,

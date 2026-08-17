@@ -80,6 +80,19 @@ func TestRepositoryOwnsCompleteExecutionAggregate(t *testing.T) {
 	if err := repository.CompleteRun(ctx, trace); err != nil {
 		t.Fatal(err)
 	}
+	var domainEvents, lifecycleEvents, outboxDeliveries int
+	if err := repository.db.QueryRow(`SELECT COUNT(*) FROM domain_events`).Scan(&domainEvents); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.db.QueryRow(`SELECT COUNT(*) FROM activity_lifecycle_events`).Scan(&lifecycleEvents); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.db.QueryRow(`SELECT COUNT(*) FROM queue_jobs WHERE category='monitoring'`).Scan(&outboxDeliveries); err != nil {
+		t.Fatal(err)
+	}
+	if domainEvents != 4 || lifecycleEvents != 2 || outboxDeliveries != domainEvents {
+		t.Fatalf("events=%d lifecycle=%d outbox=%d", domainEvents, lifecycleEvents, outboxDeliveries)
+	}
 	if err := repository.FailRun(ctx, "missing", "failure"); err == nil {
 		t.Fatal("missing run must fail")
 	}

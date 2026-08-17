@@ -1,71 +1,27 @@
-id: kind-dag
-externalId: kind-dag
-name: Kind two-step DAG
-namespace: examples
+name: kind-dag
 
-activityTypes:
-  - id: shell-task
-    name: Shell task
-    application: busybox
-    defaultImage: busybox:1.36
-    cpuIntensity: 0.1
-    memoryIntensity: 0.1
-    ioIntensity: 0
-    networkIntensity: 0
+spec:
+  namespace: examples
+  image: busybox:1.36
+  storageClassName: standard
+  storageSize: 1Gi
+  storagePolicy:
+    type: standalone
+  mountPath: /data
 
-version:
-  id: kind-dag-v1
-  workflowId: kind-dag
-  version: 1
-  definitionHash: kind-dag-v1
   activities:
-    - id: prepare
-      workflowVersionId: kind-dag-v1
-      activityTypeId: shell-task
-      externalId: prepare
-      name: Prepare
-      kind: task
-      capabilities: [real]
-      command:
-        image: busybox:1.36
-        entrypoint: sh
-        arguments:
-          - -c
-          - echo 'prepare started'; sleep 2; echo 'prepare completed'
-      resources:
-        cpu: 0.1
-        memoryBytes: 16777216
-        storageBytes: 0
-      policy:
-        timeoutSeconds: 60
-        maxAttempts: 1
-      priority: 10
+    - name: prepare
+      runtime: kubernetes
+      run: echo 'prepare started'; sleep 2; echo 'prepare completed'
+      cpuLimit: 100m
+      memoryLimit: 16Mi
+      keepDisk: false
 
-    - id: process
-      workflowVersionId: kind-dag-v1
-      activityTypeId: shell-task
-      externalId: process
-      name: Process
-      kind: task
-      capabilities: [real]
-      command:
-        image: busybox:1.36
-        entrypoint: sh
-        arguments:
-          - -c
-          - echo 'process started after prepare'; sleep 2; echo 'process completed'
-      resources:
-        cpu: 0.1
-        memoryBytes: 16777216
-        storageBytes: 0
-      policy:
-        timeoutSeconds: 60
-        maxAttempts: 1
-      priority: 5
-
-  dependencies:
-    - activityId: process
-      dependsOnActivityId: prepare
-      type: control
-
-  dataDependencies: []
+    - name: process
+      runtime: kubernetes
+      run: echo 'process started after prepare'; sleep 2; echo 'process completed'
+      cpuLimit: 100m
+      memoryLimit: 16Mi
+      dependsOn:
+        - prepare
+      keepDisk: false
