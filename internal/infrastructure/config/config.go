@@ -12,7 +12,6 @@ type Settings struct {
 	KubernetesToken            string
 	KubernetesCAFile           string
 	KubernetesInsecureSkipTLS  bool
-	KubernetesObserverImage    string
 	KubernetesCleanupEnabled   bool
 	KubernetesCleanupInterval  time.Duration
 	KubernetesHistoryRetention time.Duration
@@ -34,7 +33,6 @@ func Load() Settings {
 	settings.KubernetesToken = os.Getenv("K8S_API_SERVER_TOKEN")
 	settings.KubernetesCAFile = os.Getenv("K8S_API_SERVER_CA_FILE")
 	settings.KubernetesInsecureSkipTLS = os.Getenv("K8S_API_SERVER_INSECURE_SKIP_TLS_VERIFY") == "true"
-	settings.KubernetesObserverImage = os.Getenv("AKOFLOW_KUBERNETES_OBSERVER_IMAGE")
 	if value := os.Getenv("AKOFLOW_KUBERNETES_HISTORY_CLEANUP_ENABLED"); value != "" {
 		settings.KubernetesCleanupEnabled = value == "true"
 	}

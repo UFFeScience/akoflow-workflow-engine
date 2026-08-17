@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"os"
+	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/UFFeScience/akoflow/internal/domain"
@@ -78,13 +81,54 @@ func TestAdapterCreatesJobAndServiceFromActivity(t *testing.T) {
 	}
 	activityContainer := containers[0].(map[string]any)
 	command := activityContainer["command"].([]any)
-	if command[0] != observerExecutable {
+	if command[0] != "/bin/sh" {
 		t.Fatalf("activity command=%v", command)
 	}
-	volumes := podSpec["volumes"].([]any)
-	observerVolume := volumes[0].(map[string]any)
-	if _, exists := observerVolume["image"]; !exists {
-		t.Fatalf("observer must be mounted as an OCI image volume: %v", volumes)
+	if _, exists := podSpec["volumes"]; exists {
+		t.Fatalf("shell lifecycle must not inject volumes: %v", podSpec)
+	}
+}
+
+func TestAdapterExplainsMissingShellContract(t *testing.T) {
+	api := &apiFake{
+		getOutput:  []byte(`{"status":{"failed":1,"conditions":[{"type":"Failed","status":"True","message":"Backoff limit exceeded"}]}}`),
+		listOutput: []byte(`{"items":[{"metadata":{"name":"job-pod"},"status":{"containerStatuses":[{"state":{"waiting":{"reason":"StartError","message":"exec: \"/bin/sh\": stat /bin/sh: no such file or directory"}}}]}}]}`),
+	}
+	handle, err := New(api, "default").Inspect(context.Background(), domain.ActivityHandle{ExternalID: "job"})
+	if err != nil || handle.Status != domain.HandleFailed ||
+		handle.Failure != "activity image is incompatible with the Kubernetes shell runtime: /bin/sh is required" {
+		t.Fatalf("handle=%+v err=%v", handle, err)
+	}
+}
+
+func TestShellLifecycleExecutesActivityAndPublishesManifest(t *testing.T) {
+	command := exec.Command(
+		"/bin/sh", "-c", shellLifecycleWrapper, "akoflow-entrypoint",
+		"/bin/sh", "-c", "printf result > result.txt",
+	)
+	command.Dir = t.TempDir()
+	command.Env = append(os.Environ(),
+		"AKOFLOW_RUN_ID=run", "AKOFLOW_ACTIVITY_ID=activity", "AKOFLOW_OBSERVATION_ROOT=.",
+	)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("execute shell lifecycle: %v: %s", err, output)
+	}
+	prefixAt := strings.Index(string(output), manifestLogPrefix)
+	if prefixAt < 0 {
+		t.Fatalf("manifest was not published: %s", output)
+	}
+	encoded := strings.TrimSpace(string(output)[prefixAt+len(manifestLogPrefix):])
+	payload, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest domain.ArtifactManifest
+	if err := json.Unmarshal(payload, &manifest); err != nil {
+		t.Fatalf("decode manifest: %v: %s", err, payload)
+	}
+	if manifest.ExitCode != 0 || manifest.RunID != "run" || manifest.Summary.FinalFiles < 1 {
+		t.Fatalf("manifest=%+v", manifest)
 	}
 }
 

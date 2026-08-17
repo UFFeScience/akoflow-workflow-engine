@@ -14,31 +14,20 @@ import (
 )
 
 const (
-	defaultObserverImage = "ghcr.io/uffescience/akoflow-observer:latest"
-	activityContainer    = "activity"
-	observerExecutable   = "/akoflow/observer/akoflow-observer"
-	manifestPath         = "/tmp/akoflow/artifact-manifest.json"
-	manifestLogPrefix    = "AKOFLOW_ARTIFACT_MANIFEST="
+	activityContainer = "activity"
+	manifestLogPrefix = "AKOFLOW_ARTIFACT_MANIFEST="
 )
 
 type Adapter struct {
-	api           API
-	namespace     string
-	observerImage string
+	api       API
+	namespace string
 }
 
 func New(api API, namespace string) *Adapter {
 	if namespace == "" {
 		namespace = "default"
 	}
-	return &Adapter{api: api, namespace: namespace, observerImage: defaultObserverImage}
-}
-
-func (a *Adapter) WithObserverImage(image string) *Adapter {
-	if strings.TrimSpace(image) != "" {
-		a.observerImage = image
-	}
-	return a
+	return &Adapter{api: api, namespace: namespace}
 }
 
 func (*Adapter) Modes() []domain.ExecutionMode {
@@ -54,9 +43,7 @@ func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionC
 		return domain.ActivityHandle{}, fmt.Errorf("activity image is required for Kubernetes")
 	}
 	name := kubernetesName("akoflow-" + execution.Run.ID + "-" + activity.ID)
-	job, service, err := resources(
-		name, a.namespace, a.observerImage, activity, execution.Resource, execution.Run.ID,
-	)
+	job, service, err := resources(name, a.namespace, activity, execution.Resource, execution.Run.ID)
 	if err != nil {
 		return domain.ActivityHandle{}, err
 	}
@@ -112,6 +99,11 @@ func (a *Adapter) Inspect(ctx context.Context, handle domain.ActivityHandle) (do
 			handle.Failure = condition.Message
 		}
 	}
+	if handle.Status == domain.HandleFailed {
+		if failure := a.activityFailure(ctx, handle.ExternalID); failure != "" {
+			handle.Failure = failure
+		}
+	}
 	if handle.Status == domain.HandleCompleted || handle.Status == domain.HandleFailed {
 		manifest, observationErr := a.collectArtifacts(ctx, handle.ExternalID)
 		if observationErr != nil {
@@ -124,6 +116,44 @@ func (a *Adapter) Inspect(ctx context.Context, handle domain.ActivityHandle) (do
 		}
 	}
 	return handle, nil
+}
+
+func (a *Adapter) activityFailure(ctx context.Context, jobName string) string {
+	payload, err := a.api.List(ctx, a.namespace, "pods", "job-name="+jobName)
+	if err != nil {
+		return ""
+	}
+	var pods struct {
+		Items []struct {
+			Status struct {
+				ContainerStatuses []struct {
+					State struct {
+						Waiting, Terminated *struct{ Reason, Message string }
+					}
+				}
+			}
+		}
+	}
+	if json.Unmarshal(payload, &pods) != nil {
+		return ""
+	}
+	for _, pod := range pods.Items {
+		for _, status := range pod.Status.ContainerStatuses {
+			for _, state := range []*struct{ Reason, Message string }{status.State.Waiting, status.State.Terminated} {
+				if state == nil {
+					continue
+				}
+				message := strings.TrimSpace(state.Message)
+				if strings.Contains(message, "/bin/sh") && strings.Contains(strings.ToLower(message), "no such file") {
+					return "activity image is incompatible with the Kubernetes shell runtime: /bin/sh is required"
+				}
+				if message != "" {
+					return state.Reason + ": " + message
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func (a *Adapter) collectArtifacts(ctx context.Context, jobName string) (*domain.ArtifactManifest, error) {
@@ -176,12 +206,11 @@ func (a *Adapter) Stop(ctx context.Context, handle domain.ActivityHandle) error 
 func resources(
 	name string,
 	namespace string,
-	observerImage string,
 	activity domain.Activity,
 	resource domain.Resource,
 	runID string,
 ) ([]byte, []byte, error) {
-	podSpec := observedPodSpec(observerImage, activity, resource, runID)
+	podSpec := observedPodSpec(activity, resource, runID)
 	job := map[string]any{"apiVersion": "batch/v1", "kind": "Job",
 		"metadata": map[string]any{"name": name, "namespace": namespace,
 			"labels": map[string]string{"app.kubernetes.io/managed-by": "akoflow"}},
@@ -209,41 +238,29 @@ func resources(
 	return jobJSON, serviceJSON, err
 }
 
-func observedPodSpec(
-	observerImage string,
-	activity domain.Activity,
-	resource domain.Resource,
-	runID string,
-) map[string]any {
+func observedPodSpec(activity domain.Activity, resource domain.Resource, runID string) map[string]any {
 	environment := make([]map[string]string, 0, len(activity.Command.Environment))
 	for key, value := range activity.Command.Environment {
 		environment = append(environment, map[string]string{"name": key, "value": value})
 	}
-	environment = append(environment, map[string]string{"name": "AKOFLOW_ARTIFACT_MANIFEST", "value": manifestPath})
-	observerArguments := []string{
-		"run", "--run-id", runID, "--activity-id", activity.ID,
-		"--attempt", "1", "--runtime", "kubernetes", "--root", observationRoot(activity),
-		"--manifest", manifestPath, "--", activity.Command.Entrypoint,
+	environment = append(environment,
+		map[string]string{"name": "AKOFLOW_RUN_ID", "value": runID},
+		map[string]string{"name": "AKOFLOW_ACTIVITY_ID", "value": activity.ID},
+		map[string]string{"name": "AKOFLOW_OBSERVATION_ROOT", "value": observationRoot(activity)},
+	)
+	arguments := []string{
+		"-c", shellLifecycleWrapper, "akoflow-entrypoint", activity.Command.Entrypoint,
 	}
-	observerArguments = append(observerArguments, activity.Command.Arguments...)
-	volumeMounts := []map[string]any{
-		{"name": "akoflow-observer", "mountPath": "/akoflow/observer", "readOnly": true},
-	}
+	arguments = append(arguments, activity.Command.Arguments...)
 	container := map[string]any{"name": activityContainer, "image": activity.Command.Image,
-		"command": []string{observerExecutable}, "args": observerArguments,
+		"command": []string{"/bin/sh"}, "args": arguments,
 		"env": environment, "workingDir": activity.Command.WorkingDirectory,
-		"volumeMounts": volumeMounts,
 		"resources": map[string]any{"requests": map[string]string{
 			"cpu":    fmt.Sprintf("%g", activity.Resources.CPU),
 			"memory": fmt.Sprintf("%d", activity.Resources.MemoryBytes)}}}
 	podSpec := map[string]any{
 		"restartPolicy": "Never",
 		"containers":    []any{container},
-		"volumes": []map[string]any{
-			{"name": "akoflow-observer", "image": map[string]any{
-				"reference": observerImage, "pullPolicy": "IfNotPresent",
-			}},
-		},
 	}
 	if resource.Type == domain.ResourceKubernetesMachine && resource.ProviderID != "" {
 		podSpec["nodeSelector"] = map[string]string{
@@ -252,6 +269,43 @@ func observedPodSpec(
 	}
 	return podSpec
 }
+
+const shellLifecycleWrapper = `
+started_at=$(date +%s 2>/dev/null || printf '0')
+root=${AKOFLOW_OBSERVATION_ROOT:-.}
+initial_files=$(find "$root" -type f 2>/dev/null | wc -l | tr -d ' ')
+initial_bytes=$(find "$root" -type f -exec wc -c {} + 2>/dev/null | awk 'END { print $1+0 }')
+
+"$@"
+activity_exit_code=$?
+
+finished_at=$(date +%s 2>/dev/null || printf '0')
+final_files=$(find "$root" -type f 2>/dev/null | wc -l | tr -d ' ')
+final_bytes=$(find "$root" -type f -exec wc -c {} + 2>/dev/null | awk 'END { print $1+0 }')
+output_bytes=$((final_bytes > initial_bytes ? final_bytes - initial_bytes : 0))
+duration=$((finished_at >= started_at ? finished_at - started_at : 0))
+
+manifest_format='{"schemaVersion":1,"runId":"%s","activityId":"%s","attempt":1,'
+manifest_format=$manifest_format'"runtime":"kubernetes","root":"%s","startedAt":%s,'
+manifest_format=$manifest_format'"finishedAt":%s,"exitCode":%s,"files":[],"phases":['
+manifest_format=$manifest_format'{"phase":"execution","status":"%s","startedAt":%s,'
+manifest_format=$manifest_format'"finishedAt":%s,"durationSeconds":%s}],"summary":{'
+manifest_format=$manifest_format'"initialFiles":%s,"finalFiles":%s,"createdFiles":0,'
+manifest_format=$manifest_format'"modifiedFiles":0,"deletedFiles":0,"outputBytes":%s}}'
+manifest=$(printf "$manifest_format" \
+  "$AKOFLOW_RUN_ID" "$AKOFLOW_ACTIVITY_ID" "$root" "$started_at" "$finished_at" "$activity_exit_code" \
+  "$(if [ "$activity_exit_code" -eq 0 ]; then printf completed; else printf failed; fi)" \
+  "$started_at" "$finished_at" "$duration" "${initial_files:-0}" "${final_files:-0}" "$output_bytes")
+
+if command -v base64 >/dev/null 2>&1; then
+  encoded_manifest=$(printf '%s' "$manifest" | base64 | tr -d '\n')
+  printf '\nAKOFLOW_ARTIFACT_MANIFEST=%s\n' "$encoded_manifest"
+else
+  printf '\nAKOFLOW_OBSERVATION_ERROR=base64 utility is unavailable; activity result was preserved\n' >&2
+fi
+
+exit "$activity_exit_code"
+`
 
 func observationRoot(activity domain.Activity) string {
 	if configured, ok := activity.Metadata["artifactObservationRoot"].(string); ok && configured != "" {

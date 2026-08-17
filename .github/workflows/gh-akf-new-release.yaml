@@ -100,17 +100,6 @@ jobs:
           
           cd ../..
 
-      - name: Publish Kubernetes artifact observer
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: build/observer.Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ghcr.io/uffescience/akoflow-observer:${{ steps.get_version.outputs.VERSION }}
-            ghcr.io/uffescience/akoflow-observer:latest
-          
       - name: Create checksums
         run: |
           cd releases/bin

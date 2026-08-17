@@ -33,7 +33,7 @@ func buildRuntimes(settings config.Settings, kubernetesAPI kubernetes.API) (*reg
 	adapters := map[string]ports.RuntimeAdapter{
 		"*":          simgrid.NewActivityRuntime(),
 		"local":      local.New(),
-		"kubernetes": kubernetes.New(kubernetesAPI, settings.DefaultNamespace).WithObserverImage(settings.KubernetesObserverImage),
+		"kubernetes": kubernetes.New(kubernetesAPI, settings.DefaultNamespace),
 		"slurm":      slurm.New(provider.OSCommandExecutor{}, ""),
 	}
 	for runtimeID, adapter := range adapters {
