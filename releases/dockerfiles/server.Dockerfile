@@ -8,6 +8,6 @@ RUN go mod download
 
 COPY . .
 
-RUN  go build -o server cmd/server/main.go
+RUN go build -o server ./cmd/server
 
 CMD [ "./server" ]

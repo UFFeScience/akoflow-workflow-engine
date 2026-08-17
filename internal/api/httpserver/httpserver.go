@@ -1,10 +1,13 @@
 package httpserver
 
 import (
+	"context"
+	"errors"
 	"github.com/UFFeScience/akoflow/internal/api/handlers/workflow_engine_api_handler"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config/http_config"
 
 	"net/http"
+	"time"
 )
 
 func HealthCheck(w http.ResponseWriter, r *http.Request) {
@@ -27,6 +30,19 @@ func NewMux(workflowEngine *workflow_engine_api_handler.Handler) *http.ServeMux 
 	return mux
 }
 
-func StartServer(address string, workflowEngine *workflow_engine_api_handler.Handler) error {
-	return http.ListenAndServe(address, AllowCORS(NewMux(workflowEngine)))
+func Serve(ctx context.Context, address string, workflowEngine *workflow_engine_api_handler.Handler) error {
+	server := &http.Server{Addr: address, Handler: AllowCORS(NewMux(workflowEngine))}
+	go shutdownWhenCanceled(ctx, server)
+	err := server.ListenAndServe()
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
+}
+
+func shutdownWhenCanceled(ctx context.Context, server *http.Server) {
+	<-ctx.Done()
+	shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = server.Shutdown(shutdownContext)
 }

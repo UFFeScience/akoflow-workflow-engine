@@ -13,8 +13,14 @@ Purpose: machine-readable notes for AI agents working on this repository.
 
 ## Entry Points
 
-- `cmd/client/main.go`: selects the CLI command and runs the client service.
-- `cmd/server/main.go`: bootstraps config and starts healthcheck, worker, orchestrator, monitor, garbage collector and HTTP server.
+- `cmd/akoflow/main.go`: starts the CLI.
+- `cmd/server/main.go`: owns process signals and application lifetime only.
+- `cmd/server/application.go`: composes and runs the server application.
+- `cmd/server/persistence.go`: bootstraps the canonical database and repositories.
+- `cmd/server/runtimes.go`: composes runtime adapters and external clients.
+- `cmd/server/events.go`: composes the persistent event loop and execution handlers.
+- `cmd/server/processes.go`: starts background processes such as Kubernetes history cleanup.
+- `cmd/server/api.go`: composes the HTTP API dependencies.
 
 ## High-Level Flow
 
