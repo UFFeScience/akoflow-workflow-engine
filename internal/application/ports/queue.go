@@ -7,9 +7,9 @@ import (
 	domainqueue "github.com/UFFeScience/akoflow/internal/domain/queue"
 )
 
-// QueueRepository is the durable boundary used by the event loop. Implementations
+// QueueStore is the durable boundary used by the event loop. Implementations
 // own persistence and leasing; application services only express queue intent.
-type QueueRepository interface {
+type QueueStore interface {
 	Publish(context.Context, domainqueue.Job) (domainqueue.Job, error)
 	Lease(context.Context, string, []string, int, time.Duration) ([]domainqueue.Job, error)
 	Complete(context.Context, string, string, time.Time) error

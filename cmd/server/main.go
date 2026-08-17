@@ -8,26 +8,26 @@ import (
 
 	"github.com/UFFeScience/akoflow/internal/api/handlers/workflow_engine_api_handler"
 	"github.com/UFFeScience/akoflow/internal/api/httpserver"
+	applicationexecution "github.com/UFFeScience/akoflow/internal/application/execution"
 	"github.com/UFFeScience/akoflow/internal/application/ports"
-	"github.com/UFFeScience/akoflow/internal/application/services/activity_execution_service"
-	"github.com/UFFeScience/akoflow/internal/application/services/execution_supervisor"
-	"github.com/UFFeScience/akoflow/internal/execution/lifecycle/eventloop"
-	"github.com/UFFeScience/akoflow/internal/execution/orchestrator"
-	simulation "github.com/UFFeScience/akoflow/internal/execution/simulation"
+	"github.com/UFFeScience/akoflow/internal/controlplane/eventloop"
+	controlexecution "github.com/UFFeScience/akoflow/internal/controlplane/execution"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config/logger"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/environment_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/execution_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/queue_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/schedule_plan_repository"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/repository/workflow_definition_repository"
+	"github.com/UFFeScience/akoflow/internal/infrastructure/database"
+	dbenvironment "github.com/UFFeScience/akoflow/internal/infrastructure/database/environment"
+	dbexecution "github.com/UFFeScience/akoflow/internal/infrastructure/database/execution"
+	dbplanning "github.com/UFFeScience/akoflow/internal/infrastructure/database/planning"
+	dbqueue "github.com/UFFeScience/akoflow/internal/infrastructure/database/queue"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/schema"
+	dbworkflow "github.com/UFFeScience/akoflow/internal/infrastructure/database/workflow"
 	planningplugin "github.com/UFFeScience/akoflow/internal/infrastructure/plugins/planning"
-	runtimecommon "github.com/UFFeScience/akoflow/internal/runtime"
-	kubernetesruntime "github.com/UFFeScience/akoflow/internal/runtime/kubernetes"
-	localruntime "github.com/UFFeScience/akoflow/internal/runtime/local"
-	slurmruntime "github.com/UFFeScience/akoflow/internal/runtime/slurm"
+	"github.com/UFFeScience/akoflow/internal/provider"
+	"github.com/UFFeScience/akoflow/internal/provider/kubernetes"
+	"github.com/UFFeScience/akoflow/internal/provider/local"
+	"github.com/UFFeScience/akoflow/internal/provider/registry"
+	"github.com/UFFeScience/akoflow/internal/provider/simgrid"
+	"github.com/UFFeScience/akoflow/internal/provider/slurm"
 )
 
 func main() {
@@ -37,33 +37,33 @@ func main() {
 	log.Info("Starting Akoflow Server")
 
 	dispatcher := eventloop.NewDispatcher()
-	db := (&repository.Database{}).Connect()
+	db := (&database.Database{}).Connect()
 	defer db.Close()
 	if err := schema.Apply(db); err != nil {
 		panic(err)
 	}
-	events, err := queue_repository.NewWithDB(db)
+	events, err := dbqueue.New(db)
 	if err != nil {
 		panic(err)
 	}
-	runtimes := orchestrator.NewRuntimeRegistry()
-	if err := runtimes.Register("*", simulation.NewActivityRuntime()); err != nil {
+	runtimes := registry.New()
+	if err := runtimes.Register("*", simgrid.NewActivityRuntime()); err != nil {
 		panic(err)
 	}
-	commandExecutor := runtimecommon.OSCommandExecutor{}
+	commandExecutor := provider.OSCommandExecutor{}
 	for runtimeID, adapter := range map[string]ports.RuntimeAdapter{
-		"local":      localruntime.New(),
-		"kubernetes": kubernetesruntime.New(commandExecutor, settings.DefaultNamespace),
-		"slurm":      slurmruntime.New(commandExecutor, ""),
+		"local":      local.New(),
+		"kubernetes": kubernetes.New(commandExecutor, settings.DefaultNamespace),
+		"slurm":      slurm.New(commandExecutor, ""),
 	} {
 		if err := runtimes.Register(runtimeID, adapter); err != nil {
 			panic(err)
 		}
 	}
-	executionStore := execution_repository.New(db)
-	activities := activity_execution_service.New(runtimes, executionStore)
-	supervisor, err := execution_supervisor.New(executionStore, activities,
-		simulation.NewSimulationExecutor(), execution_supervisor.Config{PollInterval: time.Second, MaxParallel: 8})
+	executionStore := dbexecution.New(db)
+	activities := applicationexecution.New(runtimes, executionStore)
+	supervisor, err := controlexecution.New(executionStore, activities,
+		simgrid.NewSimulationExecutor(), controlexecution.Config{PollInterval: time.Second, MaxParallel: 8})
 	if err != nil {
 		panic(err)
 	}
@@ -85,9 +85,9 @@ func main() {
 		}
 	}()
 	api, err := workflow_engine_api_handler.New(workflow_engine_api_handler.Dependencies{
-		Environments: environment_repository.NewWithDB(db), Workflows: workflow_definition_repository.NewWithDB(db),
-		Plans: schedule_plan_repository.NewWithDB(db), Events: events,
-		Validator: planningplugin.NewValidatePlanService(),
+		Environments: dbenvironment.New(db), Workflows: dbworkflow.New(db),
+		Plans: dbplanning.New(db), Events: events,
+		Validator: planningplugin.NewValidator(),
 	})
 	if err != nil {
 		panic(err)

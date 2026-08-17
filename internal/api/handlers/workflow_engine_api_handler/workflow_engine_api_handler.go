@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/UFFeScience/akoflow/internal/application/ports"
+	"github.com/UFFeScience/akoflow/internal/controlplane/eventloop"
 	"github.com/UFFeScience/akoflow/internal/domain"
 	domainqueue "github.com/UFFeScience/akoflow/internal/domain/queue"
-	"github.com/UFFeScience/akoflow/internal/execution/lifecycle/eventloop"
 )
 
 type PlanValidator interface {
@@ -18,16 +18,16 @@ type PlanValidator interface {
 
 type Dependencies struct {
 	Environments ports.EnvironmentCatalog
-	Workflows    ports.WorkflowRepository
-	Plans        ports.PlanningRepository
+	Workflows    ports.WorkflowStore
+	Plans        ports.PlanStore
 	Events       ports.EventPublisher
 	Validator    PlanValidator
 }
 
 type Handler struct {
 	environments ports.EnvironmentCatalog
-	workflows    ports.WorkflowRepository
-	plans        ports.PlanningRepository
+	workflows    ports.WorkflowStore
+	plans        ports.PlanStore
 	events       ports.EventPublisher
 	validator    PlanValidator
 }

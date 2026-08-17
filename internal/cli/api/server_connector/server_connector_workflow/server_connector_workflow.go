@@ -7,7 +7,7 @@ import (
 	"net/http"
 )
 
-type IWorkflow interface {
+type Client interface {
 	Create(host string, port string, base64FileContent string) error
 }
 

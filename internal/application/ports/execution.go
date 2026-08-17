@@ -38,7 +38,7 @@ type ActivityExecutionStore interface {
 	Find(context.Context, string) (*domain.ActivityHandle, error)
 }
 
-type ExecutionRepository interface {
+type ExecutionStore interface {
 	ActivityExecutionStore
 	CreateRun(context.Context, domain.ExecutionRun) error
 	FindRun(context.Context, string) (*domain.ExecutionRun, error)

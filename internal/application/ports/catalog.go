@@ -6,17 +6,17 @@ import (
 	"github.com/UFFeScience/akoflow/internal/domain"
 )
 
-type WorkflowRepository interface {
+type WorkflowStore interface {
 	Create(context.Context, domain.WorkflowDefinition) error
 	FindVersion(context.Context, string) (*domain.WorkflowVersion, error)
 }
 
 type EnvironmentCatalog interface {
 	Create(context.Context, domain.EnvironmentDefinition) error
-	EnvironmentRepository
+	EnvironmentStore
 }
 
-type PlanningRepository interface {
+type PlanStore interface {
 	Save(context.Context, domain.SchedulePlan) error
 	Find(context.Context, string) (*domain.SchedulePlan, error)
 }

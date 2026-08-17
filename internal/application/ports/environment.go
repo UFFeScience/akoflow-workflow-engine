@@ -35,7 +35,7 @@ type EnvironmentDiscoverer interface {
 	Discover(context.Context, DiscoveryRequest) (DiscoveryResult, error)
 }
 
-type EnvironmentRepository interface {
+type EnvironmentStore interface {
 	UpdateStatus(context.Context, string, domain.EnvironmentStatus) error
 	UpsertConnection(context.Context, domain.EnvironmentConnection) error
 	ListConnections(context.Context, string) ([]domain.EnvironmentConnection, error)

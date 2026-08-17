@@ -32,7 +32,7 @@ type ActivityResources struct {
 	GPU          int     `json:"gpu,omitempty"`
 }
 
-type ActivityService struct {
+type ServiceSpec struct {
 	Ports                 []int   `json:"ports,omitempty"`
 	HealthCheck           string  `json:"healthCheck,omitempty"`
 	StartupTimeoutSeconds float64 `json:"startupTimeoutSeconds,omitempty"`
@@ -93,7 +93,7 @@ type Activity struct {
 	Capabilities      []ActivityCapability `json:"capabilities"`
 	Command           ActivityCommand      `json:"command"`
 	Resources         ActivityResources    `json:"resources"`
-	Service           *ActivityService     `json:"service,omitempty"`
+	Service           *ServiceSpec         `json:"service,omitempty"`
 	Simulation        *ActivitySimulation  `json:"simulation,omitempty"`
 	Policy            ActivityPolicy       `json:"policy"`
 	Priority          int                  `json:"priority"`

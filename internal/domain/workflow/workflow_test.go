@@ -25,7 +25,7 @@ func TestInteractiveActivityRequiresServiceDefinition(t *testing.T) {
 	if err := activity.Validate(); err == nil {
 		t.Fatal("interactive activity without service definition must fail")
 	}
-	activity.Service = &ActivityService{Ports: []int{22}}
+	activity.Service = &ServiceSpec{Ports: []int{22}}
 	if err := activity.Validate(); err != nil {
 		t.Fatal(err)
 	}

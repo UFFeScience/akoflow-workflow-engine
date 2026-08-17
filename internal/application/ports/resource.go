@@ -6,7 +6,7 @@ import (
 	"github.com/UFFeScience/akoflow/internal/domain"
 )
 
-type ResourceInventoryRepository interface {
+type ResourceInventory interface {
 	Upsert(context.Context, domain.Resource) error
 	FindByID(context.Context, string) (*domain.Resource, error)
 	FindByProviderID(context.Context, string, string) (*domain.Resource, error)

@@ -38,7 +38,7 @@ func TestImportedSourceMarksPlanOrigin(t *testing.T) {
 
 func TestValidatePlanAcceptsCompleteCompatiblePlan(t *testing.T) {
 	workflow, resources, plan := validPlanFixture()
-	require.NoError(t, NewValidatePlanService().Validate(plan, workflow, resources))
+	require.NoError(t, NewValidator().Validate(plan, workflow, resources))
 }
 
 func TestValidatePlanRejectsInvalidCases(t *testing.T) {
@@ -94,7 +94,7 @@ func TestValidatePlanRejectsInvalidCases(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			workflow, resources, plan := validPlanFixture()
 			test.mutate(&workflow, &resources, &plan)
-			err := NewValidatePlanService().Validate(plan, workflow, resources)
+			err := NewValidator().Validate(plan, workflow, resources)
 			require.ErrorContains(t, err, test.want)
 		})
 	}
