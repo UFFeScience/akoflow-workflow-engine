@@ -26,7 +26,14 @@ func TestAdapterCreatesJobAndServiceFromActivity(t *testing.T) {
 		Resources: domain.ActivityResources{CPU: 2, MemoryBytes: 1048576},
 		Service:   &domain.ServiceSpec{Ports: []int{8080}},
 	}
-	handle, err := adapter.Start(context.Background(), domain.ActivityExecutionContext{Run: domain.ExecutionRun{ID: "run"}, Activity: activity, Resource: domain.Resource{ID: "node", RuntimeID: "kubernetes"}})
+	handle, err := adapter.Start(context.Background(), domain.ActivityExecutionContext{
+		Run:      domain.ExecutionRun{ID: "run"},
+		Activity: activity,
+		Resource: domain.Resource{
+			ID: "node", RuntimeID: "kubernetes",
+			Type: domain.ResourceKubernetesMachine, ProviderID: "kind-worker",
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,6 +48,12 @@ func TestAdapterCreatesJobAndServiceFromActivity(t *testing.T) {
 	}
 	if len(manifest.Items) != 2 {
 		t.Fatalf("items=%d", len(manifest.Items))
+	}
+	template := manifest.Items[0]["spec"].(map[string]any)["template"].(map[string]any)
+	podSpec := template["spec"].(map[string]any)
+	selector := podSpec["nodeSelector"].(map[string]any)
+	if selector["kubernetes.io/hostname"] != "kind-worker" {
+		t.Fatalf("node selector=%v", selector)
 	}
 }
 

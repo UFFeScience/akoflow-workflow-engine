@@ -26,6 +26,23 @@ func TestOpenCreatesParentDirectories(t *testing.T) {
 	}
 }
 
+func TestOpenExpandsQuotedWorkspaceVariable(t *testing.T) {
+	workspace := t.TempDir()
+	t.Setenv("AKOFLOW_TEST_WORKSPACE", workspace)
+	path := `"$AKOFLOW_TEST_WORKSPACE/storage/kind-demo.db"`
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	expected := filepath.Join(workspace, "storage", "kind-demo.db")
+	if _, err := os.Stat(expected); err != nil {
+		t.Fatalf("expanded database was not created at %q: %v", expected, err)
+	}
+}
+
 func TestBootstrapInstallsAndValidatesCanonicalSchema(t *testing.T) {
 	db := memoryDatabase(t)
 	ctx := context.Background()

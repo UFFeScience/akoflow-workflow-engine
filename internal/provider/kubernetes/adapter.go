@@ -36,7 +36,7 @@ func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionC
 		return domain.ActivityHandle{}, fmt.Errorf("activity image is required for Kubernetes")
 	}
 	name := kubernetesName("akoflow-" + execution.Run.ID + "-" + activity.ID)
-	manifest, err := jobManifest(name, a.namespace, activity)
+	manifest, err := jobManifest(name, a.namespace, activity, execution.Resource)
 	if err != nil {
 		return domain.ActivityHandle{}, err
 	}
@@ -92,7 +92,12 @@ func (a *Adapter) Stop(ctx context.Context, handle domain.ActivityHandle) error 
 	return err
 }
 
-func jobManifest(name, namespace string, activity domain.Activity) ([]byte, error) {
+func jobManifest(
+	name string,
+	namespace string,
+	activity domain.Activity,
+	resource domain.Resource,
+) ([]byte, error) {
 	environment := make([]map[string]string, 0, len(activity.Command.Environment))
 	for key, value := range activity.Command.Environment {
 		environment = append(environment, map[string]string{"name": key, "value": value})
@@ -103,12 +108,20 @@ func jobManifest(name, namespace string, activity domain.Activity) ([]byte, erro
 		"resources": map[string]any{"requests": map[string]string{
 			"cpu":    fmt.Sprintf("%g", activity.Resources.CPU),
 			"memory": fmt.Sprintf("%d", activity.Resources.MemoryBytes)}}}
+	podSpec := map[string]any{"restartPolicy": "Never", "containers": []any{container}}
+	if resource.Type == domain.ResourceKubernetesMachine && resource.ProviderID != "" {
+		podSpec["nodeSelector"] = map[string]string{
+			"kubernetes.io/hostname": resource.ProviderID,
+		}
+	}
 	job := map[string]any{"apiVersion": "batch/v1", "kind": "Job",
 		"metadata": map[string]any{"name": name, "namespace": namespace,
 			"labels": map[string]string{"app.kubernetes.io/managed-by": "akoflow"}},
 		"spec": map[string]any{"backoffLimit": max(activity.Policy.MaxAttempts-1, 0),
-			"template": map[string]any{"metadata": map[string]any{"labels": map[string]string{"akoflow.io/activity": activity.ID}},
-				"spec": map[string]any{"restartPolicy": "Never", "containers": []any{container}}}}}
+			"template": map[string]any{
+				"metadata": map[string]any{"labels": map[string]string{"akoflow.io/activity": activity.ID}},
+				"spec":     podSpec,
+			}}}
 	items := []any{job}
 	if activity.Service != nil && len(activity.Service.Ports) > 0 {
 		ports := make([]map[string]any, 0, len(activity.Service.Ports))

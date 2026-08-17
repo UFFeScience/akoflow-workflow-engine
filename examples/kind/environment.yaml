@@ -1,0 +1,61 @@
+environment:
+  id: kind-akoflow
+  name: Akoflow Kind
+  description: Local Kubernetes environment for real DAG execution
+  status: ready
+
+version:
+  id: kind-akoflow-v1
+  environmentId: kind-akoflow
+  version: 1
+  status: published
+  networkModel: kubernetes
+  interferenceModel: none
+  costModel: free
+  configurationHash: kind-akoflow-v1
+
+connections:
+  - id: kind-akoflow-connection
+    environmentId: kind-akoflow
+    name: local-kubeconfig
+    type: kubernetes
+    endpoint: kind-akoflow
+    configuration:
+      context: kind-akoflow
+      namespace: akoflow
+
+runtimes:
+  - environmentVersionId: kind-akoflow-v1
+    runtimeId: kubernetes
+    role: compute
+    configuration:
+      context: kind-akoflow
+      namespace: akoflow
+    capabilities:
+      batch: true
+      container: true
+      cancellation: true
+
+resources:
+  - id: kind-worker
+    environmentVersionId: kind-akoflow-v1
+    runtimeId: kubernetes
+    type: kubernetes_machine
+    name: kind-worker
+    providerId: kind-worker
+    tier: local
+    architecture: amd64
+    cpuCores: 4
+    cpuCapacity: 4
+    memoryBytes: 8589934592
+    storageBytes: 21474836480
+    computeSpeedup: 1
+    pricePerSecond: 0
+    bootOverheadSeconds: 0
+    containerOverheadSeconds: 0
+    schedulable: true
+    metadata:
+      kubernetesNode: kind-worker
+
+networkLinks: []
+activityResourceProfiles: []
