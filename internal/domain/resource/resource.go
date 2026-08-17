@@ -13,7 +13,6 @@ const (
 	ResourceCloudVM             ResourceType = "cloud_vm"
 	ResourceFogDevice           ResourceType = "fog_device"
 	ResourceLocalMachine        ResourceType = "local_machine"
-	ResourceStorage             ResourceType = "storage"
 	ResourceServerlessPlatform  ResourceType = "serverless_platform"
 	ResourceServerlessFunction  ResourceType = "serverless_function"
 	ResourceBatchQueue          ResourceType = "batch_queue"

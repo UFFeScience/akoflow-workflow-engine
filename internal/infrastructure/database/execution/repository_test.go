@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/UFFeScience/akoflow/internal/domain"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/schema"
+	database "github.com/UFFeScience/akoflow/internal/infrastructure/database"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -18,7 +18,7 @@ func setup(t *testing.T) *Repository {
 	}
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close() })
-	if err := schema.Apply(db); err != nil {
+	if err := database.Bootstrap(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	repository := &Repository{db: db}
@@ -31,7 +31,7 @@ func seedExecutionParents(t *testing.T, repository *Repository) {
 	statements := []string{
 		`INSERT INTO runtimes(name) VALUES ('local')`,
 		`INSERT INTO environments(id, name) VALUES ('environment', 'test')`,
-		`INSERT INTO environment_versions(id, environment_id, version, status, network_model, interference_model, cost_model, storage_model, configuration_hash) VALUES ('env', 'environment', 1, 'published', '{}', '{}', '{}', '{}', 'hash')`,
+		`INSERT INTO environment_versions(id, environment_id, version, status, network_model, interference_model, cost_model, configuration_hash) VALUES ('env', 'environment', 1, 'published', '{}', '{}', '{}', 'hash')`,
 		`INSERT INTO workflow_definitions(id, external_id, name) VALUES ('workflow', 'workflow', 'test')`,
 		`INSERT INTO workflow_versions(id, workflow_id, version, definition_hash) VALUES ('workflow-version', 'workflow', 1, 'hash')`,
 		`INSERT INTO activity_types(id, name) VALUES ('type', 'task')`,

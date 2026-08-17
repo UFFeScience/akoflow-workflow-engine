@@ -8,6 +8,7 @@ import (
 	"time"
 
 	domainqueue "github.com/UFFeScience/akoflow/internal/domain/queue"
+	"github.com/UFFeScience/akoflow/internal/infrastructure/database"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -18,6 +19,9 @@ func setup(t *testing.T) (*Repository, *sql.DB) {
 		t.Fatal(err)
 	}
 	db.SetMaxOpenConns(1)
+	if err := database.Bootstrap(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
 	repository, err := New(db)
 	if err != nil {
 		t.Fatal(err)

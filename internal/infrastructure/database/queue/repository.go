@@ -9,7 +9,6 @@ import (
 	"time"
 
 	domainqueue "github.com/UFFeScience/akoflow/internal/domain/queue"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/schema"
 )
 
 type Repository struct {
@@ -20,9 +19,6 @@ type Repository struct {
 func New(db *sql.DB) (*Repository, error) {
 	if db == nil {
 		return nil, errors.New("queue repository requires a database")
-	}
-	if err := schema.Apply(db); err != nil {
-		return nil, err
 	}
 	return &Repository{db: db}, nil
 }

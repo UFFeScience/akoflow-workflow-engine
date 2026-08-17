@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/UFFeScience/akoflow/internal/domain"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/schema"
+	database "github.com/UFFeScience/akoflow/internal/infrastructure/database"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -18,7 +18,7 @@ func setupRepository(t *testing.T) *Repository {
 	}
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = db.Close() })
-	if err := schema.Apply(db); err != nil {
+	if err := database.Bootstrap(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	return New(db)

@@ -22,7 +22,7 @@ func TestRequiredArchitectureDirectoriesExist(t *testing.T) {
 		"application/ports", "infrastructure/database",
 		"infrastructure/plugins", "provider/local", "provider/kubernetes",
 		"provider/slurm", "provider/registry", "provider/simgrid",
-		"controlplane/eventloop", "controlplane/execution", "controlplane/lifecycle",
+		"controlplane/eventloop", "controlplane/execution",
 		"api/handlers",
 	}
 	for _, path := range required {

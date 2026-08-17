@@ -1,52 +1,23 @@
 package schema
 
 import (
-	"database/sql"
+	"strings"
 	"testing"
-
-	_ "github.com/mattn/go-sqlite3"
 )
 
-func TestApplyCreatesCanonicalTables(t *testing.T) {
-	db, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		t.Fatal(err)
+func TestCanonicalSchemaIsEmbedded(t *testing.T) {
+	if Version != 1 {
+		t.Fatalf("schema version = %d", Version)
 	}
-	defer db.Close()
-
-	if err := Apply(db); err != nil {
-		t.Fatalf("apply schema: %v", err)
-	}
-
-	for _, table := range []string{
-		"runtimes", "environments",
-		"resources", "schedule_plans", "execution_runs", "data_transfers",
-		"queue_jobs", "environment_connections", "environment_runtime_capabilities",
-		"discovery_runs", "workflow_definitions", "workflow_versions",
-		"activity_definitions", "activity_handles", "task_executions",
+	for _, definition := range []string{
+		"CREATE TABLE schema_metadata",
+		"CREATE TABLE environments",
+		"CREATE TABLE workflow_definitions",
+		"CREATE TABLE execution_runs",
+		"CREATE TABLE queue_jobs",
 	} {
-		var name string
-		err := db.QueryRow(
-			"SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
-			table,
-		).Scan(&name)
-		if err != nil {
-			t.Errorf("table %s was not created: %v", table, err)
+		if !strings.Contains(SQL, definition) {
+			t.Errorf("canonical schema does not contain %q", definition)
 		}
-	}
-}
-
-func TestApplyIsIdempotent(t *testing.T) {
-	db, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	if err := Apply(db); err != nil {
-		t.Fatal(err)
-	}
-	if err := Apply(db); err != nil {
-		t.Fatalf("second schema application must be safe: %v", err)
 	}
 }

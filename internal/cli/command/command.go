@@ -5,8 +5,7 @@ type Command interface {
 }
 
 var commands = map[string]Command{
-	"run":     &Run{},
-	"install": &Install{},
+	"run": &Run{},
 }
 
 func New(name string) Command {

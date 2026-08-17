@@ -54,7 +54,6 @@ const (
 	ResourceCloudVM             = resource.ResourceCloudVM
 	ResourceFogDevice           = resource.ResourceFogDevice
 	ResourceLocalMachine        = resource.ResourceLocalMachine
-	ResourceStorage             = resource.ResourceStorage
 	ResourceServerlessPlatform  = resource.ResourceServerlessPlatform
 	ResourceServerlessFunction  = resource.ResourceServerlessFunction
 	ResourceBatchQueue          = resource.ResourceBatchQueue

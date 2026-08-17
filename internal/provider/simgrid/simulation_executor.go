@@ -31,7 +31,7 @@ func (e *SimulationExecutor) Execute(ctx context.Context, request Request) (doma
 	}
 
 	model := indexRequest(request)
-	completed, transfers, err := simulate(ctx, request, model)
+	completed, transfers, err := simulate(request, model)
 	if err != nil {
 		return domain.ExecutionTrace{}, err
 	}
@@ -88,7 +88,6 @@ func indexRequest(request Request) indexedRequest {
 }
 
 func simulate(
-	ctx context.Context,
 	request Request,
 	model indexedRequest,
 ) (map[string]domain.TaskExecution, []domain.DataTransfer, error) {

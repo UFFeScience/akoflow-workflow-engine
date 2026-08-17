@@ -19,7 +19,6 @@ import (
 	dbexecution "github.com/UFFeScience/akoflow/internal/infrastructure/database/execution"
 	dbplanning "github.com/UFFeScience/akoflow/internal/infrastructure/database/planning"
 	dbqueue "github.com/UFFeScience/akoflow/internal/infrastructure/database/queue"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/schema"
 	dbworkflow "github.com/UFFeScience/akoflow/internal/infrastructure/database/workflow"
 	planningplugin "github.com/UFFeScience/akoflow/internal/infrastructure/plugins/planning"
 	"github.com/UFFeScience/akoflow/internal/provider"
@@ -37,9 +36,12 @@ func main() {
 	log.Info("Starting Akoflow Server")
 
 	dispatcher := eventloop.NewDispatcher()
-	db := (&database.Database{}).Connect()
+	db, err := database.Open("")
+	if err != nil {
+		panic(err)
+	}
 	defer db.Close()
-	if err := schema.Apply(db); err != nil {
+	if err := database.Bootstrap(context.Background(), db); err != nil {
 		panic(err)
 	}
 	events, err := dbqueue.New(db)

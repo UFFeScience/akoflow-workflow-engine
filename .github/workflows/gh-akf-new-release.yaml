@@ -62,14 +62,11 @@ jobs:
           mkdir -p /app/releases/bin && \
           CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o /app/releases/bin/akoflow-server_${{ steps.get_version.outputs.VERSION }}_linux_amd64 /app/cmd/server/main.go && \
           CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc go build -o /app/releases/bin/akoflow-server_${{ steps.get_version.outputs.VERSION }}_linux_arm64 /app/cmd/server/main.go && \
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /app/releases/bin/akoflow-server_${{ steps.get_version.outputs.VERSION }}_windows_amd64.exe /app/cmd/server/main.go && \
-          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o /app/releases/bin/akoflow-server_${{ steps.get_version.outputs.VERSION }}_darwin_amd64 /app/cmd/server/main.go && \
-          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /app/releases/bin/akoflow-server_${{ steps.get_version.outputs.VERSION }}_darwin_arm64 /app/cmd/server/main.go && \
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o /app/releases/bin/akoflow-client_${{ steps.get_version.outputs.VERSION }}_linux_amd64 /app/cmd/client/main.go && \
-          CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc go build -o /app/releases/bin/akoflow-client_${{ steps.get_version.outputs.VERSION }}_linux_arm64 /app/cmd/client/main.go && \
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /app/releases/bin/akoflow-client_${{ steps.get_version.outputs.VERSION }}_windows_amd64.exe /app/cmd/client/main.go && \
-          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o /app/releases/bin/akoflow-client_${{ steps.get_version.outputs.VERSION }}_darwin_amd64 /app/cmd/client/main.go && \
-          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /app/releases/bin/akoflow-client_${{ steps.get_version.outputs.VERSION }}_darwin_arm64 /app/cmd/client/main.go"
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /app/releases/bin/akoflow_${{ steps.get_version.outputs.VERSION }}_linux_amd64 /app/cmd/akoflow/main.go && \
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o /app/releases/bin/akoflow_${{ steps.get_version.outputs.VERSION }}_linux_arm64 /app/cmd/akoflow/main.go && \
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /app/releases/bin/akoflow_${{ steps.get_version.outputs.VERSION }}_windows_amd64.exe /app/cmd/akoflow/main.go && \
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o /app/releases/bin/akoflow_${{ steps.get_version.outputs.VERSION }}_darwin_amd64 /app/cmd/akoflow/main.go && \
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /app/releases/bin/akoflow_${{ steps.get_version.outputs.VERSION }}_darwin_arm64 /app/cmd/akoflow/main.go"
           
       - name: Create platform archives
         run: |
@@ -113,18 +110,17 @@ jobs:
             ## Installation
             
             ### Client Binaries
-            - Linux (AMD64): `akoflow-client_${{ steps.get_version.outputs.VERSION }}_linux_amd64`
-            - Linux (ARM64): `akoflow-client_${{ steps.get_version.outputs.VERSION }}_linux_arm64`
-            - Windows (AMD64): `akoflow-client_${{ steps.get_version.outputs.VERSION }}_windows_amd64.exe`
-            - macOS (AMD64): `akoflow-client_${{ steps.get_version.outputs.VERSION }}_darwin_amd64`
-            - macOS (ARM64): `akoflow-client_${{ steps.get_version.outputs.VERSION }}_darwin_arm64`
+            - Linux (AMD64): `akoflow_${{ steps.get_version.outputs.VERSION }}_linux_amd64`
+            - Linux (ARM64): `akoflow_${{ steps.get_version.outputs.VERSION }}_linux_arm64`
+            - Windows (AMD64): `akoflow_${{ steps.get_version.outputs.VERSION }}_windows_amd64.exe`
+            - macOS (AMD64): `akoflow_${{ steps.get_version.outputs.VERSION }}_darwin_amd64`
+            - macOS (ARM64): `akoflow_${{ steps.get_version.outputs.VERSION }}_darwin_arm64`
             
             ### Server Binaries
             - Linux (AMD64): `akoflow-server_${{ steps.get_version.outputs.VERSION }}_linux_amd64`
             - Linux (ARM64): `akoflow-server_${{ steps.get_version.outputs.VERSION }}_linux_arm64`
-            - Windows (AMD64): `akoflow-server_${{ steps.get_version.outputs.VERSION }}_windows_amd64.exe`
-            - macOS (AMD64): `akoflow-server_${{ steps.get_version.outputs.VERSION }}_darwin_amd64`
-            - macOS (ARM64): `akoflow-server_${{ steps.get_version.outputs.VERSION }}_darwin_arm64`
+
+            The server is distributed for Linux because SQLite requires a native CGO build.
             
             Download the appropriate binary for your platform, make it executable, and add it to your PATH.
 

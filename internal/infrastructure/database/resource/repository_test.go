@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/UFFeScience/akoflow/internal/domain"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/schema"
+	database "github.com/UFFeScience/akoflow/internal/infrastructure/database"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -19,7 +19,7 @@ func testRepository(t *testing.T) *Repository {
 	}
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = db.Close() })
-	if err := schema.Apply(db); err != nil {
+	if err := database.Bootstrap(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	repository := New(db)
@@ -32,7 +32,7 @@ func seedResourceParents(t *testing.T, repository *Repository) {
 	statements := []string{
 		`INSERT INTO runtimes(name) VALUES ('k8s')`,
 		`INSERT INTO environments(id, name) VALUES ('environment', 'test')`,
-		`INSERT INTO environment_versions(id, environment_id, version, status, network_model, interference_model, cost_model, storage_model, configuration_hash) VALUES ('env', 'environment', 1, 'published', '{}', '{}', '{}', '{}', 'hash')`,
+		`INSERT INTO environment_versions(id, environment_id, version, status, network_model, interference_model, cost_model, configuration_hash) VALUES ('env', 'environment', 1, 'published', '{}', '{}', '{}', 'hash')`,
 		`INSERT INTO resources(id, environment_version_id, runtime_id, type, name, provider_id, schedulable) VALUES ('parent', 'env', 'k8s', 'cluster', 'parent', 'parent', 0)`,
 	}
 	for _, statement := range statements {

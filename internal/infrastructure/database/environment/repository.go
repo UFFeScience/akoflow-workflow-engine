@@ -79,10 +79,10 @@ func insertEnvironmentVersion(tx *sql.Tx, definition Definition) error {
 	version := definition.Version
 	_, err := tx.Exec(`INSERT INTO environment_versions (
 		id, environment_id, version, status, network_model, interference_model,
-		cost_model, storage_model, configuration_hash, published_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, version.ID, definition.Environment.ID,
+		cost_model, configuration_hash, published_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, version.ID, definition.Environment.ID,
 		version.Version, version.Status, version.NetworkModel, version.InterferenceModel,
-		version.CostModel, version.StorageModel, version.ConfigurationHash,
+		version.CostModel, version.ConfigurationHash,
 		version.PublishedAt)
 	return err
 }

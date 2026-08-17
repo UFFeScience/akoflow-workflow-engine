@@ -87,7 +87,6 @@ type EnvironmentVersion struct {
 	NetworkModel      string                   `json:"networkModel"`
 	InterferenceModel string                   `json:"interferenceModel"`
 	CostModel         string                   `json:"costModel"`
-	StorageModel      string                   `json:"storageModel"`
 	ConfigurationHash string                   `json:"configurationHash"`
 	CreatedAt         time.Time                `json:"createdAt"`
 	PublishedAt       *time.Time               `json:"publishedAt,omitempty"`

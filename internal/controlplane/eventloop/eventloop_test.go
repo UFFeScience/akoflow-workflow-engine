@@ -8,6 +8,7 @@ import (
 	"time"
 
 	domainqueue "github.com/UFFeScience/akoflow/internal/domain/queue"
+	"github.com/UFFeScience/akoflow/internal/infrastructure/database"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/queue"
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -19,6 +20,9 @@ func TestLoopDispatchesDurableJob(t *testing.T) {
 	}
 	defer db.Close()
 	db.SetMaxOpenConns(1)
+	if err := database.Bootstrap(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
 	repository, err := queue.New(db)
 	if err != nil {
 		t.Fatal(err)

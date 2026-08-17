@@ -2,9 +2,9 @@ package workflow
 
 import (
 	"encoding/base64"
+	"os"
 
 	"github.com/UFFeScience/akoflow/internal/cli/api/server_connector"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/system/utils/utils_read_file"
 )
 
 type Runner struct {
@@ -48,19 +48,23 @@ func (d *Runner) GetFile() string {
 }
 
 func (d *Runner) Run() error {
-	base64FileContent := d.getBase64FileContent(d.GetFile())
+	base64FileContent, err := d.getBase64FileContent(d.GetFile())
+	if err != nil {
+		return err
+	}
 	return d.sendToServer(base64FileContent)
 }
 
-func (d *Runner) getBase64FileContent(filePath string) string {
-	fileContent := d.getFileContent(filePath)
-
-	base64FileContent := base64.StdEncoding.EncodeToString([]byte(fileContent))
-	return base64FileContent
+func (d *Runner) getBase64FileContent(filePath string) (string, error) {
+	fileContent, err := d.getFileContent(filePath)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(fileContent), nil
 }
 
-func (d *Runner) getFileContent(filePath string) string {
-	return utils_read_file.New().ReadFile(filePath)
+func (d *Runner) getFileContent(filePath string) ([]byte, error) {
+	return os.ReadFile(filePath)
 }
 
 func (d *Runner) sendToServer(base64FileContent string) error {

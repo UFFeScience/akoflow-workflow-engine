@@ -1,11 +1,13 @@
 package workflow
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/UFFeScience/akoflow/internal/cli/api/server_connector/server_connector_workflow"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/system/utils/utils_create_file"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type connectorStub struct {
@@ -20,11 +22,18 @@ type workflowStub struct {
 
 func (s workflowStub) Create(host, port, content string) error { return s.create(host, port, content) }
 
+func testFile(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "workflow.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	return path
+}
+
 func TestRunner_Run(t *testing.T) {
 
 	connector := connectorStub{workflow: workflowStub{create: func(string, string, string) error { return nil }}}
 
-	file := utils_create_file.New().CreateTempFile("content")
+	file := testFile(t, "content")
 
 	runner := New(connector)
 	runner.SetHost("localhost")
@@ -63,10 +72,11 @@ func TestRunner_GetBase64FileContent(t *testing.T) {
 
 	runner := New(connectorStub{})
 
-	file := utils_create_file.New().CreateTempFile("content")
+	file := testFile(t, "content")
 
-	base64FileContent := runner.getBase64FileContent(file)
+	base64FileContent, err := runner.getBase64FileContent(file)
 
+	assert.NoError(t, err)
 	assert.Equal(t, "Y29udGVudA==", base64FileContent)
 }
 
@@ -74,9 +84,16 @@ func TestRunner_GetFileContent(t *testing.T) {
 
 	runner := New(connectorStub{})
 
-	file := utils_create_file.New().CreateTempFile("content")
+	file := testFile(t, "content")
 
-	fileContent := runner.getFileContent(file)
+	fileContent, err := runner.getFileContent(file)
 
-	assert.Equal(t, "content", fileContent)
+	assert.NoError(t, err)
+	assert.Equal(t, []byte("content"), fileContent)
+}
+
+func TestRunnerReturnsReadError(t *testing.T) {
+	runner := New(connectorStub{})
+	runner.SetFile(filepath.Join(t.TempDir(), "missing.yaml"))
+	assert.Error(t, runner.Run())
 }

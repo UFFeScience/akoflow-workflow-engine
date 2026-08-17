@@ -33,11 +33,11 @@ Simulation follows the same request and trace contracts. Interactive runs keep t
 - A repository operation that changes one aggregate must use one transaction.
 - Real, simulation and interactive execution are modes, not separate activity models.
 
-## Runtime Packages
+## Provider Packages
 
-- `internal/runtime/local`
-- `internal/runtime/kubernetes`
-- `internal/runtime/slurm`
-- `internal/execution/simulation`
+- `internal/provider/local`
+- `internal/provider/kubernetes`
+- `internal/provider/slurm`
+- `internal/provider/simgrid`
 
 New runtimes implement the same adapter contract and register their supported modes. Do not add provider conditionals to application services.
