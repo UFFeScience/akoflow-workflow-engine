@@ -132,6 +132,21 @@ func TestShellLifecycleExecutesActivityAndPublishesManifest(t *testing.T) {
 	}
 }
 
+func TestObservationRootUsesIsolatedWorkspaceByDefault(t *testing.T) {
+	activity := domain.Activity{}
+	if root := observationRoot(activity); root != "/tmp/akoflow/workspace" {
+		t.Fatalf("default observation root=%q", root)
+	}
+	activity.Command.WorkingDirectory = "/work"
+	if root := observationRoot(activity); root != "/work" {
+		t.Fatalf("working directory observation root=%q", root)
+	}
+	activity.Metadata = map[string]any{"artifactObservationRoot": "/outputs"}
+	if root := observationRoot(activity); root != "/outputs" {
+		t.Fatalf("configured observation root=%q", root)
+	}
+}
+
 func TestAdapterMapsKubernetesStatus(t *testing.T) {
 	manifest := []byte(`{"schemaVersion":1,"runId":"run","activityId":"activity","files":[{"path":"result.csv","change":"created","sizeBytes":42}]}`)
 	api := &apiFake{

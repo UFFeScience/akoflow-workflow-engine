@@ -255,7 +255,7 @@ func observedPodSpec(activity domain.Activity, resource domain.Resource, runID s
 	arguments = append(arguments, activity.Command.Arguments...)
 	container := map[string]any{"name": activityContainer, "image": activity.Command.Image,
 		"command": []string{"/bin/sh"}, "args": arguments,
-		"env": environment, "workingDir": activity.Command.WorkingDirectory,
+		"env": environment,
 		"resources": map[string]any{"requests": map[string]string{
 			"cpu":    fmt.Sprintf("%g", activity.Resources.CPU),
 			"memory": fmt.Sprintf("%d", activity.Resources.MemoryBytes)}}}
@@ -284,7 +284,10 @@ func observationRoot(activity domain.Activity) string {
 	if configured, ok := activity.Metadata["artifactObservationRoot"].(string); ok && configured != "" {
 		return configured
 	}
-	return "."
+	if activity.Command.WorkingDirectory != "" {
+		return activity.Command.WorkingDirectory
+	}
+	return "/tmp/akoflow/workspace"
 }
 
 func ignoreNotFound(err error) error {

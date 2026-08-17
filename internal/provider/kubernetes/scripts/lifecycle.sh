@@ -1,5 +1,9 @@
 started_at=$(date +%s 2>/dev/null || printf '0')
-root=${AKOFLOW_OBSERVATION_ROOT:-.}
+root=${AKOFLOW_OBSERVATION_ROOT:-/tmp/akoflow/workspace}
+if ! mkdir -p "$root" || ! cd "$root"; then
+  printf 'AKOFLOW_LIFECYCLE_ERROR=cannot prepare activity workspace: %s\n' "$root" >&2
+  exit 125
+fi
 initial_files=$(find "$root" -type f 2>/dev/null | wc -l | tr -d ' ')
 initial_bytes=$(find "$root" -type f -exec wc -c {} + 2>/dev/null | awk 'END { print $1+0 }')
 
