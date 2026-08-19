@@ -68,6 +68,8 @@ CREATE TABLE resources (
 		id TEXT PRIMARY KEY,
 		environment_version_id TEXT NOT NULL REFERENCES environment_versions(id),
 		runtime_id TEXT NOT NULL REFERENCES runtimes(name),
+		execution_target TEXT NOT NULL DEFAULT 'batch'
+			CHECK(execution_target IN ('batch', 'direct')),
 		parent_resource_id TEXT REFERENCES resources(id),
 		type TEXT NOT NULL,
 		name TEXT NOT NULL,
@@ -335,6 +337,22 @@ CREATE TABLE storage_resources (
 		metadata TEXT NOT NULL DEFAULT '{}',
 		UNIQUE(environment_version_id, name)
 	);
+CREATE TABLE storage_runtime_bindings (
+		storage_resource_id TEXT NOT NULL REFERENCES storage_resources(id) ON DELETE CASCADE,
+		environment_version_id TEXT NOT NULL,
+		runtime_id TEXT NOT NULL,
+		is_default INTEGER NOT NULL DEFAULT 0,
+		host_path TEXT NOT NULL DEFAULT '',
+		container_path TEXT NOT NULL DEFAULT '/akoflow/data',
+		read_only INTEGER NOT NULL DEFAULT 0,
+		configuration TEXT NOT NULL DEFAULT '{}',
+		PRIMARY KEY(storage_resource_id, runtime_id),
+		FOREIGN KEY(environment_version_id, runtime_id)
+			REFERENCES environment_runtimes(environment_version_id, runtime_id)
+	);
+CREATE UNIQUE INDEX one_default_storage_per_runtime
+	ON storage_runtime_bindings(environment_version_id, runtime_id)
+	WHERE is_default = 1;
 CREATE TABLE data_locations (
 		id TEXT PRIMARY KEY,
 		data_object_instance_id TEXT NOT NULL REFERENCES data_object_instances(id),

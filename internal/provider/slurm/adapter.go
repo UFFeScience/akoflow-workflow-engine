@@ -3,21 +3,36 @@ package slurm
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/UFFeScience/akoflow/internal/domain"
 	runtimecommon "github.com/UFFeScience/akoflow/internal/provider"
+	"github.com/UFFeScience/akoflow/internal/provider/local"
 )
 
 type Adapter struct {
-	executor  runtimecommon.CommandExecutor
-	partition string
+	executor        runtimecommon.CommandExecutor
+	partition       string
+	direct          *local.Adapter
+	scriptDirectory string
+}
+
+type Config struct {
+	Partition       string
+	ScriptDirectory string
 }
 
 func New(executor runtimecommon.CommandExecutor, partition string) *Adapter {
-	return &Adapter{executor: executor, partition: partition}
+	return NewWithConfig(executor, Config{Partition: partition, ScriptDirectory: "storage/slurm/scripts"})
+}
+
+func NewWithConfig(executor runtimecommon.CommandExecutor, config Config) *Adapter {
+	return &Adapter{executor: executor, partition: config.Partition, direct: local.New(),
+		scriptDirectory: config.ScriptDirectory}
 }
 
 func (*Adapter) Modes() []domain.ExecutionMode {
@@ -25,6 +40,9 @@ func (*Adapter) Modes() []domain.ExecutionMode {
 }
 
 func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionContext) (domain.ActivityHandle, error) {
+	if execution.Resource.ExecutionTarget == domain.ExecutionTargetDirect {
+		return a.startDirect(ctx, execution)
+	}
 	if a.executor == nil {
 		return domain.ActivityHandle{}, fmt.Errorf("slurm command executor is required")
 	}
@@ -32,7 +50,11 @@ func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionC
 	if err != nil {
 		return domain.ActivityHandle{}, err
 	}
-	output, err := a.executor.Run(ctx, "sbatch", []string{"--parsable"}, []byte(script))
+	scriptPath, err := a.saveScript(execution.Run.ID, execution.Activity.ID, ".sbatch", script)
+	if err != nil {
+		return domain.ActivityHandle{}, err
+	}
+	output, err := a.executor.Run(ctx, "sbatch", []string{"--parsable", scriptPath}, nil)
 	if err != nil {
 		return domain.ActivityHandle{}, err
 	}
@@ -43,10 +65,14 @@ func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionC
 	return domain.ActivityHandle{ID: runtimecommon.NewID("activity"), RunID: execution.Run.ID,
 		ActivityID: execution.Activity.ID, ResourceID: execution.Resource.ID,
 		RuntimeID: execution.Resource.RuntimeID, ExternalID: jobID,
-		Status: domain.HandleStarting, StartedAt: runtimecommon.UnixSeconds(time.Now())}, nil
+		Status: domain.HandleStarting, StartedAt: runtimecommon.UnixSeconds(time.Now()),
+		Metadata: map[string]any{"executionTarget": string(domain.ExecutionTargetBatch), "scriptPath": scriptPath}}, nil
 }
 
 func (a *Adapter) Inspect(ctx context.Context, handle domain.ActivityHandle) (domain.ActivityHandle, error) {
+	if handle.Metadata["executionTarget"] == string(domain.ExecutionTargetDirect) {
+		return a.direct.Inspect(ctx, handle)
+	}
 	output, err := a.executor.Run(ctx, "sacct", []string{"-j", handle.ExternalID,
 		"--noheader", "--parsable2", "--format=State,ExitCode"}, nil)
 	if err != nil {
@@ -84,8 +110,64 @@ func (a *Adapter) Inspect(ctx context.Context, handle domain.ActivityHandle) (do
 }
 
 func (a *Adapter) Stop(ctx context.Context, handle domain.ActivityHandle) error {
+	if handle.Metadata["executionTarget"] == string(domain.ExecutionTargetDirect) {
+		return a.direct.Stop(ctx, handle)
+	}
 	_, err := a.executor.Run(ctx, "scancel", []string{handle.ExternalID}, nil)
 	return err
+}
+
+func (a *Adapter) startDirect(ctx context.Context, execution domain.ActivityExecutionContext) (domain.ActivityHandle, error) {
+	activity := execution.Activity
+	script, err := directScript(activity)
+	if err != nil {
+		return domain.ActivityHandle{}, err
+	}
+	scriptPath, err := a.saveScript(execution.Run.ID, activity.ID, ".sh", script)
+	if err != nil {
+		return domain.ActivityHandle{}, err
+	}
+	execution.Activity.Command = domain.ActivityCommand{Entrypoint: "/bin/sh", Arguments: []string{scriptPath}}
+	handle, err := a.direct.Start(ctx, execution)
+	if err != nil {
+		return handle, err
+	}
+	if handle.Metadata == nil {
+		handle.Metadata = make(map[string]any)
+	}
+	handle.Metadata["executionTarget"] = string(domain.ExecutionTargetDirect)
+	handle.Metadata["slurmSubmission"] = "login-node"
+	handle.Metadata["scriptPath"] = scriptPath
+	return handle, nil
+}
+
+func (a *Adapter) saveScript(runID, activityID, extension, content string) (string, error) {
+	if a.scriptDirectory == "" {
+		return "", fmt.Errorf("slurm script directory is required")
+	}
+	directory := filepath.Join(a.scriptDirectory, shellToken(runID), shellToken(activityID))
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return "", fmt.Errorf("create Slurm script directory: %w", err)
+	}
+	path := filepath.Join(directory, fmt.Sprintf("%d%s", time.Now().UnixNano(), extension))
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		return "", fmt.Errorf("save Slurm script: %w", err)
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve Slurm script path: %w", err)
+	}
+	return abs, nil
+}
+
+func directScript(activity domain.Activity) (string, error) {
+	if activity.Command.Entrypoint == "" {
+		return "", fmt.Errorf("activity entrypoint is required")
+	}
+	var script strings.Builder
+	script.WriteString("#!/bin/sh\nset -eu\n")
+	writeActivityCommand(&script, activity)
+	return script.String(), nil
 }
 
 func batchScript(activity domain.Activity, partition string) (string, error) {
@@ -93,7 +175,7 @@ func batchScript(activity domain.Activity, partition string) (string, error) {
 		return "", fmt.Errorf("activity entrypoint is required")
 	}
 	var script strings.Builder
-	script.WriteString("#!/bin/sh\nset -eu\n")
+	script.WriteString("#!/bin/sh\n")
 	script.WriteString("#SBATCH --job-name=")
 	script.WriteString(shellToken("akoflow-" + activity.ID))
 	script.WriteByte('\n')
@@ -108,6 +190,12 @@ func batchScript(activity domain.Activity, partition string) (string, error) {
 	if activity.Resources.MemoryBytes > 0 {
 		script.WriteString(fmt.Sprintf("#SBATCH --mem=%dM\n", (activity.Resources.MemoryBytes+(1<<20)-1)/(1<<20)))
 	}
+	script.WriteString("set -eu\n")
+	writeActivityCommand(&script, activity)
+	return script.String(), nil
+}
+
+func writeActivityCommand(script *strings.Builder, activity domain.Activity) {
 	for key, value := range activity.Command.Environment {
 		script.WriteString("export ")
 		script.WriteString(shellToken(key))
@@ -131,7 +219,6 @@ func batchScript(activity domain.Activity, partition string) (string, error) {
 		script.WriteString(shellQuote(argument))
 	}
 	script.WriteByte('\n')
-	return script.String(), nil
 }
 
 func shellToken(value string) string {

@@ -49,6 +49,10 @@ storages:
       namespace: akoflow
       claimName: akoflow-data
       mountPath: /akoflow/data
+    runtimeBindings:
+      - runtimeId: kubernetes
+        default: true
+        containerPath: /akoflow/data
 
 resources:
   - id: kind-worker

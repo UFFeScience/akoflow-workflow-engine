@@ -39,6 +39,7 @@ var requiredTables = []string{
 	"data_objects",
 	"data_object_instances",
 	"storage_resources",
+	"storage_runtime_bindings",
 	"data_locations",
 	"data_transfers",
 	"queue_jobs",

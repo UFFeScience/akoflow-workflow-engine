@@ -15,6 +15,7 @@ type Settings struct {
 	KubernetesCleanupEnabled   bool
 	KubernetesCleanupInterval  time.Duration
 	KubernetesHistoryRetention time.Duration
+	SlurmScriptDirectory       string
 }
 
 func Load() Settings {
@@ -22,6 +23,7 @@ func Load() Settings {
 		HTTPAddress: ":8080", DefaultNamespace: "akoflow",
 		KubernetesCleanupEnabled: true, KubernetesCleanupInterval: 15 * time.Minute,
 		KubernetesHistoryRetention: 24 * time.Hour,
+		SlurmScriptDirectory:       "storage/slurm/scripts",
 	}
 	if value := os.Getenv("AKOFLOW_HTTP_ADDRESS"); value != "" {
 		settings.HTTPAddress = value
@@ -33,6 +35,9 @@ func Load() Settings {
 	settings.KubernetesToken = os.Getenv("K8S_API_SERVER_TOKEN")
 	settings.KubernetesCAFile = os.Getenv("K8S_API_SERVER_CA_FILE")
 	settings.KubernetesInsecureSkipTLS = os.Getenv("K8S_API_SERVER_INSECURE_SKIP_TLS_VERIFY") == "true"
+	if value := os.Getenv("AKOFLOW_SLURM_SCRIPT_DIRECTORY"); value != "" {
+		settings.SlurmScriptDirectory = value
+	}
 	if value := os.Getenv("AKOFLOW_KUBERNETES_HISTORY_CLEANUP_ENABLED"); value != "" {
 		settings.KubernetesCleanupEnabled = value == "true"
 	}

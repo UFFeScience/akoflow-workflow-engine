@@ -34,7 +34,9 @@ func buildRuntimes(settings config.Settings, kubernetesAPI kubernetes.API) (*reg
 		"*":          simgrid.NewActivityRuntime(),
 		"local":      local.New(),
 		"kubernetes": kubernetes.New(kubernetesAPI, settings.DefaultNamespace),
-		"slurm":      slurm.New(provider.OSCommandExecutor{}, ""),
+		"slurm": slurm.NewWithConfig(provider.OSCommandExecutor{}, slurm.Config{
+			ScriptDirectory: settings.SlurmScriptDirectory,
+		}),
 	}
 	for runtimeID, adapter := range adapters {
 		if err := runtimes.Register(runtimeID, adapter); err != nil {

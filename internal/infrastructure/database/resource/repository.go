@@ -27,13 +27,13 @@ func (r *Repository) Upsert(ctx context.Context, resource domain.Resource) error
 		return err
 	}
 	_, err = r.db.ExecContext(ctx, `INSERT INTO resources (
-		id, environment_version_id, runtime_id, parent_resource_id, type, name,
+		id, environment_version_id, runtime_id, execution_target, parent_resource_id, type, name,
 		provider_id, tier, region, zone, architecture, cpu_cores, cpu_capacity,
 		memory_bytes, storage_bytes, compute_speedup, price_per_second,
 		boot_overhead_seconds, container_overhead_seconds, schedulable, metadata
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
-		runtime_id=excluded.runtime_id, parent_resource_id=excluded.parent_resource_id,
+		runtime_id=excluded.runtime_id, execution_target=excluded.execution_target, parent_resource_id=excluded.parent_resource_id,
 		type=excluded.type, name=excluded.name, provider_id=excluded.provider_id,
 		tier=excluded.tier, region=excluded.region, zone=excluded.zone,
 		architecture=excluded.architecture, cpu_cores=excluded.cpu_cores,
@@ -43,7 +43,7 @@ func (r *Repository) Upsert(ctx context.Context, resource domain.Resource) error
 		boot_overhead_seconds=excluded.boot_overhead_seconds,
 		container_overhead_seconds=excluded.container_overhead_seconds,
 		schedulable=excluded.schedulable, metadata=excluded.metadata`,
-		resource.ID, resource.EnvironmentVersionID, resource.RuntimeID, resource.ParentResourceID,
+		resource.ID, resource.EnvironmentVersionID, resource.RuntimeID, normalizedExecutionTarget(resource.ExecutionTarget), resource.ParentResourceID,
 		resource.Type, resource.Name, resource.ProviderID, resource.Tier, resource.Region,
 		resource.Zone, resource.Architecture, resource.CPUCores, resource.CPUCapacity,
 		resource.MemoryBytes, resource.StorageBytes, resource.ComputeSpeedup,
@@ -53,7 +53,7 @@ func (r *Repository) Upsert(ctx context.Context, resource domain.Resource) error
 	return err
 }
 
-const resourceColumns = `id, environment_version_id, runtime_id, parent_resource_id,
+const resourceColumns = `id, environment_version_id, runtime_id, execution_target, parent_resource_id,
 	type, name, provider_id, tier, region, zone, architecture, cpu_cores, cpu_capacity,
 	memory_bytes, storage_bytes, compute_speedup, price_per_second,
 	boot_overhead_seconds, container_overhead_seconds, schedulable, metadata`
@@ -62,10 +62,11 @@ func scanResource(scanner interface{ Scan(...any) error }) (*domain.Resource, er
 	var resource domain.Resource
 	var parent sql.NullString
 	var resourceType string
+	var executionTarget string
 	var schedulable bool
 	var metadata string
 	if err := scanner.Scan(
-		&resource.ID, &resource.EnvironmentVersionID, &resource.RuntimeID, &parent,
+		&resource.ID, &resource.EnvironmentVersionID, &resource.RuntimeID, &executionTarget, &parent,
 		&resourceType, &resource.Name, &resource.ProviderID, &resource.Tier,
 		&resource.Region, &resource.Zone, &resource.Architecture, &resource.CPUCores,
 		&resource.CPUCapacity, &resource.MemoryBytes, &resource.StorageBytes,
@@ -75,6 +76,7 @@ func scanResource(scanner interface{ Scan(...any) error }) (*domain.Resource, er
 		return nil, err
 	}
 	resource.Type = domain.ResourceType(resourceType)
+	resource.ExecutionTarget = domain.ResourceExecutionTarget(executionTarget)
 	resource.Schedulable = schedulable
 	if parent.Valid {
 		resource.ParentResourceID = &parent.String
@@ -85,6 +87,13 @@ func scanResource(scanner interface{ Scan(...any) error }) (*domain.Resource, er
 		}
 	}
 	return &resource, nil
+}
+
+func normalizedExecutionTarget(target domain.ResourceExecutionTarget) domain.ResourceExecutionTarget {
+	if target == "" {
+		return domain.ExecutionTargetBatch
+	}
+	return target
 }
 
 func (r *Repository) FindByID(ctx context.Context, id string) (*domain.Resource, error) {

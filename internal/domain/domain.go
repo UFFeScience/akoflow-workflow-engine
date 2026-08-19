@@ -41,6 +41,7 @@ const (
 )
 
 type ResourceType = resource.ResourceType
+type ResourceExecutionTarget = resource.ResourceExecutionTarget
 type Resource = resource.Resource
 type ResourceSnapshot = resource.ResourceSnapshot
 type NetworkLink = resource.NetworkLink
@@ -60,6 +61,8 @@ const (
 	ResourceBatchQueue          = resource.ResourceBatchQueue
 	ResourceKubernetesNamespace = resource.ResourceKubernetesNamespace
 	ResourceSlurmReservation    = resource.ResourceSlurmReservation
+	ExecutionTargetBatch        = resource.ExecutionTargetBatch
+	ExecutionTargetDirect       = resource.ExecutionTargetDirect
 )
 
 type WorkflowVersion = workflow.WorkflowVersion
@@ -116,6 +119,7 @@ type ArtifactSummary = execution.ArtifactSummary
 type StorageType = resource.StorageType
 type DataLocationStatus = execution.DataLocationStatus
 type StorageResource = resource.StorageResource
+type StorageRuntimeBinding = resource.StorageRuntimeBinding
 type DataObject = execution.DataObject
 type DataObjectInstance = execution.DataObjectInstance
 type DataLocation = execution.DataLocation

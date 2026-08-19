@@ -13,6 +13,7 @@ type Definition = domain.EnvironmentDefinition
 type Repository struct{ db *sql.DB }
 
 var _ ports.EnvironmentCatalog = (*Repository)(nil)
+var _ ports.StorageCatalog = (*Repository)(nil)
 
 func New(db *sql.DB) *Repository { return &Repository{db: db} }
 
@@ -64,6 +65,24 @@ func insertStorages(tx *sql.Tx, definition Definition) error {
 			storage.Shared, storage.ReadOnly, string(configuration),
 			storage.CredentialReference, string(metadata)); err != nil {
 			return err
+		}
+		for _, binding := range storage.RuntimeBindings {
+			bindingConfiguration, err := json.Marshal(binding.Configuration)
+			if err != nil {
+				return err
+			}
+			containerPath := binding.ContainerPath
+			if containerPath == "" {
+				containerPath = "/akoflow/data"
+			}
+			if _, err := tx.Exec(`INSERT INTO storage_runtime_bindings (
+				storage_resource_id, environment_version_id, runtime_id, is_default,
+				host_path, container_path, read_only, configuration
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, storage.ID, definition.Version.ID,
+				binding.RuntimeID, binding.Default, binding.HostPath, containerPath,
+				binding.ReadOnly, string(bindingConfiguration)); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -146,12 +165,12 @@ func insertResources(tx *sql.Tx, definition Definition) error {
 			return err
 		}
 		if _, err := tx.Exec(`INSERT INTO resources (
-			id, environment_version_id, runtime_id, parent_resource_id, type, name,
+			id, environment_version_id, runtime_id, execution_target, parent_resource_id, type, name,
 			provider_id, tier, region, zone, architecture, cpu_cores, cpu_capacity,
 			memory_bytes, storage_bytes, compute_speedup, price_per_second,
 			boot_overhead_seconds, container_overhead_seconds, schedulable, metadata
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			resource.ID, definition.Version.ID, resource.RuntimeID, resource.ParentResourceID,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			resource.ID, definition.Version.ID, resource.RuntimeID, normalizedExecutionTarget(resource.ExecutionTarget), resource.ParentResourceID,
 			resource.Type, resource.Name, resource.ProviderID, resource.Tier,
 			resource.Region, resource.Zone, resource.Architecture, resource.CPUCores,
 			resource.CPUCapacity, resource.MemoryBytes, resource.StorageBytes,
@@ -162,6 +181,13 @@ func insertResources(tx *sql.Tx, definition Definition) error {
 		}
 	}
 	return nil
+}
+
+func normalizedExecutionTarget(target domain.ResourceExecutionTarget) domain.ResourceExecutionTarget {
+	if target == "" {
+		return domain.ExecutionTargetBatch
+	}
+	return target
 }
 
 func insertProfiles(tx *sql.Tx, definition Definition) error {
@@ -242,4 +268,59 @@ func (r *Repository) ListConnections(ctx context.Context, environmentID string) 
 		connections = append(connections, connection)
 	}
 	return connections, rows.Err()
+}
+
+func (r *Repository) ListRuntimeStorages(ctx context.Context, versionID, runtimeID string) ([]domain.StorageResource, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT s.id, s.environment_version_id, s.name,
+		s.type, s.endpoint, s.capacity_bytes, s.shared, s.read_only, s.configuration,
+		s.credential_reference, s.metadata, b.is_default, b.host_path,
+		b.container_path, b.read_only, b.configuration
+		FROM storage_resources s
+		JOIN storage_runtime_bindings b ON b.storage_resource_id=s.id
+		WHERE b.environment_version_id=? AND b.runtime_id=?
+		ORDER BY b.is_default DESC, s.name`, versionID, runtimeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	storages := make([]domain.StorageResource, 0)
+	for rows.Next() {
+		var item domain.StorageResource
+		var storageType, storageConfiguration, storageMetadata, bindingConfiguration string
+		var binding domain.StorageRuntimeBinding
+		if err := rows.Scan(&item.ID, &item.EnvironmentVersionID, &item.Name,
+			&storageType, &item.Endpoint, &item.CapacityBytes, &item.Shared,
+			&item.ReadOnly, &storageConfiguration, &item.CredentialReference,
+			&storageMetadata, &binding.Default, &binding.HostPath,
+			&binding.ContainerPath, &binding.ReadOnly, &bindingConfiguration); err != nil {
+			return nil, err
+		}
+		item.Type = domain.StorageType(storageType)
+		binding.RuntimeID = runtimeID
+		if err := json.Unmarshal([]byte(storageConfiguration), &item.Configuration); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(storageMetadata), &item.Metadata); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(bindingConfiguration), &binding.Configuration); err != nil {
+			return nil, err
+		}
+		item.RuntimeBindings = []domain.StorageRuntimeBinding{binding}
+		storages = append(storages, item)
+	}
+	return storages, rows.Err()
+}
+
+func (r *Repository) FindDefaultRuntimeStorage(ctx context.Context, versionID, runtimeID string) (*domain.StorageResource, error) {
+	storages, err := r.ListRuntimeStorages(ctx, versionID, runtimeID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range storages {
+		if storages[i].RuntimeBindings[0].Default {
+			return &storages[i], nil
+		}
+	}
+	return nil, sql.ErrNoRows
 }

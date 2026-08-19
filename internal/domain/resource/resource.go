@@ -3,6 +3,7 @@ package resource
 import "time"
 
 type ResourceType string
+type ResourceExecutionTarget string
 
 const (
 	ResourceCluster             ResourceType = "cluster"
@@ -18,30 +19,34 @@ const (
 	ResourceBatchQueue          ResourceType = "batch_queue"
 	ResourceKubernetesNamespace ResourceType = "kubernetes_namespace"
 	ResourceSlurmReservation    ResourceType = "slurm_reservation"
+
+	ExecutionTargetBatch  ResourceExecutionTarget = "batch"
+	ExecutionTargetDirect ResourceExecutionTarget = "direct"
 )
 
 type Resource struct {
-	ID                   string         `json:"id"`
-	EnvironmentVersionID string         `json:"environmentVersionId"`
-	RuntimeID            string         `json:"runtimeId"`
-	ParentResourceID     *string        `json:"parentResourceId,omitempty"`
-	Type                 ResourceType   `json:"type"`
-	Name                 string         `json:"name"`
-	ProviderID           string         `json:"providerId"`
-	Tier                 string         `json:"tier,omitempty"`
-	Region               string         `json:"region,omitempty"`
-	Zone                 string         `json:"zone,omitempty"`
-	Architecture         string         `json:"architecture,omitempty"`
-	CPUCores             int            `json:"cpuCores"`
-	CPUCapacity          float64        `json:"cpuCapacity"`
-	MemoryBytes          int64          `json:"memoryBytes"`
-	StorageBytes         int64          `json:"storageBytes"`
-	ComputeSpeedup       float64        `json:"computeSpeedup"`
-	PricePerSecond       float64        `json:"pricePerSecond"`
-	BootOverheadSeconds  float64        `json:"bootOverheadSeconds"`
-	ContainerOverhead    float64        `json:"containerOverheadSeconds"`
-	Schedulable          bool           `json:"schedulable"`
-	Metadata             map[string]any `json:"metadata,omitempty"`
+	ID                   string                  `json:"id"`
+	EnvironmentVersionID string                  `json:"environmentVersionId"`
+	RuntimeID            string                  `json:"runtimeId"`
+	ExecutionTarget      ResourceExecutionTarget `json:"executionTarget,omitempty"`
+	ParentResourceID     *string                 `json:"parentResourceId,omitempty"`
+	Type                 ResourceType            `json:"type"`
+	Name                 string                  `json:"name"`
+	ProviderID           string                  `json:"providerId"`
+	Tier                 string                  `json:"tier,omitempty"`
+	Region               string                  `json:"region,omitempty"`
+	Zone                 string                  `json:"zone,omitempty"`
+	Architecture         string                  `json:"architecture,omitempty"`
+	CPUCores             int                     `json:"cpuCores"`
+	CPUCapacity          float64                 `json:"cpuCapacity"`
+	MemoryBytes          int64                   `json:"memoryBytes"`
+	StorageBytes         int64                   `json:"storageBytes"`
+	ComputeSpeedup       float64                 `json:"computeSpeedup"`
+	PricePerSecond       float64                 `json:"pricePerSecond"`
+	BootOverheadSeconds  float64                 `json:"bootOverheadSeconds"`
+	ContainerOverhead    float64                 `json:"containerOverheadSeconds"`
+	Schedulable          bool                    `json:"schedulable"`
+	Metadata             map[string]any          `json:"metadata,omitempty"`
 }
 
 type ResourceSnapshot struct {

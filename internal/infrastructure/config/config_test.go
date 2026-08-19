@@ -26,6 +26,7 @@ func TestLoadSettings(t *testing.T) {
 	t.Setenv("AKOFLOW_KUBERNETES_HISTORY_CLEANUP_ENABLED", "true")
 	t.Setenv("AKOFLOW_KUBERNETES_HISTORY_CLEANUP_INTERVAL", "5m")
 	t.Setenv("AKOFLOW_KUBERNETES_HISTORY_RETENTION", "12h")
+	t.Setenv("AKOFLOW_SLURM_SCRIPT_DIRECTORY", "/shared/akoflow/scripts")
 	settings := Load()
 	if settings.HTTPAddress != ":9090" || settings.DefaultNamespace != "science" {
 		t.Fatalf("settings=%+v", settings)
@@ -36,7 +37,8 @@ func TestLoadSettings(t *testing.T) {
 		!settings.KubernetesInsecureSkipTLS ||
 		!settings.KubernetesCleanupEnabled ||
 		settings.KubernetesCleanupInterval != 5*time.Minute ||
-		settings.KubernetesHistoryRetention != 12*time.Hour {
+		settings.KubernetesHistoryRetention != 12*time.Hour ||
+		settings.SlurmScriptDirectory != "/shared/akoflow/scripts" {
 		t.Fatalf("Kubernetes settings=%+v", settings)
 	}
 }

@@ -31,3 +31,10 @@ type StorageDriver interface {
 	Stat(context.Context, domain.DataLocation) (ObjectStat, error)
 	Delete(context.Context, domain.DataLocation) error
 }
+
+// StorageCatalog resolves the storage resources visible to a runtime. A
+// runtime may expose several storages, but at most one is its implicit default.
+type StorageCatalog interface {
+	ListRuntimeStorages(context.Context, string, string) ([]domain.StorageResource, error)
+	FindDefaultRuntimeStorage(context.Context, string, string) (*domain.StorageResource, error)
+}
