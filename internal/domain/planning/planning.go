@@ -36,6 +36,8 @@ type SchedulePlan struct {
 	Budget               float64          `json:"budget"`
 	Predicted            PredictedMetrics `json:"predicted"`
 	Assignments          []PlanAssignment `json:"assignments"`
+	AssignmentCount      int              `json:"assignmentCount,omitempty"`
+	Metadata             map[string]any   `json:"metadata,omitempty"`
 }
 
 type PlanAssignment struct {

@@ -21,14 +21,19 @@ func (r *Repository) Save(ctx context.Context, plan domain.SchedulePlan) error {
 		return err
 	}
 	defer tx.Rollback()
+	configuration, err := json.Marshal(plan.Metadata)
+	if err != nil {
+		return err
+	}
 	if _, err = tx.Exec(`INSERT INTO schedule_plans (
 		id, workflow_version_id, environment_version_id, network_topology_id, source, algorithm,
 		algorithm_version, objective, status, deadline_seconds, budget,
-		predicted_makespan_seconds, predicted_cost, predicted_feasible
-	) VALUES (?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, 'valid', ?, ?, ?, ?, ?)`, plan.ID,
+		predicted_makespan_seconds, predicted_cost, predicted_feasible, configuration
+	) VALUES (?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, 'valid', ?, ?, ?, ?, ?, ?)`, plan.ID,
 		plan.WorkflowVersionID, plan.EnvironmentVersionID, plan.NetworkTopologyID, plan.Source, plan.Algorithm,
 		plan.AlgorithmVersion, plan.Objective, plan.DeadlineSeconds, plan.Budget,
-		plan.Predicted.MakespanSeconds, plan.Predicted.Cost, plan.Predicted.Feasible); err != nil {
+		plan.Predicted.MakespanSeconds, plan.Predicted.Cost, plan.Predicted.Feasible,
+		string(configuration)); err != nil {
 		return err
 	}
 	for _, assignment := range plan.Assignments {
@@ -55,14 +60,15 @@ func (r *Repository) Save(ctx context.Context, plan domain.SchedulePlan) error {
 
 func (r *Repository) Find(ctx context.Context, id string) (*domain.SchedulePlan, error) {
 	var plan domain.SchedulePlan
-	var source string
+	var source, configuration string
 	err := r.db.QueryRowContext(ctx, `SELECT id, workflow_version_id, environment_version_id,
 		COALESCE(network_topology_id, ''), source, algorithm, algorithm_version, objective, deadline_seconds, budget,
-		predicted_makespan_seconds, predicted_cost, predicted_feasible
+		predicted_makespan_seconds, predicted_cost, predicted_feasible, configuration
 		FROM schedule_plans WHERE id = ?`, id).Scan(&plan.ID, &plan.WorkflowVersionID,
 		&plan.EnvironmentVersionID, &plan.NetworkTopologyID, &source, &plan.Algorithm, &plan.AlgorithmVersion,
 		&plan.Objective, &plan.DeadlineSeconds, &plan.Budget,
-		&plan.Predicted.MakespanSeconds, &plan.Predicted.Cost, &plan.Predicted.Feasible)
+		&plan.Predicted.MakespanSeconds, &plan.Predicted.Cost, &plan.Predicted.Feasible,
+		&configuration)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -70,6 +76,11 @@ func (r *Repository) Find(ctx context.Context, id string) (*domain.SchedulePlan,
 		return nil, err
 	}
 	plan.Source = domain.PlanningSource(source)
+	if configuration != "" {
+		if err := json.Unmarshal([]byte(configuration), &plan.Metadata); err != nil {
+			return nil, err
+		}
+	}
 	rows, err := r.db.QueryContext(ctx, `SELECT id, schedule_plan_id, activity_id, resource_id,
 		core_id, slot_id, order_on_resource, priority, predicted_ready_at,
 		predicted_start_at, predicted_finish_at, predicted_runtime_seconds,
@@ -102,31 +113,28 @@ func (r *Repository) Find(ctx context.Context, id string) (*domain.SchedulePlan,
 }
 
 func (r *Repository) List(ctx context.Context) ([]domain.SchedulePlan, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id FROM schedule_plans ORDER BY created_at DESC, id`)
+	rows, err := r.db.QueryContext(ctx, `SELECT id, workflow_version_id, environment_version_id,
+		COALESCE(network_topology_id, ''), source, algorithm, algorithm_version, objective,
+		deadline_seconds, budget, predicted_makespan_seconds, predicted_cost, predicted_feasible,
+		(SELECT COUNT(*) FROM schedule_plan_assignments a WHERE a.schedule_plan_id = schedule_plans.id)
+		FROM schedule_plans ORDER BY created_at DESC, id`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var ids []string
+	plans := make([]domain.SchedulePlan, 0)
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var plan domain.SchedulePlan
+		var source string
+		if err := rows.Scan(&plan.ID, &plan.WorkflowVersionID, &plan.EnvironmentVersionID,
+			&plan.NetworkTopologyID, &source, &plan.Algorithm, &plan.AlgorithmVersion,
+			&plan.Objective, &plan.DeadlineSeconds, &plan.Budget,
+			&plan.Predicted.MakespanSeconds, &plan.Predicted.Cost, &plan.Predicted.Feasible,
+			&plan.AssignmentCount); err != nil {
 			return nil, err
 		}
-		ids = append(ids, id)
+		plan.Source = domain.PlanningSource(source)
+		plans = append(plans, plan)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	plans := make([]domain.SchedulePlan, 0, len(ids))
-	for _, id := range ids {
-		plan, err := r.Find(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		if plan != nil {
-			plans = append(plans, *plan)
-		}
-	}
-	return plans, nil
+	return plans, rows.Err()
 }
