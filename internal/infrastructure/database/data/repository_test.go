@@ -47,7 +47,6 @@ func TestCatalogArtifactsIsIdempotentAndQueryable(t *testing.T) {
 func seedCatalogParents(t *testing.T, db *sql.DB) {
 	t.Helper()
 	statements := []string{
-		`INSERT INTO runtimes(name) VALUES ('kubernetes')`,
 		`INSERT INTO environments(id, name) VALUES ('environment', 'test')`,
 		`INSERT INTO environment_versions(
 			id, environment_id, version, status, network_model, interference_model,
@@ -64,11 +63,13 @@ func seedCatalogParents(t *testing.T, db *sql.DB) {
 			'{}', '{}', '{}', '{}'
 		)`,
 		`INSERT INTO resources(
-			id, environment_version_id, runtime_id, type, name, provider_id
-		) VALUES ('resource', 'env', 'kubernetes', 'host', 'node', 'node')`,
+			id, environment_version_id, type, name, provider_id
+		) VALUES ('resource', 'env', 'kubernetes_machine', 'node', 'node')`,
+		`INSERT INTO execution_scopes(id, name) VALUES ('scope', 'test')`,
+		`INSERT INTO execution_scope_environments(execution_scope_id, environment_version_id) VALUES ('scope', 'env')`,
 		`INSERT INTO schedule_plans(
-			id, workflow_version_id, environment_version_id, source, algorithm
-		) VALUES ('plan', 'workflow-version', 'env', 'plugin', 'test')`,
+			id, workflow_version_id, execution_scope_id, source, algorithm
+		) VALUES ('plan', 'workflow-version', 'scope', 'plugin', 'test')`,
 		`INSERT INTO execution_runs(id, schedule_plan_id, mode, status) VALUES ('run', 'plan', 'real', 'running')`,
 	}
 	for _, statement := range statements {

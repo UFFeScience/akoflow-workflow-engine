@@ -18,7 +18,7 @@ func TestAdapterRunsLocalActivity(t *testing.T) {
 				Entrypoint: "sh", Arguments: []string{"-c", "exit 0"},
 			},
 		},
-		Resource: domain.Resource{ID: "local", RuntimeID: "local"},
+		Resource: domain.Resource{ID: "local"}, RuntimeID: "local",
 	})
 	if err != nil {
 		t.Fatal(err)

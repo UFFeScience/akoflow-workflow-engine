@@ -26,11 +26,11 @@ func (r *Repository) Save(ctx context.Context, plan domain.SchedulePlan) error {
 		return err
 	}
 	if _, err = tx.Exec(`INSERT INTO schedule_plans (
-		id, workflow_version_id, environment_version_id, network_topology_id, source, algorithm,
+		id, workflow_version_id, execution_scope_id, network_topology_id, source, algorithm,
 		algorithm_version, objective, status, deadline_seconds, budget,
 		predicted_makespan_seconds, predicted_cost, predicted_feasible, configuration
 	) VALUES (?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, 'valid', ?, ?, ?, ?, ?, ?)`, plan.ID,
-		plan.WorkflowVersionID, plan.EnvironmentVersionID, plan.NetworkTopologyID, plan.Source, plan.Algorithm,
+		plan.WorkflowVersionID, plan.ExecutionScopeID, plan.NetworkTopologyID, plan.Source, plan.Algorithm,
 		plan.AlgorithmVersion, plan.Objective, plan.DeadlineSeconds, plan.Budget,
 		plan.Predicted.MakespanSeconds, plan.Predicted.Cost, plan.Predicted.Feasible,
 		string(configuration)); err != nil {
@@ -61,11 +61,11 @@ func (r *Repository) Save(ctx context.Context, plan domain.SchedulePlan) error {
 func (r *Repository) Find(ctx context.Context, id string) (*domain.SchedulePlan, error) {
 	var plan domain.SchedulePlan
 	var source, configuration string
-	err := r.db.QueryRowContext(ctx, `SELECT id, workflow_version_id, environment_version_id,
+	err := r.db.QueryRowContext(ctx, `SELECT id, workflow_version_id, execution_scope_id,
 		COALESCE(network_topology_id, ''), source, algorithm, algorithm_version, objective, deadline_seconds, budget,
 		predicted_makespan_seconds, predicted_cost, predicted_feasible, configuration
 		FROM schedule_plans WHERE id = ?`, id).Scan(&plan.ID, &plan.WorkflowVersionID,
-		&plan.EnvironmentVersionID, &plan.NetworkTopologyID, &source, &plan.Algorithm, &plan.AlgorithmVersion,
+		&plan.ExecutionScopeID, &plan.NetworkTopologyID, &source, &plan.Algorithm, &plan.AlgorithmVersion,
 		&plan.Objective, &plan.DeadlineSeconds, &plan.Budget,
 		&plan.Predicted.MakespanSeconds, &plan.Predicted.Cost, &plan.Predicted.Feasible,
 		&configuration)
@@ -113,7 +113,7 @@ func (r *Repository) Find(ctx context.Context, id string) (*domain.SchedulePlan,
 }
 
 func (r *Repository) List(ctx context.Context) ([]domain.SchedulePlan, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, workflow_version_id, environment_version_id,
+	rows, err := r.db.QueryContext(ctx, `SELECT id, workflow_version_id, execution_scope_id,
 		COALESCE(network_topology_id, ''), source, algorithm, algorithm_version, objective,
 		deadline_seconds, budget, predicted_makespan_seconds, predicted_cost, predicted_feasible,
 		(SELECT COUNT(*) FROM schedule_plan_assignments a WHERE a.schedule_plan_id = schedule_plans.id)
@@ -126,7 +126,7 @@ func (r *Repository) List(ctx context.Context) ([]domain.SchedulePlan, error) {
 	for rows.Next() {
 		var plan domain.SchedulePlan
 		var source string
-		if err := rows.Scan(&plan.ID, &plan.WorkflowVersionID, &plan.EnvironmentVersionID,
+		if err := rows.Scan(&plan.ID, &plan.WorkflowVersionID, &plan.ExecutionScopeID,
 			&plan.NetworkTopologyID, &source, &plan.Algorithm, &plan.AlgorithmVersion,
 			&plan.Objective, &plan.DeadlineSeconds, &plan.Budget,
 			&plan.Predicted.MakespanSeconds, &plan.Predicted.Cost, &plan.Predicted.Feasible,

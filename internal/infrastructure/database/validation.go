@@ -13,7 +13,6 @@ var ErrIncompatibleSchema = errors.New("database schema is incompatible; recreat
 
 var requiredTables = []string{
 	"schema_metadata",
-	"runtimes",
 	"environments",
 	"environment_connections",
 	"environment_versions",
@@ -21,8 +20,11 @@ var requiredTables = []string{
 	"environment_runtime_capabilities",
 	"discovery_runs",
 	"resources",
+	"resource_runtime_bindings",
 	"resource_snapshots",
 	"resource_relations",
+	"execution_scopes",
+	"execution_scope_environments",
 	"network_links",
 	"network_topologies",
 	"workflow_definitions",

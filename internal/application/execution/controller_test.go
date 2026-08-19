@@ -63,7 +63,7 @@ func executionFixture() domain.ActivityExecutionContext {
 		Activity: domain.Activity{ID: "activity", Name: "activity", Kind: domain.ActivityKindTask,
 			Capabilities: []domain.ActivityCapability{domain.ActivityCapabilityReal},
 			Command:      domain.ActivityCommand{Entrypoint: "echo"}},
-		Resource: domain.Resource{ID: "node", RuntimeID: "local"},
+		Resource: domain.Resource{ID: "node"}, RuntimeID: "local",
 	}
 }
 

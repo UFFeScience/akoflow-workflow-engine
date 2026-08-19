@@ -15,6 +15,7 @@ func (Validator) Validate(
 	plan domain.SchedulePlan,
 	workflow domain.WorkflowVersion,
 	resources []domain.Resource,
+	scope domain.ExecutionScope,
 	topology domain.NetworkTopology,
 ) error {
 	if plan.WorkflowVersionID != workflow.ID {
@@ -22,6 +23,20 @@ func (Validator) Validate(
 	}
 	if plan.NetworkTopologyID != "" && plan.NetworkTopologyID != topology.ID {
 		return fmt.Errorf("plan network topology %q does not match %q", plan.NetworkTopologyID, topology.ID)
+	}
+	if plan.ExecutionScopeID == "" {
+		return fmt.Errorf("plan execution scope is required")
+	}
+	if plan.ExecutionScopeID != scope.ID {
+		return fmt.Errorf("plan execution scope %q does not match %q", plan.ExecutionScopeID, scope.ID)
+	}
+	environmentVersions := make(map[string]struct{}, len(scope.EnvironmentVersionIDs))
+	for _, versionID := range scope.EnvironmentVersionIDs {
+		environmentVersions[versionID] = struct{}{}
+	}
+	if topology.ID != "" && plan.ExecutionScopeID != topology.ExecutionScopeID {
+		return fmt.Errorf("plan execution scope %q does not match topology scope %q",
+			plan.ExecutionScopeID, topology.ExecutionScopeID)
 	}
 	resourceByID := make(map[string]domain.Resource, len(resources))
 	for _, resource := range resources {
@@ -44,8 +59,8 @@ func (Validator) Validate(
 		if !exists {
 			return fmt.Errorf("assignment %q references unknown resource %q", assignment.ID, assignment.ResourceID)
 		}
-		if topology.Scope != "federated" && resource.EnvironmentVersionID != plan.EnvironmentVersionID {
-			return fmt.Errorf("resource %q belongs to another environment version", resource.ID)
+		if _, included := environmentVersions[resource.EnvironmentVersionID]; !included {
+			return fmt.Errorf("resource %q is outside execution scope %q", resource.ID, scope.ID)
 		}
 		if !resource.Schedulable {
 			return fmt.Errorf("resource %q is not schedulable", resource.ID)

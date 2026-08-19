@@ -21,9 +21,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type PlanValidator interface {
-	Validate(domain.SchedulePlan, domain.WorkflowVersion, []domain.Resource, domain.NetworkTopology) error
-}
+const maxRequestBodyBytes = 32 << 20
 
 type ExecutionQuery interface {
 	FindRun(context.Context, string) (*domain.ExecutionRun, error)
@@ -38,9 +36,10 @@ type Dependencies struct {
 	Workflows    ports.WorkflowStore
 	Plans        ports.PlanStore
 	Events       ports.EventPublisher
-	Validator    PlanValidator
+	Validator    ports.PlanValidator
 	Executions   ExecutionQuery
 	Topologies   ports.NetworkTopologyStore
+	Scopes       ports.ExecutionScopeStore
 	Data         ports.DataCatalog
 	Resources    ports.ResourceInventory
 	Instance     ports.InstanceStore
@@ -51,9 +50,10 @@ type Handler struct {
 	workflows    ports.WorkflowStore
 	plans        ports.PlanStore
 	events       ports.EventPublisher
-	validator    PlanValidator
+	validator    ports.PlanValidator
 	executions   ExecutionQuery
 	topologies   ports.NetworkTopologyStore
+	scopes       ports.ExecutionScopeStore
 	data         ports.DataCatalog
 	resources    ports.ResourceInventory
 	instance     ports.InstanceStore
@@ -68,6 +68,7 @@ func New(dependencies Dependencies) (*Handler, error) {
 		plans: dependencies.Plans, events: dependencies.Events,
 		validator: dependencies.Validator, executions: dependencies.Executions,
 		topologies: dependencies.Topologies,
+		scopes:     dependencies.Scopes,
 		data:       dependencies.Data,
 		resources:  dependencies.Resources,
 		instance:   dependencies.Instance,
@@ -78,8 +79,30 @@ func missingDependencies(dependencies Dependencies) bool {
 	return dependencies.Environments == nil || dependencies.Workflows == nil ||
 		dependencies.Plans == nil || dependencies.Events == nil ||
 		dependencies.Validator == nil || dependencies.Executions == nil ||
-		dependencies.Topologies == nil || dependencies.Resources == nil ||
+		dependencies.Topologies == nil || dependencies.Scopes == nil || dependencies.Resources == nil ||
 		dependencies.Instance == nil
+}
+
+func (h *Handler) CreateExecutionScope(w http.ResponseWriter, r *http.Request) {
+	var scope domain.ExecutionScope
+	if !decode(w, r, &scope) {
+		return
+	}
+	if err := h.scopes.CreateScope(r.Context(), scope); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, scope)
+}
+
+func (h *Handler) ListExecutionScopes(w http.ResponseWriter, r *http.Request) {
+	items, err := h.scopes.ListScopes(r.Context())
+	writeList(w, items, err)
+}
+
+func (h *Handler) GetExecutionScope(w http.ResponseWriter, r *http.Request) {
+	item, err := h.scopes.FindScope(r.Context(), r.PathValue("scopeId"))
+	writeItem(w, item, err)
 }
 
 func (h *Handler) GetInstance(w http.ResponseWriter, r *http.Request) {
@@ -169,12 +192,7 @@ func (h *Handler) ListExecutions(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]map[string]any, 0, len(runs))
 	for _, run := range runs {
-		tasks, taskErr := h.executions.ListTasks(r.Context(), run.ID)
-		if taskErr != nil {
-			writeError(w, http.StatusInternalServerError, taskErr)
-			return
-		}
-		items = append(items, map[string]any{"run": run, "activities": tasks})
+		items = append(items, map[string]any{"run": run})
 	}
 	writeJSON(w, http.StatusOK, items)
 }
@@ -309,6 +327,7 @@ type CreatePlanRequest struct {
 	Plan            domain.SchedulePlan    `json:"plan"`
 	Workflow        domain.WorkflowVersion `json:"workflow"`
 	Resources       []domain.Resource      `json:"resources"`
+	ExecutionScope  domain.ExecutionScope  `json:"executionScope"`
 	NetworkTopology domain.NetworkTopology `json:"networkTopology"`
 }
 
@@ -320,7 +339,7 @@ func (h *Handler) CreatePlan(w http.ResponseWriter, r *http.Request) {
 	if request.Plan.NetworkTopologyID == "" {
 		request.Plan.NetworkTopologyID = request.NetworkTopology.ID
 	}
-	if err := h.validator.Validate(request.Plan, request.Workflow, request.Resources, request.NetworkTopology); err != nil {
+	if err := h.validator.Validate(request.Plan, request.Workflow, request.Resources, request.ExecutionScope, request.NetworkTopology); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return
 	}
@@ -376,7 +395,7 @@ func decode(w http.ResponseWriter, r *http.Request, target any) bool {
 		writeError(w, http.StatusUnsupportedMediaType, fmt.Errorf("request Content-Type must be application/json or application/yaml"))
 		return false
 	}
-	payload, err := io.ReadAll(io.LimitReader(r.Body, 10<<20))
+	payload, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBodyBytes))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return false

@@ -75,7 +75,7 @@ func processRequestFixture() Request {
 	return Request{
 		Run: domain.ExecutionRun{ID: "run", Mode: domain.ExecutionModeSimulation},
 		Plan: domain.SchedulePlan{
-			ID: "plan", WorkflowVersionID: "workflow", EnvironmentVersionID: "environment",
+			ID: "plan", WorkflowVersionID: "workflow", ExecutionScopeID: "scope",
 			Assignments: []domain.PlanAssignment{
 				{ID: "assignment-a", ActivityID: "a", ResourceID: "edge", OrderOnResource: 1},
 				{ID: "assignment-b", ActivityID: "b", ResourceID: "cloud", OrderOnResource: 1},

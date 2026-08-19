@@ -24,20 +24,20 @@ type PredictedMetrics struct {
 }
 
 type SchedulePlan struct {
-	ID                   string           `json:"id"`
-	WorkflowVersionID    string           `json:"workflowVersionId"`
-	EnvironmentVersionID string           `json:"environmentVersionId"`
-	NetworkTopologyID    string           `json:"networkTopologyId,omitempty"`
-	Source               PlanningSource   `json:"source"`
-	Algorithm            string           `json:"algorithm"`
-	AlgorithmVersion     string           `json:"algorithmVersion,omitempty"`
-	Objective            string           `json:"objective,omitempty"`
-	DeadlineSeconds      float64          `json:"deadlineSeconds"`
-	Budget               float64          `json:"budget"`
-	Predicted            PredictedMetrics `json:"predicted"`
-	Assignments          []PlanAssignment `json:"assignments"`
-	AssignmentCount      int              `json:"assignmentCount,omitempty"`
-	Metadata             map[string]any   `json:"metadata,omitempty"`
+	ID                string           `json:"id"`
+	WorkflowVersionID string           `json:"workflowVersionId"`
+	ExecutionScopeID  string           `json:"executionScopeId"`
+	NetworkTopologyID string           `json:"networkTopologyId,omitempty"`
+	Source            PlanningSource   `json:"source"`
+	Algorithm         string           `json:"algorithm"`
+	AlgorithmVersion  string           `json:"algorithmVersion,omitempty"`
+	Objective         string           `json:"objective,omitempty"`
+	DeadlineSeconds   float64          `json:"deadlineSeconds"`
+	Budget            float64          `json:"budget"`
+	Predicted         PredictedMetrics `json:"predicted"`
+	Assignments       []PlanAssignment `json:"assignments"`
+	AssignmentCount   int              `json:"assignmentCount,omitempty"`
+	Metadata          map[string]any   `json:"metadata,omitempty"`
 }
 
 type PlanAssignment struct {
@@ -60,7 +60,8 @@ type PlanAssignment struct {
 
 type PlanningRequest struct {
 	Workflow         workflow.WorkflowVersion           `json:"workflow"`
-	Environment      environment.EnvironmentVersion     `json:"environment"`
+	ExecutionScope   environment.ExecutionScope         `json:"executionScope"`
+	Environments     []environment.EnvironmentVersion   `json:"environments"`
 	Resources        []resource.Resource                `json:"resources"`
 	NetworkTopology  resource.NetworkTopology           `json:"networkTopology"`
 	ActivityProfiles []workflow.ActivityResourceProfile `json:"activityProfiles"`

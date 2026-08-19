@@ -32,12 +32,17 @@ const (
 )
 
 type ExecutionRun struct {
-	ID                    string                 `json:"id"`
-	SchedulePlanID        string                 `json:"schedulePlanId"`
-	Mode                  planning.ExecutionMode `json:"mode"`
-	Seed                  int64                  `json:"seed"`
-	Status                ExecutionRunStatus     `json:"status"`
-	EnvironmentSnapshotID string                 `json:"environmentSnapshotId,omitempty"`
+	ID                     string                 `json:"id"`
+	SchedulePlanID         string                 `json:"schedulePlanId"`
+	Mode                   planning.ExecutionMode `json:"mode"`
+	Seed                   int64                  `json:"seed"`
+	Status                 ExecutionRunStatus     `json:"status"`
+	EnvironmentSnapshotID  string                 `json:"environmentSnapshotId,omitempty"`
+	MakespanSeconds        float64                `json:"makespanSeconds"`
+	Cost                   float64                `json:"cost"`
+	FailureReason          string                 `json:"failureReason,omitempty"`
+	ActivityCount          int                    `json:"activityCount,omitempty"`
+	CompletedActivityCount int                    `json:"completedActivityCount,omitempty"`
 }
 
 type TaskExecution struct {
@@ -104,6 +109,7 @@ type ActivityExecutionContext struct {
 	Activity   workflow.Activity        `json:"activity"`
 	Assignment planning.PlanAssignment  `json:"assignment"`
 	Resource   resource.Resource        `json:"resource"`
+	RuntimeID  string                   `json:"runtimeId"`
 }
 
 // ActivityHandle is the runtime-independent identity of a started activity.

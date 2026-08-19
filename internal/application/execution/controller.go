@@ -41,7 +41,10 @@ func (s *Controller) Start(ctx context.Context, execution domain.ActivityExecuti
 	if existing != nil {
 		return *existing, nil
 	}
-	runtime, err := s.runtimes.Resolve(execution.Run.Mode, execution.Resource.RuntimeID)
+	if execution.RuntimeID == "" {
+		return domain.ActivityHandle{}, fmt.Errorf("activity %q has no selected runtime", execution.Activity.ID)
+	}
+	runtime, err := s.runtimes.Resolve(execution.Run.Mode, execution.RuntimeID)
 	if err != nil {
 		return domain.ActivityHandle{}, err
 	}

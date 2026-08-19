@@ -1,7 +1,7 @@
 plan:
   id: simulation-example-plan-v1
   workflowVersionId: simulation-example-workflow-v1
-  environmentVersionId: simulation-example-v1
+  executionScopeId: simulation-example-v1-scope
   networkTopologyId: simulation-network-v1
   source: imported
   algorithm: manual-example
@@ -109,7 +109,6 @@ workflow: &workflow
 resources: &resources
   - id: simulated-edge
     environmentVersionId: simulation-example-v1
-    runtimeId: simgrid
     executionTarget: batch
     type: fog_device
     name: Simulated edge
@@ -124,7 +123,6 @@ resources: &resources
     schedulable: true
   - id: simulated-cloud
     environmentVersionId: simulation-example-v1
-    runtimeId: simgrid
     executionTarget: batch
     type: cloud_vm
     name: Simulated cloud VM
@@ -143,7 +141,7 @@ networkTopology: &topology
   id: simulation-network-v1
   name: Simulated edge-cloud network
   version: 1
-  scope: environment
+  executionScopeId: simulation-example-v1-scope
   links:
     - id: edge-cloud
       topologyId: simulation-network-v1
@@ -155,3 +153,7 @@ networkTopology: &topology
       bidirectional: true
       sharingPolicy: shared
       maxConcurrentTransfers: 1
+executionScope:
+  id: simulation-example-v1-scope
+  name: Edge cloud simulation scope
+  environmentVersionIds: [simulation-example-v1]

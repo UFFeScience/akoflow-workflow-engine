@@ -89,6 +89,10 @@ func (r *Repository) Find(ctx context.Context, id string) (*domain.EnvironmentDe
 	if err != nil {
 		return nil, err
 	}
+	definition.RuntimeBindings, err = r.listRuntimeBindings(ctx, definition.Version.ID)
+	if err != nil {
+		return nil, err
+	}
 	definition.Relations, err = r.listResourceRelations(ctx, definition.Version.ID)
 	if err != nil {
 		return nil, err
@@ -144,7 +148,7 @@ func (r *Repository) listStorages(
 ) ([]domain.StorageResource, error) {
 	items := make(map[string]domain.StorageResource)
 	for _, runtime := range runtimes {
-		values, err := r.ListRuntimeStorages(ctx, versionID, runtime.RuntimeID)
+		values, err := r.ListRuntimeStorages(ctx, versionID, runtime.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -211,10 +215,10 @@ func (r *Repository) listProfiles(
 }
 
 func (r *Repository) listRuntimes(ctx context.Context, versionID string) ([]domain.EnvironmentRuntime, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT r.environment_version_id, r.runtime_id,
-		r.role, r.configuration, c.capabilities FROM environment_runtimes r
-		LEFT JOIN environment_runtime_capabilities c ON c.environment_version_id=r.environment_version_id
-		AND c.runtime_id=r.runtime_id WHERE r.environment_version_id=? ORDER BY r.runtime_id`, versionID)
+	rows, err := r.db.QueryContext(ctx, `SELECT r.environment_version_id, r.id, r.name,
+		r.driver, r.mode, r.role, r.configuration, c.capabilities FROM environment_runtimes r
+		LEFT JOIN environment_runtime_capabilities c ON c.runtime_id=r.id
+		WHERE r.environment_version_id=? ORDER BY r.name`, versionID)
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +227,8 @@ func (r *Repository) listRuntimes(ctx context.Context, versionID string) ([]doma
 	for rows.Next() {
 		var item domain.EnvironmentRuntime
 		var configuration, capabilities string
-		if err := rows.Scan(&item.EnvironmentVersionID, &item.RuntimeID, &item.Role,
+		if err := rows.Scan(&item.EnvironmentVersionID, &item.ID, &item.Name,
+			&item.Driver, &item.Mode, &item.Role,
 			&configuration, &capabilities); err != nil {
 			return nil, err
 		}
@@ -241,7 +246,7 @@ func (r *Repository) listRuntimes(ctx context.Context, versionID string) ([]doma
 }
 
 func (r *Repository) listResources(ctx context.Context, versionID string) ([]domain.Resource, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, environment_version_id, runtime_id,
+	rows, err := r.db.QueryContext(ctx, `SELECT id, environment_version_id,
 		execution_target, parent_resource_id, type, name, provider_id, tier, region,
 		zone, architecture, cpu_cores, cpu_capacity, memory_bytes, storage_bytes,
 		compute_speedup, price_per_second, boot_overhead_seconds,
@@ -256,7 +261,7 @@ func (r *Repository) listResources(ctx context.Context, versionID string) ([]dom
 		var item domain.Resource
 		var parent sql.NullString
 		var metadata string
-		if err := rows.Scan(&item.ID, &item.EnvironmentVersionID, &item.RuntimeID,
+		if err := rows.Scan(&item.ID, &item.EnvironmentVersionID,
 			&item.ExecutionTarget, &parent, &item.Type, &item.Name, &item.ProviderID,
 			&item.Tier, &item.Region, &item.Zone, &item.Architecture, &item.CPUCores,
 			&item.CPUCapacity, &item.MemoryBytes, &item.StorageBytes,
@@ -294,6 +299,9 @@ func (r *Repository) Create(ctx context.Context, definition Definition) error {
 		return err
 	}
 	if err := insertResources(tx, definition); err != nil {
+		return err
+	}
+	if err := insertRuntimeBindings(tx, definition); err != nil {
 		return err
 	}
 	if err := insertResourceRelations(tx, definition); err != nil {
@@ -410,16 +418,14 @@ func insertEnvironmentVersion(tx *sql.Tx, definition Definition) error {
 func insertRuntimes(tx *sql.Tx, definition Definition) error {
 	versionID := definition.Version.ID
 	for _, runtime := range definition.Runtimes {
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO runtimes (name) VALUES (?)`, runtime.RuntimeID); err != nil {
-			return err
-		}
 		configuration, err := json.Marshal(runtime.Configuration)
 		if err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`INSERT INTO environment_runtimes (
-			environment_version_id, runtime_id, role, configuration
-		) VALUES (?, ?, ?, ?)`, versionID, runtime.RuntimeID, runtime.Role,
+			id, environment_version_id, name, driver, mode, role, configuration
+		) VALUES (?, ?, ?, ?, ?, ?, ?)`, runtime.ID, versionID, runtime.Name,
+			runtime.Driver, runtime.Mode, runtime.Role,
 			string(configuration)); err != nil {
 			return err
 		}
@@ -428,8 +434,8 @@ func insertRuntimes(tx *sql.Tx, definition Definition) error {
 			return err
 		}
 		if _, err := tx.Exec(`INSERT INTO environment_runtime_capabilities (
-			environment_version_id, runtime_id, capabilities
-		) VALUES (?, ?, ?)`, versionID, runtime.RuntimeID, string(capabilities)); err != nil {
+			runtime_id, capabilities
+		) VALUES (?, ?)`, runtime.ID, string(capabilities)); err != nil {
 			return err
 		}
 	}
@@ -443,12 +449,12 @@ func insertResources(tx *sql.Tx, definition Definition) error {
 			return err
 		}
 		if _, err := tx.Exec(`INSERT INTO resources (
-			id, environment_version_id, runtime_id, execution_target, parent_resource_id, type, name,
+			id, environment_version_id, execution_target, parent_resource_id, type, name,
 			provider_id, tier, region, zone, architecture, cpu_cores, cpu_capacity,
 			memory_bytes, storage_bytes, compute_speedup, price_per_second,
 			boot_overhead_seconds, container_overhead_seconds, schedulable, metadata
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			resource.ID, definition.Version.ID, resource.RuntimeID, normalizedExecutionTarget(resource.ExecutionTarget), resource.ParentResourceID,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			resource.ID, definition.Version.ID, normalizedExecutionTarget(resource.ExecutionTarget), resource.ParentResourceID,
 			resource.Type, resource.Name, resource.ProviderID, resource.Tier,
 			resource.Region, resource.Zone, resource.Architecture, resource.CPUCores,
 			resource.CPUCapacity, resource.MemoryBytes, resource.StorageBytes,
@@ -459,6 +465,47 @@ func insertResources(tx *sql.Tx, definition Definition) error {
 		}
 	}
 	return nil
+}
+
+func insertRuntimeBindings(tx *sql.Tx, definition Definition) error {
+	for _, binding := range definition.RuntimeBindings {
+		configuration, err := json.Marshal(binding.Configuration)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO resource_runtime_bindings (
+			resource_id, runtime_id, enabled, configuration
+		) VALUES (?, ?, ?, ?)`, binding.ResourceID, binding.RuntimeID,
+			binding.Enabled, string(configuration)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *Repository) listRuntimeBindings(ctx context.Context, versionID string) ([]domain.ResourceRuntimeBinding, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT b.resource_id, b.runtime_id,
+		b.enabled, b.configuration FROM resource_runtime_bindings b
+		JOIN resources r ON r.id=b.resource_id WHERE r.environment_version_id=?
+		ORDER BY b.resource_id, b.runtime_id`, versionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	bindings := make([]domain.ResourceRuntimeBinding, 0)
+	for rows.Next() {
+		var binding domain.ResourceRuntimeBinding
+		var configuration string
+		if err := rows.Scan(&binding.ResourceID, &binding.RuntimeID,
+			&binding.Enabled, &configuration); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(configuration), &binding.Configuration); err != nil {
+			return nil, err
+		}
+		bindings = append(bindings, binding)
+	}
+	return bindings, rows.Err()
 }
 
 func normalizedExecutionTarget(target domain.ResourceExecutionTarget) domain.ResourceExecutionTarget {

@@ -38,7 +38,7 @@ func TestImportedSourceMarksPlanOrigin(t *testing.T) {
 
 func TestValidatePlanAcceptsCompleteCompatiblePlan(t *testing.T) {
 	workflow, resources, plan := validPlanFixture()
-	require.NoError(t, NewValidator().Validate(plan, workflow, resources, domain.NetworkTopology{}))
+	require.NoError(t, NewValidator().Validate(plan, workflow, resources, validScope(), domain.NetworkTopology{ExecutionScopeID: "scope"}))
 }
 
 func TestValidatePlanRejectsInvalidCases(t *testing.T) {
@@ -59,9 +59,9 @@ func TestValidatePlanRejectsInvalidCases(t *testing.T) {
 		{"unknown resource", func(_ *domain.WorkflowVersion, _ *[]domain.Resource, p *domain.SchedulePlan) {
 			p.Assignments[0].ResourceID = "missing"
 		}, "unknown resource"},
-		{"wrong environment", func(_ *domain.WorkflowVersion, r *[]domain.Resource, _ *domain.SchedulePlan) {
-			(*r)[0].EnvironmentVersionID = "other"
-		}, "another environment"},
+		{"missing scope", func(_ *domain.WorkflowVersion, _ *[]domain.Resource, p *domain.SchedulePlan) {
+			p.ExecutionScopeID = ""
+		}, "execution scope"},
 		{"not schedulable", func(_ *domain.WorkflowVersion, r *[]domain.Resource, _ *domain.SchedulePlan) {
 			(*r)[0].Schedulable = false
 		}, "not schedulable"},
@@ -94,21 +94,26 @@ func TestValidatePlanRejectsInvalidCases(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			workflow, resources, plan := validPlanFixture()
 			test.mutate(&workflow, &resources, &plan)
-			err := NewValidator().Validate(plan, workflow, resources, domain.NetworkTopology{})
+			err := NewValidator().Validate(plan, workflow, resources, validScope(), domain.NetworkTopology{ExecutionScopeID: "scope"})
 			require.ErrorContains(t, err, test.want)
 		})
 	}
 }
 
-func TestValidatePlanAllowsResourcesAcrossEnvironmentsForFederatedTopology(t *testing.T) {
+func TestValidatePlanAllowsResourcesAcrossEnvironmentsInScope(t *testing.T) {
 	workflow, resources, plan := validPlanFixture()
 	resources[1].EnvironmentVersionID = "cloud-v1"
 	require.NoError(t, NewValidator().Validate(
 		plan,
 		workflow,
 		resources,
-		domain.NetworkTopology{ID: "federated-v1", Scope: "federated"},
+		domain.ExecutionScope{ID: "scope", EnvironmentVersionIDs: []string{"env", "cloud-v1"}},
+		domain.NetworkTopology{ID: "federated-v1", ExecutionScopeID: "scope"},
 	))
+}
+
+func validScope() domain.ExecutionScope {
+	return domain.ExecutionScope{ID: "scope", EnvironmentVersionIDs: []string{"env"}}
 }
 
 func validPlanFixture() (domain.WorkflowVersion, []domain.Resource, domain.SchedulePlan) {
@@ -122,7 +127,7 @@ func validPlanFixture() (domain.WorkflowVersion, []domain.Resource, domain.Sched
 		{ID: "r1", EnvironmentVersionID: "env", CPUCapacity: 2, MemoryBytes: 2, Schedulable: true},
 		{ID: "r2", EnvironmentVersionID: "env", CPUCapacity: 2, MemoryBytes: 2, Schedulable: true},
 	}
-	plan := domain.SchedulePlan{WorkflowVersionID: "wf", EnvironmentVersionID: "env", Assignments: []domain.PlanAssignment{
+	plan := domain.SchedulePlan{WorkflowVersionID: "wf", ExecutionScopeID: "scope", Assignments: []domain.PlanAssignment{
 		{ID: "aa", ActivityID: "a", ResourceID: "r1", PredictedFinishAt: 1},
 		{ID: "ab", ActivityID: "b", ResourceID: "r2", PredictedStartAt: 1, PredictedFinishAt: 2},
 	}}

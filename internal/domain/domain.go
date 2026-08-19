@@ -17,6 +17,9 @@ type ConnectionType = environment.ConnectionType
 type Environment = environment.Environment
 type EnvironmentVersion = environment.EnvironmentVersion
 type EnvironmentRuntime = environment.EnvironmentRuntime
+type RuntimeDriver = environment.RuntimeDriver
+type RuntimeMode = environment.RuntimeMode
+type ExecutionScope = environment.ExecutionScope
 type EnvironmentConnection = environment.EnvironmentConnection
 type EnvironmentCapabilities = environment.Capabilities
 type DiscoveryRun = environment.DiscoveryRun
@@ -38,11 +41,20 @@ const (
 	ConnectionCloud             = environment.ConnectionCloud
 	ConnectionLocal             = environment.ConnectionLocal
 	ConnectionAgent             = environment.ConnectionAgent
+	RuntimeDriverSlurm          = environment.RuntimeDriverSlurm
+	RuntimeDriverKubernetes     = environment.RuntimeDriverKubernetes
+	RuntimeDriverSSH            = environment.RuntimeDriverSSH
+	RuntimeDriverLocal          = environment.RuntimeDriverLocal
+	RuntimeDriverServerless     = environment.RuntimeDriverServerless
+	RuntimeDriverSimGrid        = environment.RuntimeDriverSimGrid
+	RuntimeModeExecution        = environment.RuntimeModeExecution
+	RuntimeModeSimulation       = environment.RuntimeModeSimulation
 )
 
 type ResourceType = resource.ResourceType
 type ResourceExecutionTarget = resource.ResourceExecutionTarget
 type Resource = resource.Resource
+type ResourceRuntimeBinding = resource.ResourceRuntimeBinding
 type ResourceRelation = resource.ResourceRelation
 type ResourceRelationType = resource.ResourceRelationType
 type ResourceSnapshot = resource.ResourceSnapshot

@@ -30,7 +30,7 @@ func TestAdapterExecutesDirectlyOnLoginResource(t *testing.T) {
 		Activity: domain.Activity{ID: "lightweight", Command: domain.ActivityCommand{
 			Entrypoint: "/bin/sh", Arguments: []string{"-c", "exit 0"},
 		}},
-		Resource: domain.Resource{ID: "login", RuntimeID: "slurm", ExecutionTarget: domain.ExecutionTargetDirect},
+		Resource: domain.Resource{ID: "login", ExecutionTarget: domain.ExecutionTargetDirect}, RuntimeID: "slurm",
 	}
 	handle, err := adapter.Start(context.Background(), execution)
 	if err != nil {
@@ -61,7 +61,7 @@ func TestAdapterSubmitsSafeBatchScript(t *testing.T) {
 	executor := &executorFake{output: []byte("123;cluster\n")}
 	adapter := NewWithConfig(executor, Config{Partition: "cpu", ScriptDirectory: t.TempDir()})
 	activity := domain.Activity{ID: "analysis", Command: domain.ActivityCommand{Image: "image.sif", Entrypoint: "python", Arguments: []string{"a'b"}}, Resources: domain.ActivityResources{CPU: 2, MemoryBytes: 1048576}}
-	handle, err := adapter.Start(context.Background(), domain.ActivityExecutionContext{Run: domain.ExecutionRun{ID: "run"}, Activity: activity, Resource: domain.Resource{ID: "node", RuntimeID: "slurm"}})
+	handle, err := adapter.Start(context.Background(), domain.ActivityExecutionContext{Run: domain.ExecutionRun{ID: "run"}, Activity: activity, Resource: domain.Resource{ID: "node"}, RuntimeID: "slurm"})
 	if err != nil {
 		t.Fatal(err)
 	}

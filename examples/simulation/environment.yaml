@@ -16,7 +16,10 @@ version:
 
 runtimes:
   - environmentVersionId: simulation-example-v1
-    runtimeId: simgrid
+    id: simgrid
+    name: SimGrid
+    driver: simgrid
+    mode: simulation
     role: simulation
     capabilities:
       simulation: true
@@ -24,7 +27,6 @@ runtimes:
 resources:
   - id: simulated-edge
     environmentVersionId: simulation-example-v1
-    runtimeId: simgrid
     executionTarget: batch
     type: fog_device
     name: Simulated edge
@@ -42,7 +44,6 @@ resources:
 
   - id: simulated-cloud
     environmentVersionId: simulation-example-v1
-    runtimeId: simgrid
     executionTarget: batch
     type: cloud_vm
     name: Simulated cloud VM
@@ -61,3 +62,7 @@ resources:
 storages: []
 connections: []
 activityResourceProfiles: []
+
+resourceRuntimeBindings:
+  - {resourceId: simulated-edge, runtimeId: simgrid, enabled: true}
+  - {resourceId: simulated-cloud, runtimeId: simgrid, enabled: true}

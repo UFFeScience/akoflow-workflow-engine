@@ -50,7 +50,8 @@ func TestAdapterCreatesJobAndServiceFromActivity(t *testing.T) {
 	}
 	handle, err := adapter.Start(context.Background(), domain.ActivityExecutionContext{
 		Run: domain.ExecutionRun{ID: "run"}, Activity: activity,
-		Resource: domain.Resource{ID: "node", RuntimeID: "kubernetes",
+		RuntimeID: "kubernetes",
+		Resource: domain.Resource{ID: "node",
 			Type: domain.ResourceKubernetesMachine, ProviderID: "kind-worker"},
 	})
 	if err != nil {

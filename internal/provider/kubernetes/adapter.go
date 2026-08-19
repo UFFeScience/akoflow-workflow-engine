@@ -62,7 +62,7 @@ func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionC
 	}
 	return domain.ActivityHandle{ID: runtimecommon.NewID("activity"), RunID: execution.Run.ID,
 		ActivityID: activity.ID, ResourceID: execution.Resource.ID,
-		RuntimeID: execution.Resource.RuntimeID, ExternalID: name,
+		RuntimeID: execution.RuntimeID, ExternalID: name,
 		Status: domain.HandleStarting, StartedAt: runtimecommon.UnixSeconds(time.Now()),
 		Endpoints: serviceEndpoints(name, a.namespace, activity),
 		Metadata: map[string]any{

@@ -21,7 +21,7 @@ func (e *SimulationExecutor) Execute(ctx context.Context, request Request) (doma
 	if request.Run.Mode != domain.ExecutionModeSimulation {
 		return domain.ExecutionTrace{}, fmt.Errorf("simulation executor cannot execute mode %q", request.Run.Mode)
 	}
-	if err := e.validator.Validate(request.Plan, request.Workflow, request.Resources, request.NetworkTopology); err != nil {
+	if err := e.validator.Validate(request.Plan, request.Workflow, request.Resources, request.ExecutionScope, request.NetworkTopology); err != nil {
 		return domain.ExecutionTrace{}, err
 	}
 	select {

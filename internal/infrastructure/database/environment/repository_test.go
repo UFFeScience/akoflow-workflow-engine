@@ -29,13 +29,18 @@ func TestEnvironmentDefinitionCreate(t *testing.T) {
 	definition := Definition{
 		Environment: domain.Environment{ID: "env", Name: "hybrid", Description: "test"},
 		Version:     domain.EnvironmentVersion{ID: "v1", Version: 1, Status: domain.EnvironmentVersionPublished, NetworkModel: "real", InterferenceModel: "none", CostModel: "aws", ConfigurationHash: "hash"},
-		Runtimes:    []domain.EnvironmentRuntime{{RuntimeID: "k8s", Role: "cloud", Configuration: map[string]any{"region": "us"}}},
+		Runtimes: []domain.EnvironmentRuntime{{ID: "k8s", Name: "Kubernetes", Driver: domain.RuntimeDriverKubernetes,
+			Mode: domain.RuntimeModeExecution, Role: "cloud", Configuration: map[string]any{"region": "us"}}},
 		Storages: []domain.StorageResource{{ID: "shared", Name: "shared", Type: domain.StorageNFS,
 			Endpoint: "nfs:/akoflow", Shared: true, RuntimeBindings: []domain.StorageRuntimeBinding{{
 				RuntimeID: "k8s", Default: true, HostPath: "/shared/akoflow"}}}},
 		Resources: []domain.Resource{
-			{ID: "cluster", RuntimeID: "k8s", Type: domain.ResourceCluster, Name: "cluster", ProviderID: "cluster"},
-			{ID: "r1", RuntimeID: "k8s", Type: domain.ResourceCloudVM, Name: "vm", ProviderID: "provider", CPUCores: 2, CPUCapacity: 2, MemoryBytes: 1024, Schedulable: true, Metadata: map[string]any{"tier": "cloud"}},
+			{ID: "cluster", Type: domain.ResourceCluster, Name: "cluster", ProviderID: "cluster"},
+			{ID: "r1", Type: domain.ResourceCloudVM, Name: "vm", ProviderID: "provider", CPUCores: 2, CPUCapacity: 2, MemoryBytes: 1024, Schedulable: true, Metadata: map[string]any{"tier": "cloud"}},
+		},
+		RuntimeBindings: []domain.ResourceRuntimeBinding{
+			{ResourceID: "cluster", RuntimeID: "k8s", Enabled: true},
+			{ResourceID: "r1", RuntimeID: "k8s", Enabled: true},
 		},
 		Relations: []domain.ResourceRelation{{
 			SourceResourceID: "cluster", TargetResourceID: "r1", Type: domain.ResourceRelationContains,
@@ -83,7 +88,7 @@ func TestEnvironmentRejectsTwoDefaultStoragesForRuntime(t *testing.T) {
 		Environment: domain.Environment{ID: "env", Name: "cluster"},
 		Version: domain.EnvironmentVersion{ID: "v1", Version: 1, Status: domain.EnvironmentVersionPublished,
 			NetworkModel: "real", InterferenceModel: "none", CostModel: "free"},
-		Runtimes: []domain.EnvironmentRuntime{{RuntimeID: "slurm"}},
+		Runtimes: []domain.EnvironmentRuntime{{ID: "slurm", Name: "Slurm", Driver: domain.RuntimeDriverSlurm, Mode: domain.RuntimeModeExecution}},
 	}
 	binding := []domain.StorageRuntimeBinding{{RuntimeID: "slurm", Default: true}}
 	definition.Storages = []domain.StorageResource{

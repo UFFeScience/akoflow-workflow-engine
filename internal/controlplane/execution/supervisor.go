@@ -168,6 +168,7 @@ func (s *Supervisor) startReadyActivities(
 		handle, err := s.activities.Start(ctx, domain.ActivityExecutionContext{
 			Run: request.Run, Workflow: request.Workflow, Activity: activity,
 			Assignment: assignment, Resource: resource,
+			RuntimeID: selectRuntime(request, resource.ID),
 		})
 		if err != nil {
 			return fmt.Errorf("start activity %q: %w", activityID, err)
@@ -184,6 +185,26 @@ func (s *Supervisor) startReadyActivities(
 		}
 	}
 	return nil
+}
+
+func selectRuntime(request ports.ExecutionRequest, resourceID string) string {
+	runtimeMode := domain.RuntimeModeExecution
+	if request.Run.Mode == domain.ExecutionModeSimulation {
+		runtimeMode = domain.RuntimeModeSimulation
+	}
+	runtimes := make(map[string]domain.EnvironmentRuntime, len(request.Runtimes))
+	for _, runtime := range request.Runtimes {
+		runtimes[runtime.ID] = runtime
+	}
+	for _, binding := range request.RuntimeBindings {
+		if binding.ResourceID != resourceID || !binding.Enabled {
+			continue
+		}
+		if runtime, found := runtimes[binding.RuntimeID]; found && runtime.Mode == runtimeMode {
+			return runtime.ID
+		}
+	}
+	return ""
 }
 
 func newRunningTask(
@@ -215,6 +236,12 @@ func validateRequest(request ports.ExecutionRequest) error {
 	}
 	if len(request.Plan.Assignments) != len(request.Workflow.Activities) {
 		return fmt.Errorf("plan must assign every activity exactly once")
+	}
+	for _, assignment := range request.Plan.Assignments {
+		if selectRuntime(request, assignment.ResourceID) == "" {
+			return fmt.Errorf("resource %q has no enabled runtime for %q mode",
+				assignment.ResourceID, request.Run.Mode)
+		}
 	}
 	return nil
 }

@@ -18,5 +18,5 @@ type PlanSource interface {
 }
 
 type PlanValidator interface {
-	Validate(domain.SchedulePlan, domain.WorkflowVersion, []domain.Resource) error
+	Validate(domain.SchedulePlan, domain.WorkflowVersion, []domain.Resource, domain.ExecutionScope, domain.NetworkTopology) error
 }

@@ -27,7 +27,10 @@ connections:
 
 runtimes:
   - environmentVersionId: kind-akoflow-v1
-    runtimeId: kubernetes
+    id: kubernetes
+    name: Kind Kubernetes
+    driver: kubernetes
+    mode: execution
     role: compute
     configuration:
       namespace: akoflow
@@ -57,7 +60,6 @@ storages:
 resources:
   - id: kind-cluster
     environmentVersionId: kind-akoflow-v1
-    runtimeId: kubernetes
     type: cluster
     name: AkôFlow Kind cluster
     providerId: kind-akoflow
@@ -65,7 +67,6 @@ resources:
 
   - id: kind-worker
     environmentVersionId: kind-akoflow-v1
-    runtimeId: kubernetes
     parentResourceId: kind-cluster
     type: kubernetes_machine
     name: kind-worker
@@ -86,7 +87,6 @@ resources:
 
   - id: kind-worker-2
     environmentVersionId: kind-akoflow-v1
-    runtimeId: kubernetes
     parentResourceId: kind-cluster
     type: kubernetes_machine
     name: kind-worker-2
@@ -106,3 +106,8 @@ resources:
       kubernetesNode: akoflow-worker2
 
 activityResourceProfiles: []
+
+resourceRuntimeBindings:
+  - {resourceId: kind-cluster, runtimeId: kubernetes, enabled: true}
+  - {resourceId: kind-worker, runtimeId: kubernetes, enabled: true}
+  - {resourceId: kind-worker-2, runtimeId: kubernetes, enabled: true}

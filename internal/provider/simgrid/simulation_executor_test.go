@@ -19,11 +19,11 @@ func TestSimulationExecutesFrozenPlanWithRealNetworkModel(t *testing.T) {
 		DataDependencies: []domain.ActivityDataDependency{{ProducerActivityID: "a", ConsumerActivityID: "b", SizeBytes: 1_000_000}},
 	}
 	resources := []domain.Resource{
-		{ID: "edge", EnvironmentVersionID: "env-v1", RuntimeID: "edge-runtime", CPUCapacity: 1, MemoryBytes: 1, ComputeSpeedup: 1, Schedulable: true},
-		{ID: "cloud", EnvironmentVersionID: "env-v1", RuntimeID: "cloud-runtime", CPUCapacity: 1, MemoryBytes: 1, ComputeSpeedup: 1, Schedulable: true},
+		{ID: "edge", EnvironmentVersionID: "env-v1", CPUCapacity: 1, MemoryBytes: 1, ComputeSpeedup: 1, Schedulable: true},
+		{ID: "cloud", EnvironmentVersionID: "env-v1", CPUCapacity: 1, MemoryBytes: 1, ComputeSpeedup: 1, Schedulable: true},
 	}
 	plan := domain.SchedulePlan{
-		ID: "plan", WorkflowVersionID: "wf-v1", EnvironmentVersionID: "env-v1",
+		ID: "plan", WorkflowVersionID: "wf-v1", ExecutionScopeID: "scope",
 		DeadlineSeconds: 10,
 		Assignments: []domain.PlanAssignment{
 			{ID: "pa", ActivityID: "a", ResourceID: "edge", OrderOnResource: 0},
@@ -37,7 +37,8 @@ func TestSimulationExecutesFrozenPlanWithRealNetworkModel(t *testing.T) {
 	trace, err := NewSimulationExecutor().Execute(context.Background(), Request{
 		Run:  domain.ExecutionRun{ID: "run", Mode: domain.ExecutionModeSimulation},
 		Plan: plan, Workflow: workflow, Resources: resources, ActivityProfiles: profiles,
-		NetworkTopology: domain.NetworkTopology{ID: "topology", Links: []domain.NetworkLink{{
+		ExecutionScope: domain.ExecutionScope{ID: "scope", EnvironmentVersionIDs: []string{"env-v1"}},
+		NetworkTopology: domain.NetworkTopology{ID: "topology", ExecutionScopeID: "scope", Links: []domain.NetworkLink{{
 			TopologyID: "topology", SourceResourceID: "edge", TargetResourceID: "cloud",
 			Bidirectional: true, BandwidthBitsPerSecond: 8_000_000, LatencySeconds: 0.1,
 		}}},
@@ -64,10 +65,10 @@ func TestSimulationUsesAssignmentOverheadAndBillsResourceActiveWindowOnce(t *tes
 		{ID: "a", ActivityTypeID: "type", Metadata: map[string]any{"baseRuntimeSeconds": 2}},
 		{ID: "b", ActivityTypeID: "type", Metadata: map[string]any{"baseRuntimeSeconds": 2}},
 	}}
-	resource := domain.Resource{ID: "vm", EnvironmentVersionID: "env", RuntimeID: "simgrid",
+	resource := domain.Resource{ID: "vm", EnvironmentVersionID: "env",
 		CPUCapacity: 2, MemoryBytes: 1, ComputeSpeedup: 1, PricePerSecond: 1,
 		BootOverheadSeconds: 100, ContainerOverhead: 100, Schedulable: true}
-	plan := domain.SchedulePlan{ID: "plan", WorkflowVersionID: "wf", EnvironmentVersionID: "env",
+	plan := domain.SchedulePlan{ID: "plan", WorkflowVersionID: "wf", ExecutionScopeID: "scope",
 		Assignments: []domain.PlanAssignment{
 			{ID: "a", ActivityID: "a", ResourceID: "vm", CoreID: "0", Metadata: map[string]any{"bootOverheadSeconds": 3, "containerOverheadSeconds": 1}},
 			{ID: "b", ActivityID: "b", ResourceID: "vm", CoreID: "1", Metadata: map[string]any{"bootOverheadSeconds": 0, "containerOverheadSeconds": 1}},
@@ -75,6 +76,8 @@ func TestSimulationUsesAssignmentOverheadAndBillsResourceActiveWindowOnce(t *tes
 	trace, err := NewSimulationExecutor().Execute(context.Background(), Request{
 		Run: domain.ExecutionRun{ID: "run", Mode: domain.ExecutionModeSimulation}, Plan: plan,
 		Workflow: workflow, Resources: []domain.Resource{resource},
+		ExecutionScope:  domain.ExecutionScope{ID: "scope", EnvironmentVersionIDs: []string{"env"}},
+		NetworkTopology: domain.NetworkTopology{ExecutionScopeID: "scope"},
 	})
 	require.NoError(t, err)
 	require.InDelta(t, 6, trace.Executed.MakespanSeconds, 1e-9)
@@ -85,7 +88,9 @@ func TestSimulationRejectsPlanThatDoesNotCoverWorkflow(t *testing.T) {
 	workflow := domain.WorkflowVersion{ID: "wf", Activities: []domain.Activity{{ID: "a"}}}
 	_, err := NewSimulationExecutor().Execute(context.Background(), Request{
 		Run:  domain.ExecutionRun{Mode: domain.ExecutionModeSimulation},
-		Plan: domain.SchedulePlan{WorkflowVersionID: "wf"}, Workflow: workflow,
+		Plan: domain.SchedulePlan{WorkflowVersionID: "wf", ExecutionScopeID: "scope"}, Workflow: workflow,
+		ExecutionScope:  domain.ExecutionScope{ID: "scope"},
+		NetworkTopology: domain.NetworkTopology{ExecutionScopeID: "scope"},
 	})
 	require.ErrorContains(t, err, "covers 0 of 1 activities")
 }

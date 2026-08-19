@@ -46,7 +46,7 @@ func (a *Adapter) Start(_ context.Context, execution domain.ActivityExecutionCon
 	}
 	handle := domain.ActivityHandle{ID: runtimecommon.NewID("activity"), RunID: execution.Run.ID,
 		ActivityID: activity.ID, ResourceID: execution.Resource.ID,
-		RuntimeID: execution.Resource.RuntimeID, ExternalID: strconv.Itoa(command.Process.Pid),
+		RuntimeID: execution.RuntimeID, ExternalID: strconv.Itoa(command.Process.Pid),
 		Status: domain.HandleRunning, StartedAt: runtimecommon.UnixSeconds(time.Now()),
 		Endpoints: localEndpoints(activity)}
 	go func(id string) {

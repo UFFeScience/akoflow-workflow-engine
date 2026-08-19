@@ -34,7 +34,6 @@ const (
 type Resource struct {
 	ID                   string                  `json:"id"`
 	EnvironmentVersionID string                  `json:"environmentVersionId"`
-	RuntimeID            string                  `json:"runtimeId"`
 	ExecutionTarget      ResourceExecutionTarget `json:"executionTarget,omitempty"`
 	ParentResourceID     *string                 `json:"parentResourceId,omitempty"`
 	Type                 ResourceType            `json:"type"`
@@ -54,6 +53,13 @@ type Resource struct {
 	ContainerOverhead    float64                 `json:"containerOverheadSeconds"`
 	Schedulable          bool                    `json:"schedulable"`
 	Metadata             map[string]any          `json:"metadata,omitempty"`
+}
+
+type ResourceRuntimeBinding struct {
+	ResourceID    string         `json:"resourceId"`
+	RuntimeID     string         `json:"runtimeId"`
+	Enabled       bool           `json:"enabled"`
+	Configuration map[string]any `json:"configuration,omitempty"`
 }
 
 type ResourceRelation struct {
@@ -94,12 +100,12 @@ type NetworkLink struct {
 }
 
 type NetworkTopology struct {
-	ID       string         `json:"id"`
-	Name     string         `json:"name"`
-	Version  int            `json:"version"`
-	Scope    string         `json:"scope"`
-	Links    []NetworkLink  `json:"links"`
-	Metadata map[string]any `json:"metadata,omitempty"`
+	ID               string         `json:"id"`
+	Name             string         `json:"name"`
+	Version          int            `json:"version"`
+	ExecutionScopeID string         `json:"executionScopeId"`
+	Links            []NetworkLink  `json:"links"`
+	Metadata         map[string]any `json:"metadata,omitempty"`
 }
 
 func (l NetworkLink) TransferSeconds(bytes int64) float64 {

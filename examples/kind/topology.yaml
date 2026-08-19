@@ -1,7 +1,7 @@
 id: kind-network-v1
 name: Kind worker network
 version: 1
-scope: environment
+executionScopeId: kind-akoflow-v1-scope
 
 links:
   - id: kind-worker-to-worker-2

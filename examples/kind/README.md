@@ -154,6 +154,11 @@ multiple environments:
 ```bash
 curl -fsS \
   -H 'Content-Type: application/yaml' \
+  --data-binary @examples/kind/scope.yaml \
+  http://localhost:8080/akoflow-api/execution-scopes/
+
+curl -fsS \
+  -H 'Content-Type: application/yaml' \
   --data-binary @examples/kind/topology.yaml \
   http://localhost:8080/akoflow-api/network-topologies/
 ```

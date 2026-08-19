@@ -1,7 +1,7 @@
 id: simulation-network-v1
 name: Simulated edge-cloud network
 version: 1
-scope: environment
+executionScopeId: simulation-example-v1-scope
 links:
   - id: edge-cloud
     topologyId: simulation-network-v1

@@ -70,7 +70,7 @@ func (f *activityControllerFake) Start(_ context.Context, execution domain.Activ
 	return domain.ActivityHandle{
 		ID: "h-" + execution.Activity.ID, RunID: execution.Run.ID,
 		ActivityID: execution.Activity.ID, ResourceID: execution.Resource.ID,
-		RuntimeID: execution.Resource.RuntimeID, Status: domain.HandleRunning, StartedAt: 1,
+		RuntimeID: execution.RuntimeID, Status: domain.HandleRunning, StartedAt: 1,
 	}, nil
 }
 func (f *activityControllerFake) Inspect(_ context.Context, id string, _ domain.ExecutionMode) (*domain.ActivityHandle, error) {
@@ -97,6 +97,14 @@ func requestFixture(mode domain.ExecutionMode) ports.ExecutionRequest {
 			Command:      domain.ActivityCommand{Entrypoint: "true"}, Simulation: simulation,
 		}
 	}
+	runtimeMode := domain.RuntimeModeExecution
+	runtimeDriver := domain.RuntimeDriverLocal
+	runtimeID := "local"
+	if mode == domain.ExecutionModeSimulation {
+		runtimeMode = domain.RuntimeModeSimulation
+		runtimeDriver = domain.RuntimeDriverSimGrid
+		runtimeID = "simgrid"
+	}
 	return ports.ExecutionRequest{
 		Run: domain.ExecutionRun{ID: "run", Mode: mode},
 		Plan: domain.SchedulePlan{
@@ -112,7 +120,9 @@ func requestFixture(mode domain.ExecutionMode) ports.ExecutionRequest {
 				ActivityID: "b", DependsOnActivityID: "a",
 			}},
 		},
-		Resources: []domain.Resource{{ID: "r", RuntimeID: "local"}},
+		Resources:       []domain.Resource{{ID: "r"}},
+		Runtimes:        []domain.EnvironmentRuntime{{ID: runtimeID, Name: runtimeID, Driver: runtimeDriver, Mode: runtimeMode}},
+		RuntimeBindings: []domain.ResourceRuntimeBinding{{ResourceID: "r", RuntimeID: runtimeID, Enabled: true}},
 	}
 }
 

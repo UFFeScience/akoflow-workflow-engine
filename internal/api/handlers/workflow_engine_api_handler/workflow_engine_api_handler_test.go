@@ -76,7 +76,7 @@ func (s *eventPublisherStub) Publish(_ context.Context, job domainqueue.Job) (do
 
 type validatorStub struct{ err error }
 
-func (s validatorStub) Validate(domain.SchedulePlan, domain.WorkflowVersion, []domain.Resource, domain.NetworkTopology) error {
+func (s validatorStub) Validate(domain.SchedulePlan, domain.WorkflowVersion, []domain.Resource, domain.ExecutionScope, domain.NetworkTopology) error {
 	return s.err
 }
 
@@ -105,6 +105,13 @@ func (s *topologyStoreStub) List(context.Context) ([]domain.NetworkTopology, err
 		return nil, s.err
 	}
 	return []domain.NetworkTopology{*s.topology}, s.err
+}
+func (s *topologyStoreStub) CreateScope(context.Context, domain.ExecutionScope) error { return s.err }
+func (s *topologyStoreStub) FindScope(context.Context, string) (*domain.ExecutionScope, error) {
+	return nil, s.err
+}
+func (s *topologyStoreStub) ListScopes(context.Context) ([]domain.ExecutionScope, error) {
+	return nil, s.err
 }
 
 func (s executionQueryStub) FindRun(context.Context, string) (*domain.ExecutionRun, error) {
@@ -168,6 +175,7 @@ func newTestHandler() *Handler {
 		Plans: planRepositoryStub{}, Events: &eventPublisherStub{}, Validator: validatorStub{},
 		Executions: executionQueryStub{},
 		Topologies: &topologyStoreStub{},
+		Scopes:     &topologyStoreStub{},
 		Resources:  resourceInventoryStub{},
 		Instance:   &instanceStoreStub{},
 	})
@@ -218,7 +226,7 @@ func TestCreateAndGetNetworkTopology(t *testing.T) {
 id: federated-v1
 name: Federated network
 version: 1
-scope: federated
+executionScopeId: hybrid
 links:
   - id: hpc-cloud
     sourceResourceId: hpc-node
@@ -238,7 +246,7 @@ links:
 	request.SetPathValue("topologyId", "federated-v1")
 	handler.GetNetworkTopology(recorder, request)
 	require.Equal(t, http.StatusOK, recorder.Code)
-	require.Contains(t, recorder.Body.String(), `"scope":"federated"`)
+	require.Contains(t, recorder.Body.String(), `"executionScopeId":"hybrid"`)
 }
 
 func TestGetNetworkTopologyReturnsNotFound(t *testing.T) {

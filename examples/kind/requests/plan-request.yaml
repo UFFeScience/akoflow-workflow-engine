@@ -2,7 +2,7 @@
 plan:
   id: kind-dag-plan-v1
   workflowVersionId: kind-dag-v1
-  environmentVersionId: kind-akoflow-v1
+  executionScopeId: kind-akoflow-v1-scope
   networkTopologyId: kind-network-v1
   source: imported
   algorithm: manual-topological
@@ -117,7 +117,6 @@ workflow:
 resources:
 - id: kind-worker
   environmentVersionId: kind-akoflow-v1
-  runtimeId: kubernetes
   type: kubernetes_machine
   name: kind-worker
   providerId: akoflow-worker
@@ -138,7 +137,7 @@ networkTopology:
   id: kind-network-v1
   name: Kind worker network
   version: 1
-  scope: environment
+  executionScopeId: kind-akoflow-v1-scope
   links:
   - id: kind-worker-to-worker-2
     topologyId: kind-network-v1
@@ -152,3 +151,7 @@ networkTopology:
     maxConcurrentTransfers: 4
     metadata:
       technology: docker-bridge
+executionScope:
+  id: kind-akoflow-v1-scope
+  name: Kind AkôFlow scope
+  environmentVersionIds: [kind-akoflow-v1]

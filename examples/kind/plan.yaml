@@ -1,6 +1,6 @@
 id: kind-dag-plan-v1
 workflowVersionId: kind-dag-v1
-environmentVersionId: kind-akoflow-v1
+executionScopeId: kind-akoflow-v1-scope
 source: imported
 algorithm: manual-topological
 algorithmVersion: "1"

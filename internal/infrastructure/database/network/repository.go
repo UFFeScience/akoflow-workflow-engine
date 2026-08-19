@@ -27,8 +27,8 @@ func (r *Repository) Create(ctx context.Context, topology domain.NetworkTopology
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO network_topologies
-		(id, name, version, scope, metadata) VALUES (?, ?, ?, ?, ?)`, topology.ID,
-		topology.Name, topology.Version, topology.Scope, metadata); err != nil {
+		(id, name, version, execution_scope_id, metadata) VALUES (?, ?, ?, ?, ?)`, topology.ID,
+		topology.Name, topology.Version, topology.ExecutionScopeID, metadata); err != nil {
 		return err
 	}
 	for _, link := range topology.Links {
@@ -54,9 +54,9 @@ func (r *Repository) Create(ctx context.Context, topology domain.NetworkTopology
 func (r *Repository) Find(ctx context.Context, id string) (*domain.NetworkTopology, error) {
 	var topology domain.NetworkTopology
 	var metadata string
-	err := r.db.QueryRowContext(ctx, `SELECT id, name, version, scope, metadata
+	err := r.db.QueryRowContext(ctx, `SELECT id, name, version, execution_scope_id, metadata
 		FROM network_topologies WHERE id=?`, id).Scan(&topology.ID, &topology.Name,
-		&topology.Version, &topology.Scope, &metadata)
+		&topology.Version, &topology.ExecutionScopeID, &metadata)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -125,8 +125,8 @@ func validate(topology domain.NetworkTopology) error {
 	if topology.ID == "" || topology.Name == "" || topology.Version < 1 {
 		return fmt.Errorf("network topology id, name and positive version are required")
 	}
-	if topology.Scope != "environment" && topology.Scope != "federated" {
-		return fmt.Errorf("network topology scope must be environment or federated")
+	if topology.ExecutionScopeID == "" {
+		return fmt.Errorf("network topology execution scope is required")
 	}
 	seen := make(map[string]struct{}, len(topology.Links))
 	for _, link := range topology.Links {

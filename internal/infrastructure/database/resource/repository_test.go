@@ -30,10 +30,11 @@ func testRepository(t *testing.T) *Repository {
 func seedResourceParents(t *testing.T, repository *Repository) {
 	t.Helper()
 	statements := []string{
-		`INSERT INTO runtimes(name) VALUES ('k8s')`,
 		`INSERT INTO environments(id, name) VALUES ('environment', 'test')`,
 		`INSERT INTO environment_versions(id, environment_id, version, status, network_model, interference_model, cost_model, configuration_hash) VALUES ('env', 'environment', 1, 'published', '{}', '{}', '{}', 'hash')`,
-		`INSERT INTO resources(id, environment_version_id, runtime_id, type, name, provider_id, schedulable) VALUES ('parent', 'env', 'k8s', 'cluster', 'parent', 'parent', 0)`,
+		`INSERT INTO environment_runtimes(id, environment_version_id, name, driver, mode) VALUES ('k8s', 'env', 'Kubernetes', 'kubernetes', 'execution')`,
+		`INSERT INTO resources(id, environment_version_id, type, name, provider_id, schedulable) VALUES ('parent', 'env', 'cluster', 'parent', 'parent', 0)`,
+		`INSERT INTO resource_runtime_bindings(resource_id, runtime_id, enabled) VALUES ('parent', 'k8s', 1)`,
 	}
 	for _, statement := range statements {
 		if _, err := repository.db.Exec(statement); err != nil {
@@ -47,13 +48,16 @@ func TestRepositoryLifecycle(t *testing.T) {
 	ctx := context.Background()
 	parent := "parent"
 	resource := domain.Resource{
-		ID: "r1", EnvironmentVersionID: "env", RuntimeID: "k8s",
+		ID: "r1", EnvironmentVersionID: "env",
 		ParentResourceID: &parent, Type: domain.ResourceCloudVM,
 		Name: "one", ProviderID: "provider", CPUCores: 4, CPUCapacity: 4.5,
 		MemoryBytes: 1000, StorageBytes: 2000, ComputeSpeedup: 2,
 		PricePerSecond: .1, Schedulable: true, Metadata: map[string]any{"zone": "a"},
 	}
 	if err := repository.Upsert(ctx, resource); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.db.Exec(`INSERT INTO resource_runtime_bindings(resource_id, runtime_id, enabled) VALUES ('r1', 'k8s', 1)`); err != nil {
 		t.Fatal(err)
 	}
 	found, err := repository.FindByID(ctx, "r1")
@@ -94,7 +98,7 @@ func TestResourceSnapshots(t *testing.T) {
 		t.Fatal("missing snapshot must be nil")
 	}
 	when := time.Now().UTC().Truncate(time.Second)
-	if err := repository.Upsert(ctx, domain.Resource{ID: "r1", EnvironmentVersionID: "env", RuntimeID: "k8s", Type: domain.ResourceCloudVM, Name: "one", ProviderID: "r1"}); err != nil {
+	if err := repository.Upsert(ctx, domain.Resource{ID: "r1", EnvironmentVersionID: "env", Type: domain.ResourceCloudVM, Name: "one", ProviderID: "r1"}); err != nil {
 		t.Fatal(err)
 	}
 	snapshot := domain.ResourceSnapshot{

@@ -7,15 +7,6 @@ CREATE TABLE system_instance (
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
-CREATE TABLE runtimes (
-		name TEXT PRIMARY KEY,
-		status INTEGER NOT NULL DEFAULT 0,
-		metadata TEXT NOT NULL DEFAULT '{}',
-		max_nodes INTEGER NOT NULL DEFAULT 0,
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		deleted_at DATETIME
-	);
 CREATE TABLE environments (
 		id TEXT PRIMARY KEY,
 		name TEXT NOT NULL,
@@ -49,19 +40,19 @@ CREATE TABLE environment_versions (
 		UNIQUE(environment_id, version)
 	);
 CREATE TABLE environment_runtimes (
+		id TEXT PRIMARY KEY,
 		environment_version_id TEXT NOT NULL REFERENCES environment_versions(id),
-		runtime_id TEXT NOT NULL REFERENCES runtimes(name),
+		name TEXT NOT NULL,
+		driver TEXT NOT NULL CHECK(driver IN ('slurm', 'kubernetes', 'ssh', 'local', 'serverless', 'simgrid')),
+		mode TEXT NOT NULL CHECK(mode IN ('execution', 'simulation')),
 		role TEXT NOT NULL DEFAULT '',
 		configuration TEXT NOT NULL DEFAULT '{}',
-		PRIMARY KEY(environment_version_id, runtime_id)
+		UNIQUE(environment_version_id, name)
 	);
 CREATE TABLE environment_runtime_capabilities (
-		environment_version_id TEXT NOT NULL,
-		runtime_id TEXT NOT NULL,
+		runtime_id TEXT PRIMARY KEY REFERENCES environment_runtimes(id) ON DELETE CASCADE,
 		capabilities TEXT NOT NULL DEFAULT '{}',
-		PRIMARY KEY(environment_version_id, runtime_id),
-		FOREIGN KEY(environment_version_id, runtime_id)
-			REFERENCES environment_runtimes(environment_version_id, runtime_id)
+		FOREIGN KEY(runtime_id) REFERENCES environment_runtimes(id)
 	);
 CREATE TABLE discovery_runs (
 		id TEXT PRIMARY KEY,
@@ -76,7 +67,6 @@ CREATE TABLE discovery_runs (
 CREATE TABLE resources (
 		id TEXT PRIMARY KEY,
 		environment_version_id TEXT NOT NULL REFERENCES environment_versions(id),
-		runtime_id TEXT NOT NULL REFERENCES runtimes(name),
 		execution_target TEXT NOT NULL DEFAULT 'batch'
 			CHECK(execution_target IN ('batch', 'direct')),
 		parent_resource_id TEXT REFERENCES resources(id),
@@ -98,6 +88,13 @@ CREATE TABLE resources (
 		schedulable INTEGER NOT NULL DEFAULT 1,
 		metadata TEXT NOT NULL DEFAULT '{}',
 		UNIQUE(environment_version_id, provider_id)
+	);
+CREATE TABLE resource_runtime_bindings (
+		resource_id TEXT NOT NULL REFERENCES resources(id) ON DELETE CASCADE,
+		runtime_id TEXT NOT NULL REFERENCES environment_runtimes(id) ON DELETE CASCADE,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		configuration TEXT NOT NULL DEFAULT '{}',
+		PRIMARY KEY(resource_id, runtime_id)
 	);
 CREATE TABLE resource_snapshots (
 		id TEXT PRIMARY KEY,
@@ -122,11 +119,22 @@ CREATE TABLE resource_relations (
 		PRIMARY KEY(source_resource_id, target_resource_id, relation_type),
 		CHECK(source_resource_id <> target_resource_id)
 	);
+CREATE TABLE execution_scopes (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		network_topology_id TEXT,
+		metadata TEXT NOT NULL DEFAULT '{}'
+	);
+CREATE TABLE execution_scope_environments (
+		execution_scope_id TEXT NOT NULL REFERENCES execution_scopes(id) ON DELETE CASCADE,
+		environment_version_id TEXT NOT NULL REFERENCES environment_versions(id),
+		PRIMARY KEY(execution_scope_id, environment_version_id)
+	);
 CREATE TABLE network_topologies (
 		id TEXT PRIMARY KEY,
 		name TEXT NOT NULL,
 		version INTEGER NOT NULL CHECK(version > 0),
-		scope TEXT NOT NULL CHECK(scope IN ('environment', 'federated')),
+		execution_scope_id TEXT NOT NULL REFERENCES execution_scopes(id),
 		metadata TEXT NOT NULL DEFAULT '{}',
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
@@ -216,7 +224,7 @@ CREATE TABLE activity_resource_profiles (
 CREATE TABLE schedule_plans (
 		id TEXT PRIMARY KEY,
 		workflow_version_id TEXT NOT NULL REFERENCES workflow_versions(id),
-		environment_version_id TEXT NOT NULL REFERENCES environment_versions(id),
+		execution_scope_id TEXT NOT NULL REFERENCES execution_scopes(id),
 		network_topology_id TEXT REFERENCES network_topologies(id),
 		source TEXT NOT NULL CHECK(source IN ('plugin', 'imported')),
 		algorithm TEXT NOT NULL,
@@ -365,8 +373,7 @@ CREATE TABLE storage_runtime_bindings (
 		read_only INTEGER NOT NULL DEFAULT 0,
 		configuration TEXT NOT NULL DEFAULT '{}',
 		PRIMARY KEY(storage_resource_id, runtime_id),
-		FOREIGN KEY(environment_version_id, runtime_id)
-			REFERENCES environment_runtimes(environment_version_id, runtime_id)
+		FOREIGN KEY(runtime_id) REFERENCES environment_runtimes(id)
 	);
 CREATE UNIQUE INDEX one_default_storage_per_runtime
 	ON storage_runtime_bindings(environment_version_id, runtime_id)

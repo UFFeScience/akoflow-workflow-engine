@@ -27,13 +27,13 @@ func (r *Repository) Upsert(ctx context.Context, resource domain.Resource) error
 		return err
 	}
 	_, err = r.db.ExecContext(ctx, `INSERT INTO resources (
-		id, environment_version_id, runtime_id, execution_target, parent_resource_id, type, name,
+		id, environment_version_id, execution_target, parent_resource_id, type, name,
 		provider_id, tier, region, zone, architecture, cpu_cores, cpu_capacity,
 		memory_bytes, storage_bytes, compute_speedup, price_per_second,
 		boot_overhead_seconds, container_overhead_seconds, schedulable, metadata
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
-		runtime_id=excluded.runtime_id, execution_target=excluded.execution_target, parent_resource_id=excluded.parent_resource_id,
+		execution_target=excluded.execution_target, parent_resource_id=excluded.parent_resource_id,
 		type=excluded.type, name=excluded.name, provider_id=excluded.provider_id,
 		tier=excluded.tier, region=excluded.region, zone=excluded.zone,
 		architecture=excluded.architecture, cpu_cores=excluded.cpu_cores,
@@ -43,7 +43,7 @@ func (r *Repository) Upsert(ctx context.Context, resource domain.Resource) error
 		boot_overhead_seconds=excluded.boot_overhead_seconds,
 		container_overhead_seconds=excluded.container_overhead_seconds,
 		schedulable=excluded.schedulable, metadata=excluded.metadata`,
-		resource.ID, resource.EnvironmentVersionID, resource.RuntimeID, normalizedExecutionTarget(resource.ExecutionTarget), resource.ParentResourceID,
+		resource.ID, resource.EnvironmentVersionID, normalizedExecutionTarget(resource.ExecutionTarget), resource.ParentResourceID,
 		resource.Type, resource.Name, resource.ProviderID, resource.Tier, resource.Region,
 		resource.Zone, resource.Architecture, resource.CPUCores, resource.CPUCapacity,
 		resource.MemoryBytes, resource.StorageBytes, resource.ComputeSpeedup,
@@ -53,7 +53,7 @@ func (r *Repository) Upsert(ctx context.Context, resource domain.Resource) error
 	return err
 }
 
-const resourceColumns = `id, environment_version_id, runtime_id, execution_target, parent_resource_id,
+const resourceColumns = `id, environment_version_id, execution_target, parent_resource_id,
 	type, name, provider_id, tier, region, zone, architecture, cpu_cores, cpu_capacity,
 	memory_bytes, storage_bytes, compute_speedup, price_per_second,
 	boot_overhead_seconds, container_overhead_seconds, schedulable, metadata`
@@ -66,7 +66,7 @@ func scanResource(scanner interface{ Scan(...any) error }) (*domain.Resource, er
 	var schedulable bool
 	var metadata string
 	if err := scanner.Scan(
-		&resource.ID, &resource.EnvironmentVersionID, &resource.RuntimeID, &executionTarget, &parent,
+		&resource.ID, &resource.EnvironmentVersionID, &executionTarget, &parent,
 		&resourceType, &resource.Name, &resource.ProviderID, &resource.Tier,
 		&resource.Region, &resource.Zone, &resource.Architecture, &resource.CPUCores,
 		&resource.CPUCapacity, &resource.MemoryBytes, &resource.StorageBytes,
@@ -134,7 +134,20 @@ func (r *Repository) List(ctx context.Context) ([]domain.Resource, error) {
 }
 
 func (r *Repository) ListByRuntime(ctx context.Context, environmentVersionID, runtimeID string) ([]domain.Resource, error) {
-	return r.list(ctx, `SELECT `+resourceColumns+` FROM resources WHERE environment_version_id = ? AND runtime_id = ?`, environmentVersionID, runtimeID)
+	return r.list(ctx, `SELECT `+prefixedResourceColumns("r")+` FROM resources r
+		JOIN resource_runtime_bindings b ON b.resource_id=r.id AND b.enabled=1
+		WHERE r.environment_version_id = ? AND b.runtime_id = ?`, environmentVersionID, runtimeID)
+}
+
+func prefixedResourceColumns(prefix string) string {
+	return prefix + ".id, " + prefix + ".environment_version_id, " + prefix + ".execution_target, " +
+		prefix + ".parent_resource_id, " + prefix + ".type, " + prefix + ".name, " +
+		prefix + ".provider_id, " + prefix + ".tier, " + prefix + ".region, " +
+		prefix + ".zone, " + prefix + ".architecture, " + prefix + ".cpu_cores, " +
+		prefix + ".cpu_capacity, " + prefix + ".memory_bytes, " + prefix + ".storage_bytes, " +
+		prefix + ".compute_speedup, " + prefix + ".price_per_second, " +
+		prefix + ".boot_overhead_seconds, " + prefix + ".container_overhead_seconds, " +
+		prefix + ".schedulable, " + prefix + ".metadata"
 }
 
 func (r *Repository) ListSchedulable(ctx context.Context, environmentVersionID string) ([]domain.Resource, error) {

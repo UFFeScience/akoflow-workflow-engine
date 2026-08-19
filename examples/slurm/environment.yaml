@@ -15,7 +15,10 @@ version:
 
 runtimes:
   - environmentVersionId: example-slurm-v1
-    runtimeId: slurm
+    id: slurm
+    name: Example Slurm
+    driver: slurm
+    mode: execution
     role: compute
     configuration:
       partition: cpu
@@ -56,7 +59,6 @@ storages:
 resources:
   - id: slurm-cluster
     environmentVersionId: example-slurm-v1
-    runtimeId: slurm
     type: cluster
     name: Example Slurm cluster
     providerId: example-slurm
@@ -65,7 +67,6 @@ resources:
   # Regular workflow activities are submitted to this batch partition.
   - id: slurm-cpu-partition
     environmentVersionId: example-slurm-v1
-    runtimeId: slurm
     parentResourceId: slurm-cluster
     executionTarget: batch
     type: hpc_partition
@@ -77,7 +78,6 @@ resources:
   # Keep its advertised capacity small so heavy work remains in the batch queue.
   - id: slurm-login-node
     environmentVersionId: example-slurm-v1
-    runtimeId: slurm
     parentResourceId: slurm-cluster
     executionTarget: direct
     type: hpc_machine
@@ -94,7 +94,6 @@ resources:
   # partitions through resourceRelations without being duplicated.
   - id: slurm-compute-001
     environmentVersionId: example-slurm-v1
-    runtimeId: slurm
     parentResourceId: slurm-cluster
     executionTarget: batch
     type: hpc_machine
@@ -110,3 +109,9 @@ resourceRelations:
     sourceResourceId: slurm-cpu-partition
     targetResourceId: slurm-compute-001
     type: contains
+
+resourceRuntimeBindings:
+  - {resourceId: slurm-cluster, runtimeId: slurm, enabled: true}
+  - {resourceId: slurm-cpu-partition, runtimeId: slurm, enabled: true}
+  - {resourceId: slurm-login-node, runtimeId: slurm, enabled: true}
+  - {resourceId: slurm-compute-001, runtimeId: slurm, enabled: true}

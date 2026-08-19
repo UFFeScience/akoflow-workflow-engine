@@ -12,6 +12,7 @@ post() {
 }
 
 post environments environment.yaml
+post execution-scopes scope.yaml
 post network-topologies topology.yaml
 post workflow-definitions workflow.yaml
 post schedule-plans plan-request.yaml

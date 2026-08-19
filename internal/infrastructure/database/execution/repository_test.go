@@ -29,7 +29,6 @@ func setup(t *testing.T) *Repository {
 func seedExecutionParents(t *testing.T, repository *Repository) {
 	t.Helper()
 	statements := []string{
-		`INSERT INTO runtimes(name) VALUES ('local')`,
 		`INSERT INTO environments(id, name) VALUES ('environment', 'test')`,
 		`INSERT INTO environment_versions(id, environment_id, version, status, network_model, interference_model, cost_model, configuration_hash) VALUES ('env', 'environment', 1, 'published', '{}', '{}', '{}', 'hash')`,
 		`INSERT INTO workflow_definitions(id, external_id, name) VALUES ('workflow', 'workflow', 'test')`,
@@ -39,8 +38,10 @@ func seedExecutionParents(t *testing.T, repository *Repository) {
 			id, workflow_version_id, activity_type_id, external_id, name, kind,
 			capabilities, command_spec, resource_requirements, policy
 		) VALUES ('activity', 'workflow-version', 'type', 'activity', 'activity', 'task', '{}', '{}', '{}', '{}')`,
-		`INSERT INTO resources(id, environment_version_id, runtime_id, type, name, provider_id) VALUES ('resource', 'env', 'local', 'host', 'local', 'resource')`,
-		`INSERT INTO schedule_plans(id, workflow_version_id, environment_version_id, source, algorithm) VALUES ('plan', 'workflow-version', 'env', 'plugin', 'test')`,
+		`INSERT INTO resources(id, environment_version_id, type, name, provider_id) VALUES ('resource', 'env', 'local_machine', 'local', 'resource')`,
+		`INSERT INTO execution_scopes(id, name) VALUES ('scope', 'test')`,
+		`INSERT INTO execution_scope_environments(execution_scope_id, environment_version_id) VALUES ('scope', 'env')`,
+		`INSERT INTO schedule_plans(id, workflow_version_id, execution_scope_id, source, algorithm) VALUES ('plan', 'workflow-version', 'scope', 'plugin', 'test')`,
 		`INSERT INTO schedule_plan_assignments(id, schedule_plan_id, activity_id, resource_id, order_on_resource) VALUES ('assignment', 'plan', 'activity', 'resource', 1)`,
 	}
 	for _, statement := range statements {

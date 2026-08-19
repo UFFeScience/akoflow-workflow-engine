@@ -46,3 +46,9 @@ type NetworkTopologyStore interface {
 	List(context.Context) ([]domain.NetworkTopology, error)
 	Find(context.Context, string) (*domain.NetworkTopology, error)
 }
+
+type ExecutionScopeStore interface {
+	CreateScope(context.Context, domain.ExecutionScope) error
+	ListScopes(context.Context) ([]domain.ExecutionScope, error)
+	FindScope(context.Context, string) (*domain.ExecutionScope, error)
+}

@@ -35,7 +35,7 @@ func (*ActivityRuntime) Start(ctx context.Context, execution domain.ActivityExec
 	return domain.ActivityHandle{
 		ID:    fmt.Sprintf("%s:%s:%d", execution.Run.ID, execution.Activity.ID, execution.Run.Seed),
 		RunID: execution.Run.ID, ActivityID: execution.Activity.ID,
-		ResourceID: execution.Resource.ID, RuntimeID: execution.Resource.RuntimeID,
+		ResourceID: execution.Resource.ID, RuntimeID: execution.RuntimeID,
 		ExternalID: "simulation", Status: domain.HandleCompleted,
 		StartedAt: 0, FinishedAt: duration,
 		Metadata: map[string]any{"model": execution.Activity.Simulation.Model},
