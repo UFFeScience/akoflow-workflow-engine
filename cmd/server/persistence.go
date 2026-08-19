@@ -43,12 +43,17 @@ func openPersistence(ctx context.Context) (persistence, error) {
 		_ = db.Close()
 		return persistence{}, err
 	}
+	instanceRepository := dbinstance.New(db)
+	if err := ensureSystemInstance(ctx, instanceRepository); err != nil {
+		_ = db.Close()
+		return persistence{}, err
+	}
 	return persistence{
 		database: db, environments: dbenvironment.New(db), executions: dbexecution.New(db),
 		data:       dbdata.New(db),
 		topologies: dbnetwork.New(db), plans: dbplanning.New(db), events: events,
 		workflows: dbworkflow.New(db),
 		resources: dbresource.New(db),
-		instance:  dbinstance.New(db),
+		instance:  instanceRepository,
 	}, nil
 }
