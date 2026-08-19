@@ -43,6 +43,7 @@ type ServiceSpec struct {
 type ActivitySimulation struct {
 	Model           string         `json:"model,omitempty"`
 	DurationSeconds float64        `json:"durationSeconds,omitempty"`
+	FLOPs           float64        `json:"flops,omitempty"`
 	Parameters      map[string]any `json:"parameters,omitempty"`
 }
 

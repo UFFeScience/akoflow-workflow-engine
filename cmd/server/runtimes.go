@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
@@ -12,6 +13,21 @@ import (
 	"github.com/UFFeScience/akoflow/internal/provider/simgrid"
 	"github.com/UFFeScience/akoflow/internal/provider/slurm"
 )
+
+func buildSimulator(settings config.Settings) (ports.PlanExecutor, error) {
+	switch strings.ToLower(strings.TrimSpace(settings.SimulationBackend)) {
+	case "", "deterministic":
+		return simgrid.NewSimulationExecutor(), nil
+	case "simgrid":
+		return simgrid.NewProcessExecutor(provider.OSCommandExecutor{}, simgrid.ProcessConfig{
+			BinaryPath: settings.SimGridBinaryPath, Workspace: settings.SimGridWorkspace,
+			MaxConcurrent: settings.SimGridMaxConcurrent, Timeout: settings.SimGridTimeout,
+			ReferenceFLOPS: settings.SimGridReferenceFLOPS,
+		})
+	default:
+		return nil, fmt.Errorf("unsupported simulation backend %q", settings.SimulationBackend)
+	}
+}
 
 func connectKubernetes(settings config.Settings) (kubernetes.API, error) {
 	if settings.KubernetesAPIServer == "" && settings.KubernetesToken == "" {

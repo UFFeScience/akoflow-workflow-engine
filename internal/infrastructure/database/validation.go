@@ -22,6 +22,7 @@ var requiredTables = []string{
 	"discovery_runs",
 	"resources",
 	"resource_snapshots",
+	"resource_relations",
 	"network_links",
 	"network_topologies",
 	"workflow_definitions",

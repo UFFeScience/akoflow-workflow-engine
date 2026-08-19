@@ -43,5 +43,6 @@ type EnvironmentStore interface {
 
 type NetworkTopologyStore interface {
 	Create(context.Context, domain.NetworkTopology) error
+	List(context.Context) ([]domain.NetworkTopology, error)
 	Find(context.Context, string) (*domain.NetworkTopology, error)
 }

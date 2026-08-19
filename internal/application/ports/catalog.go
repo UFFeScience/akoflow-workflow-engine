@@ -8,16 +8,21 @@ import (
 
 type WorkflowStore interface {
 	Create(context.Context, domain.WorkflowDefinition) error
+	List(context.Context) ([]domain.WorkflowDefinition, error)
+	Find(context.Context, string) (*domain.WorkflowDefinition, error)
 	FindVersion(context.Context, string) (*domain.WorkflowVersion, error)
 }
 
 type EnvironmentCatalog interface {
 	Create(context.Context, domain.EnvironmentDefinition) error
+	List(context.Context) ([]domain.EnvironmentDefinition, error)
+	Find(context.Context, string) (*domain.EnvironmentDefinition, error)
 	EnvironmentStore
 }
 
 type PlanStore interface {
 	Save(context.Context, domain.SchedulePlan) error
+	List(context.Context) ([]domain.SchedulePlan, error)
 	Find(context.Context, string) (*domain.SchedulePlan, error)
 }
 

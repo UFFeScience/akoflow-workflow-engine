@@ -33,11 +33,21 @@ func TestEnvironmentDefinitionCreate(t *testing.T) {
 		Storages: []domain.StorageResource{{ID: "shared", Name: "shared", Type: domain.StorageNFS,
 			Endpoint: "nfs:/akoflow", Shared: true, RuntimeBindings: []domain.StorageRuntimeBinding{{
 				RuntimeID: "k8s", Default: true, HostPath: "/shared/akoflow"}}}},
-		Resources:   []domain.Resource{{ID: "r1", RuntimeID: "k8s", Type: domain.ResourceCloudVM, Name: "vm", ProviderID: "provider", CPUCores: 2, CPUCapacity: 2, MemoryBytes: 1024, Schedulable: true, Metadata: map[string]any{"tier": "cloud"}}},
+		Resources: []domain.Resource{
+			{ID: "cluster", RuntimeID: "k8s", Type: domain.ResourceCluster, Name: "cluster", ProviderID: "cluster"},
+			{ID: "r1", RuntimeID: "k8s", Type: domain.ResourceCloudVM, Name: "vm", ProviderID: "provider", CPUCores: 2, CPUCapacity: 2, MemoryBytes: 1024, Schedulable: true, Metadata: map[string]any{"tier": "cloud"}},
+		},
+		Relations: []domain.ResourceRelation{{
+			SourceResourceID: "cluster", TargetResourceID: "r1", Type: domain.ResourceRelationContains,
+		}},
 		Connections: []domain.EnvironmentConnection{{ID: "c1", Name: "cluster", Type: domain.ConnectionSSH, Endpoint: "login.example", Username: "user", CredentialRef: "keychain:test", Configuration: map[string]any{"port": float64(22)}}},
 	}
 	if err := repository.Create(context.Background(), definition); err != nil {
 		t.Fatal(err)
+	}
+	found, err := repository.Find(context.Background(), "env")
+	if err != nil || found == nil || len(found.Relations) != 1 {
+		t.Fatalf("resource relations were not loaded: %+v %v", found, err)
 	}
 	if err := repository.Create(context.Background(), definition); err == nil {
 		t.Fatal("duplicate environment must fail")

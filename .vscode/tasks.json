@@ -2,6 +2,12 @@
     "version": "2.0.0",
     "tasks": [
         {
+            "label": "Build SimGrid runner",
+            "type": "shell",
+            "command": "cmake -S simgrid-runner -B build/simgrid-runner -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build/simgrid-runner --parallel",
+            "problemMatcher": ["$gcc"]
+        },
+        {
             "label": "Build all binaries",
             "type": "shell",
             "command": "sh",

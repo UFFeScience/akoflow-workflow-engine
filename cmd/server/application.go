@@ -41,7 +41,11 @@ func newApplication(ctx context.Context, settings config.Settings, log *logger.L
 		return fail(err)
 	}
 	activities := applicationexecution.New(runtimes, storage.executions, storage.data)
-	loop, err := buildEventLoop(storage.events, storage.executions, activities)
+	simulator, err := buildSimulator(settings)
+	if err != nil {
+		return fail(err)
+	}
+	loop, err := buildEventLoop(storage.events, storage.executions, activities, simulator)
 	if err != nil {
 		return fail(err)
 	}

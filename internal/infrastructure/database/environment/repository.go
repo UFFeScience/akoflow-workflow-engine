@@ -17,6 +17,264 @@ var _ ports.StorageCatalog = (*Repository)(nil)
 
 func New(db *sql.DB) *Repository { return &Repository{db: db} }
 
+func (r *Repository) List(ctx context.Context) ([]domain.EnvironmentDefinition, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id FROM environments ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	definitions := make([]domain.EnvironmentDefinition, 0, len(ids))
+	for _, id := range ids {
+		definition, err := r.Find(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if definition != nil {
+			definitions = append(definitions, *definition)
+		}
+	}
+	return definitions, nil
+}
+
+func (r *Repository) Find(ctx context.Context, id string) (*domain.EnvironmentDefinition, error) {
+	var definition domain.EnvironmentDefinition
+	err := r.db.QueryRowContext(ctx, `SELECT id, name, description, status, created_at
+		FROM environments WHERE id=?`, id).Scan(&definition.Environment.ID,
+		&definition.Environment.Name, &definition.Environment.Description,
+		&definition.Environment.Status, &definition.Environment.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var publishedAt sql.NullTime
+	err = r.db.QueryRowContext(ctx, `SELECT id, environment_id, version, status,
+		network_model, interference_model, cost_model, configuration_hash,
+		created_at, published_at FROM environment_versions WHERE environment_id=?
+		ORDER BY version DESC LIMIT 1`, id).Scan(&definition.Version.ID,
+		&definition.Version.EnvironmentID, &definition.Version.Version,
+		&definition.Version.Status, &definition.Version.NetworkModel,
+		&definition.Version.InterferenceModel, &definition.Version.CostModel,
+		&definition.Version.ConfigurationHash, &definition.Version.CreatedAt, &publishedAt)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+	if publishedAt.Valid {
+		definition.Version.PublishedAt = &publishedAt.Time
+	}
+	definition.Connections, err = r.ListConnections(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if definition.Version.ID == "" {
+		return &definition, nil
+	}
+	definition.Runtimes, err = r.listRuntimes(ctx, definition.Version.ID)
+	if err != nil {
+		return nil, err
+	}
+	definition.Resources, err = r.listResources(ctx, definition.Version.ID)
+	if err != nil {
+		return nil, err
+	}
+	definition.Relations, err = r.listResourceRelations(ctx, definition.Version.ID)
+	if err != nil {
+		return nil, err
+	}
+	definition.Storages, err = r.listStorages(ctx, definition.Version.ID, definition.Runtimes)
+	if err != nil {
+		return nil, err
+	}
+	definition.Profiles, err = r.listProfiles(ctx, definition.Version.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &definition, nil
+}
+
+func (r *Repository) listResourceRelations(
+	ctx context.Context,
+	versionID string,
+) ([]domain.ResourceRelation, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT environment_version_id,
+		source_resource_id, target_resource_id, relation_type, metadata
+		FROM resource_relations WHERE environment_version_id=?
+		ORDER BY source_resource_id, target_resource_id`, versionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]domain.ResourceRelation, 0)
+	for rows.Next() {
+		var item domain.ResourceRelation
+		var metadata string
+		if err := rows.Scan(
+			&item.EnvironmentVersionID,
+			&item.SourceResourceID,
+			&item.TargetResourceID,
+			&item.Type,
+			&metadata,
+		); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(metadata), &item.Metadata); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (r *Repository) listStorages(
+	ctx context.Context,
+	versionID string,
+	runtimes []domain.EnvironmentRuntime,
+) ([]domain.StorageResource, error) {
+	items := make(map[string]domain.StorageResource)
+	for _, runtime := range runtimes {
+		values, err := r.ListRuntimeStorages(ctx, versionID, runtime.RuntimeID)
+		if err != nil {
+			return nil, err
+		}
+		for _, value := range values {
+			existing, found := items[value.ID]
+			if found {
+				existing.RuntimeBindings = append(existing.RuntimeBindings, value.RuntimeBindings...)
+				items[value.ID] = existing
+				continue
+			}
+			items[value.ID] = value
+		}
+	}
+	result := make([]domain.StorageResource, 0, len(items))
+	for _, value := range items {
+		result = append(result, value)
+	}
+	return result, nil
+}
+
+func (r *Repository) listProfiles(
+	ctx context.Context,
+	versionID string,
+) ([]domain.ActivityResourceProfile, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT p.id, p.activity_type_id, p.resource_id,
+		p.runtime_seconds, p.runtime_stddev_seconds, p.cpu_utilization,
+		p.peak_memory_bytes, p.disk_read_bytes, p.disk_write_bytes, p.energy_joules,
+		p.source, p.sample_size, p.model_version, p.metadata
+		FROM activity_resource_profiles p
+		JOIN resources r ON r.id=p.resource_id
+		WHERE r.environment_version_id=? ORDER BY p.activity_type_id, p.resource_id`, versionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	profiles := make([]domain.ActivityResourceProfile, 0)
+	for rows.Next() {
+		var profile domain.ActivityResourceProfile
+		var metadata string
+		if err := rows.Scan(
+			&profile.ID,
+			&profile.ActivityTypeID,
+			&profile.ResourceID,
+			&profile.RuntimeSeconds,
+			&profile.RuntimeStdDevSeconds,
+			&profile.CPUUtilization,
+			&profile.PeakMemoryBytes,
+			&profile.DiskReadBytes,
+			&profile.DiskWriteBytes,
+			&profile.EnergyJoules,
+			&profile.Source,
+			&profile.SampleSize,
+			&profile.ModelVersion,
+			&metadata,
+		); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(metadata), &profile.Metadata); err != nil {
+			return nil, err
+		}
+		profiles = append(profiles, profile)
+	}
+	return profiles, rows.Err()
+}
+
+func (r *Repository) listRuntimes(ctx context.Context, versionID string) ([]domain.EnvironmentRuntime, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT r.environment_version_id, r.runtime_id,
+		r.role, r.configuration, c.capabilities FROM environment_runtimes r
+		LEFT JOIN environment_runtime_capabilities c ON c.environment_version_id=r.environment_version_id
+		AND c.runtime_id=r.runtime_id WHERE r.environment_version_id=? ORDER BY r.runtime_id`, versionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]domain.EnvironmentRuntime, 0)
+	for rows.Next() {
+		var item domain.EnvironmentRuntime
+		var configuration, capabilities string
+		if err := rows.Scan(&item.EnvironmentVersionID, &item.RuntimeID, &item.Role,
+			&configuration, &capabilities); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(configuration), &item.Configuration); err != nil {
+			return nil, err
+		}
+		if capabilities != "" {
+			if err := json.Unmarshal([]byte(capabilities), &item.Capabilities); err != nil {
+				return nil, err
+			}
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (r *Repository) listResources(ctx context.Context, versionID string) ([]domain.Resource, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id, environment_version_id, runtime_id,
+		execution_target, parent_resource_id, type, name, provider_id, tier, region,
+		zone, architecture, cpu_cores, cpu_capacity, memory_bytes, storage_bytes,
+		compute_speedup, price_per_second, boot_overhead_seconds,
+		container_overhead_seconds, schedulable, metadata FROM resources
+		WHERE environment_version_id=? ORDER BY name`, versionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]domain.Resource, 0)
+	for rows.Next() {
+		var item domain.Resource
+		var parent sql.NullString
+		var metadata string
+		if err := rows.Scan(&item.ID, &item.EnvironmentVersionID, &item.RuntimeID,
+			&item.ExecutionTarget, &parent, &item.Type, &item.Name, &item.ProviderID,
+			&item.Tier, &item.Region, &item.Zone, &item.Architecture, &item.CPUCores,
+			&item.CPUCapacity, &item.MemoryBytes, &item.StorageBytes,
+			&item.ComputeSpeedup, &item.PricePerSecond, &item.BootOverheadSeconds,
+			&item.ContainerOverhead, &item.Schedulable, &metadata); err != nil {
+			return nil, err
+		}
+		if parent.Valid {
+			item.ParentResourceID = &parent.String
+		}
+		if err := json.Unmarshal([]byte(metadata), &item.Metadata); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
 func (r *Repository) Create(ctx context.Context, definition Definition) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -38,6 +296,9 @@ func (r *Repository) Create(ctx context.Context, definition Definition) error {
 	if err := insertResources(tx, definition); err != nil {
 		return err
 	}
+	if err := insertResourceRelations(tx, definition); err != nil {
+		return err
+	}
 	if err := insertStorages(tx, definition); err != nil {
 		return err
 	}
@@ -45,6 +306,23 @@ func (r *Repository) Create(ctx context.Context, definition Definition) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+func insertResourceRelations(tx *sql.Tx, definition Definition) error {
+	for _, relation := range definition.Relations {
+		metadata, err := json.Marshal(relation.Metadata)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO resource_relations (
+			environment_version_id, source_resource_id, target_resource_id,
+			relation_type, metadata
+		) VALUES (?, ?, ?, ?, ?)`, definition.Version.ID, relation.SourceResourceID,
+			relation.TargetResourceID, relation.Type, string(metadata)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func insertStorages(tx *sql.Tx, definition Definition) error {

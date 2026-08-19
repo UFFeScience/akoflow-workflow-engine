@@ -124,7 +124,7 @@ func simulate(
 			}
 			start := max(dataReadyAt, resourceReadyAt)
 			runtimeSeconds := resolveRuntime(activity, resource, model.profiles)
-			overhead := resource.BootOverheadSeconds + resource.ContainerOverhead
+			overhead := resolveAssignmentOverhead(assignment, resource)
 			finish := start + runtimeSeconds + overhead
 			execution := domain.TaskExecution{
 				ID: fmt.Sprintf("%s:%s", request.Run.ID, activity.ID), ExecutionRunID: request.Run.ID,
@@ -194,6 +194,9 @@ func buildTrace(
 	for _, activity := range request.Workflow.Activities {
 		task := completed[activity.ID]
 		tasks = append(tasks, task)
+	}
+	applyResourceActiveCosts(tasks, request.Resources)
+	for _, task := range tasks {
 		metrics.MakespanSeconds = max(metrics.MakespanSeconds, task.FinishedAt)
 		metrics.ComputeSeconds += task.RuntimeSeconds
 		metrics.QueueSeconds += task.QueueSeconds
@@ -213,6 +216,53 @@ func buildTrace(
 	return domain.ExecutionTrace{
 		RunID: request.Run.ID, PlanID: request.Plan.ID, Mode: request.Run.Mode,
 		Predicted: request.Plan.Predicted, Executed: metrics, Tasks: tasks, Transfers: transfers,
+	}
+}
+
+func resolveAssignmentOverhead(assignment domain.PlanAssignment, resource domain.Resource) float64 {
+	boot, hasBoot := numberMetadata(assignment.Metadata, "bootOverheadSeconds")
+	container, hasContainer := numberMetadata(assignment.Metadata, "containerOverheadSeconds")
+	if !hasBoot {
+		boot = resource.BootOverheadSeconds
+	}
+	if !hasContainer {
+		container = resource.ContainerOverhead
+	}
+	return boot + container
+}
+
+// applyResourceActiveCosts models VM/node billing once per active resource
+// window instead of charging the full machine price independently to every
+// colocated activity. The total is distributed among tasks for traceability.
+func applyResourceActiveCosts(tasks []domain.TaskExecution, resources []domain.Resource) {
+	prices := make(map[string]float64, len(resources))
+	for _, resource := range resources {
+		prices[resource.ID] = resource.PricePerSecond
+	}
+	byResource := make(map[string][]int)
+	for index := range tasks {
+		byResource[tasks[index].AllocatedResourceID] = append(byResource[tasks[index].AllocatedResourceID], index)
+		tasks[index].Cost = 0
+	}
+	for resourceID, indexes := range byResource {
+		price := prices[resourceID]
+		if price <= 0 || len(indexes) == 0 {
+			continue
+		}
+		start, finish, runtimeTotal := tasks[indexes[0]].StartedAt, tasks[indexes[0]].FinishedAt, 0.0
+		for _, index := range indexes {
+			start = min(start, tasks[index].StartedAt)
+			finish = max(finish, tasks[index].FinishedAt)
+			runtimeTotal += tasks[index].RuntimeSeconds
+		}
+		total := max(0, finish-start) * price
+		for _, index := range indexes {
+			share := 1 / float64(len(indexes))
+			if runtimeTotal > 0 {
+				share = tasks[index].RuntimeSeconds / runtimeTotal
+			}
+			tasks[index].Cost = total * share
+		}
 	}
 }
 
@@ -303,6 +353,13 @@ func resolveNetworkPath(links []domain.NetworkLink, source, target string, bytes
 
 func max(a, b float64) float64 {
 	if a > b {
+		return a
+	}
+	return b
+}
+
+func min(a, b float64) float64 {
+	if a < b {
 		return a
 	}
 	return b

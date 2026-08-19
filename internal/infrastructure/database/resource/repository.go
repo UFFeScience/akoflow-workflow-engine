@@ -129,6 +129,10 @@ func (r *Repository) list(ctx context.Context, query string, args ...any) ([]dom
 	return resources, rows.Err()
 }
 
+func (r *Repository) List(ctx context.Context) ([]domain.Resource, error) {
+	return r.list(ctx, `SELECT `+resourceColumns+` FROM resources ORDER BY environment_version_id, name`)
+}
+
 func (r *Repository) ListByRuntime(ctx context.Context, environmentVersionID, runtimeID string) ([]domain.Resource, error) {
 	return r.list(ctx, `SELECT `+resourceColumns+` FROM resources WHERE environment_version_id = ? AND runtime_id = ?`, environmentVersionID, runtimeID)
 }

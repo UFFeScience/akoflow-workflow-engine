@@ -8,9 +8,11 @@ import (
 	dbdata "github.com/UFFeScience/akoflow/internal/infrastructure/database/data"
 	dbenvironment "github.com/UFFeScience/akoflow/internal/infrastructure/database/environment"
 	dbexecution "github.com/UFFeScience/akoflow/internal/infrastructure/database/execution"
+	dbinstance "github.com/UFFeScience/akoflow/internal/infrastructure/database/instance"
 	dbnetwork "github.com/UFFeScience/akoflow/internal/infrastructure/database/network"
 	dbplanning "github.com/UFFeScience/akoflow/internal/infrastructure/database/planning"
 	dbqueue "github.com/UFFeScience/akoflow/internal/infrastructure/database/queue"
+	dbresource "github.com/UFFeScience/akoflow/internal/infrastructure/database/resource"
 	dbworkflow "github.com/UFFeScience/akoflow/internal/infrastructure/database/workflow"
 )
 
@@ -23,6 +25,8 @@ type persistence struct {
 	plans        *dbplanning.Repository
 	events       *dbqueue.Repository
 	workflows    *dbworkflow.Repository
+	resources    *dbresource.Repository
+	instance     *dbinstance.Repository
 }
 
 func openPersistence(ctx context.Context) (persistence, error) {
@@ -44,5 +48,7 @@ func openPersistence(ctx context.Context) (persistence, error) {
 		data:       dbdata.New(db),
 		topologies: dbnetwork.New(db), plans: dbplanning.New(db), events: events,
 		workflows: dbworkflow.New(db),
+		resources: dbresource.New(db),
+		instance:  dbinstance.New(db),
 	}, nil
 }

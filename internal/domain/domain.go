@@ -43,26 +43,31 @@ const (
 type ResourceType = resource.ResourceType
 type ResourceExecutionTarget = resource.ResourceExecutionTarget
 type Resource = resource.Resource
+type ResourceRelation = resource.ResourceRelation
+type ResourceRelationType = resource.ResourceRelationType
 type ResourceSnapshot = resource.ResourceSnapshot
 type NetworkLink = resource.NetworkLink
 type NetworkTopology = resource.NetworkTopology
 
 const (
-	ResourceCluster             = resource.ResourceCluster
-	ResourceNodePool            = resource.ResourceNodePool
-	ResourceKubernetesMachine   = resource.ResourceKubernetesMachine
-	ResourceHPCPartition        = resource.ResourceHPCPartition
-	ResourceHPCMachine          = resource.ResourceHPCMachine
-	ResourceCloudVM             = resource.ResourceCloudVM
-	ResourceFogDevice           = resource.ResourceFogDevice
-	ResourceLocalMachine        = resource.ResourceLocalMachine
-	ResourceServerlessPlatform  = resource.ResourceServerlessPlatform
-	ResourceServerlessFunction  = resource.ResourceServerlessFunction
-	ResourceBatchQueue          = resource.ResourceBatchQueue
-	ResourceKubernetesNamespace = resource.ResourceKubernetesNamespace
-	ResourceSlurmReservation    = resource.ResourceSlurmReservation
-	ExecutionTargetBatch        = resource.ExecutionTargetBatch
-	ExecutionTargetDirect       = resource.ExecutionTargetDirect
+	ResourceCluster               = resource.ResourceCluster
+	ResourceNodePool              = resource.ResourceNodePool
+	ResourceKubernetesMachine     = resource.ResourceKubernetesMachine
+	ResourceHPCPartition          = resource.ResourceHPCPartition
+	ResourceHPCMachine            = resource.ResourceHPCMachine
+	ResourceCloudVM               = resource.ResourceCloudVM
+	ResourceFogDevice             = resource.ResourceFogDevice
+	ResourceLocalMachine          = resource.ResourceLocalMachine
+	ResourceServerlessPlatform    = resource.ResourceServerlessPlatform
+	ResourceServerlessFunction    = resource.ResourceServerlessFunction
+	ResourceBatchQueue            = resource.ResourceBatchQueue
+	ResourceKubernetesNamespace   = resource.ResourceKubernetesNamespace
+	ResourceSlurmReservation      = resource.ResourceSlurmReservation
+	ExecutionTargetBatch          = resource.ExecutionTargetBatch
+	ExecutionTargetDirect         = resource.ExecutionTargetDirect
+	ResourceRelationContains      = resource.ResourceRelationContains
+	ResourceRelationMemberOf      = resource.ResourceRelationMemberOf
+	ResourceRelationAccessibleVia = resource.ResourceRelationAccessibleVia
 )
 
 type WorkflowVersion = workflow.WorkflowVersion

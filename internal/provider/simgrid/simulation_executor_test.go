@@ -59,6 +59,28 @@ func TestSimulationResolvesMultiHopNetworkPath(t *testing.T) {
 	require.InDelta(t, .003, cost, 1e-9)
 }
 
+func TestSimulationUsesAssignmentOverheadAndBillsResourceActiveWindowOnce(t *testing.T) {
+	workflow := domain.WorkflowVersion{ID: "wf", Activities: []domain.Activity{
+		{ID: "a", ActivityTypeID: "type", Metadata: map[string]any{"baseRuntimeSeconds": 2}},
+		{ID: "b", ActivityTypeID: "type", Metadata: map[string]any{"baseRuntimeSeconds": 2}},
+	}}
+	resource := domain.Resource{ID: "vm", EnvironmentVersionID: "env", RuntimeID: "simgrid",
+		CPUCapacity: 2, MemoryBytes: 1, ComputeSpeedup: 1, PricePerSecond: 1,
+		BootOverheadSeconds: 100, ContainerOverhead: 100, Schedulable: true}
+	plan := domain.SchedulePlan{ID: "plan", WorkflowVersionID: "wf", EnvironmentVersionID: "env",
+		Assignments: []domain.PlanAssignment{
+			{ID: "a", ActivityID: "a", ResourceID: "vm", CoreID: "0", Metadata: map[string]any{"bootOverheadSeconds": 3, "containerOverheadSeconds": 1}},
+			{ID: "b", ActivityID: "b", ResourceID: "vm", CoreID: "1", Metadata: map[string]any{"bootOverheadSeconds": 0, "containerOverheadSeconds": 1}},
+		}}
+	trace, err := NewSimulationExecutor().Execute(context.Background(), Request{
+		Run: domain.ExecutionRun{ID: "run", Mode: domain.ExecutionModeSimulation}, Plan: plan,
+		Workflow: workflow, Resources: []domain.Resource{resource},
+	})
+	require.NoError(t, err)
+	require.InDelta(t, 6, trace.Executed.MakespanSeconds, 1e-9)
+	require.InDelta(t, 6, trace.Executed.Cost, 1e-9)
+}
+
 func TestSimulationRejectsPlanThatDoesNotCoverWorkflow(t *testing.T) {
 	workflow := domain.WorkflowVersion{ID: "wf", Activities: []domain.Activity{{ID: "a"}}}
 	_, err := NewSimulationExecutor().Execute(context.Background(), Request{

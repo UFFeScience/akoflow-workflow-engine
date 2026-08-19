@@ -54,10 +54,19 @@ storages:
         containerPath: /akoflow/archive
 
 resources:
+  - id: slurm-cluster
+    environmentVersionId: example-slurm-v1
+    runtimeId: slurm
+    type: cluster
+    name: Example Slurm cluster
+    providerId: example-slurm
+    schedulable: false
+
   # Regular workflow activities are submitted to this batch partition.
   - id: slurm-cpu-partition
     environmentVersionId: example-slurm-v1
     runtimeId: slurm
+    parentResourceId: slurm-cluster
     executionTarget: batch
     type: hpc_partition
     name: CPU partition
@@ -69,6 +78,7 @@ resources:
   - id: slurm-login-node
     environmentVersionId: example-slurm-v1
     runtimeId: slurm
+    parentResourceId: slurm-cluster
     executionTarget: direct
     type: hpc_machine
     name: Login node
@@ -79,3 +89,24 @@ resources:
     schedulable: true
     metadata:
       purpose: lightweight-interactive-and-control
+
+  # Compute machines are resources too. A machine may belong to multiple
+  # partitions through resourceRelations without being duplicated.
+  - id: slurm-compute-001
+    environmentVersionId: example-slurm-v1
+    runtimeId: slurm
+    parentResourceId: slurm-cluster
+    executionTarget: batch
+    type: hpc_machine
+    name: compute-001
+    providerId: compute-001
+    cpuCores: 48
+    cpuCapacity: 48
+    memoryBytes: 206158430208
+    schedulable: true
+
+resourceRelations:
+  - environmentVersionId: example-slurm-v1
+    sourceResourceId: slurm-cpu-partition
+    targetResourceId: slurm-compute-001
+    type: contains

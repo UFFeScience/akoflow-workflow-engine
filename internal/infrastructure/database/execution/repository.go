@@ -59,6 +59,25 @@ func (r *Repository) FindRun(ctx context.Context, id string) (*domain.ExecutionR
 	return &run, nil
 }
 
+func (r *Repository) ListRuns(ctx context.Context) ([]domain.ExecutionRun, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id, schedule_plan_id, mode, seed,
+		status, environment_snapshot_id FROM execution_runs ORDER BY started_at DESC, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	runs := make([]domain.ExecutionRun, 0)
+	for rows.Next() {
+		var run domain.ExecutionRun
+		if err := rows.Scan(&run.ID, &run.SchedulePlanID, &run.Mode, &run.Seed,
+			&run.Status, &run.EnvironmentSnapshotID); err != nil {
+			return nil, err
+		}
+		runs = append(runs, run)
+	}
+	return runs, rows.Err()
+}
+
 func (r *Repository) ListTasks(ctx context.Context, runID string) ([]domain.TaskExecution, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT id, execution_run_id, plan_assignment_id,
 		activity_id, planned_resource_id, COALESCE(allocated_resource_id, ''), attempt,

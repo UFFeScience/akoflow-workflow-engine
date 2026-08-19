@@ -55,9 +55,18 @@ storages:
         containerPath: /akoflow/data
 
 resources:
+  - id: kind-cluster
+    environmentVersionId: kind-akoflow-v1
+    runtimeId: kubernetes
+    type: cluster
+    name: AkôFlow Kind cluster
+    providerId: kind-akoflow
+    schedulable: false
+
   - id: kind-worker
     environmentVersionId: kind-akoflow-v1
     runtimeId: kubernetes
+    parentResourceId: kind-cluster
     type: kubernetes_machine
     name: kind-worker
     providerId: akoflow-worker
@@ -78,6 +87,7 @@ resources:
   - id: kind-worker-2
     environmentVersionId: kind-akoflow-v1
     runtimeId: kubernetes
+    parentResourceId: kind-cluster
     type: kubernetes_machine
     name: kind-worker-2
     providerId: akoflow-worker2

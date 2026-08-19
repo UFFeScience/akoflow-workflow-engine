@@ -16,6 +16,95 @@ var _ ports.WorkflowStore = (*Repository)(nil)
 
 func New(db *sql.DB) *Repository { return &Repository{db: db} }
 
+func (r *Repository) List(ctx context.Context) ([]domain.WorkflowDefinition, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id FROM workflow_definitions ORDER BY namespace, name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	definitions := make([]domain.WorkflowDefinition, 0, len(ids))
+	for _, id := range ids {
+		definition, err := r.Find(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if definition != nil {
+			definitions = append(definitions, *definition)
+		}
+	}
+	return definitions, nil
+}
+
+func (r *Repository) Find(ctx context.Context, id string) (*domain.WorkflowDefinition, error) {
+	var definition domain.WorkflowDefinition
+	err := r.db.QueryRowContext(ctx, `SELECT id, external_id, name, namespace
+		FROM workflow_definitions WHERE id=?`, id).Scan(&definition.ID,
+		&definition.ExternalID, &definition.Name, &definition.Namespace)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var versionID string
+	err = r.db.QueryRowContext(ctx, `SELECT id FROM workflow_versions
+		WHERE workflow_id=? ORDER BY version DESC LIMIT 1`, id).Scan(&versionID)
+	if err != nil {
+		return nil, err
+	}
+	version, err := r.FindVersion(ctx, versionID)
+	if err != nil {
+		return nil, err
+	}
+	if version != nil {
+		definition.Version = *version
+	}
+	types, err := r.listTypes(ctx, versionID)
+	if err != nil {
+		return nil, err
+	}
+	definition.Types = types
+	return &definition, nil
+}
+
+func (r *Repository) listTypes(ctx context.Context, versionID string) ([]domain.ActivityType, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT DISTINCT t.id, t.name, t.application,
+		t.default_image, t.cpu_intensity, t.memory_intensity, t.io_intensity,
+		t.network_intensity, t.metadata FROM activity_types t
+		JOIN activity_definitions a ON a.activity_type_id=t.id
+		WHERE a.workflow_version_id=? ORDER BY t.name`, versionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	types := make([]domain.ActivityType, 0)
+	for rows.Next() {
+		var item domain.ActivityType
+		var metadata string
+		if err := rows.Scan(&item.ID, &item.Name, &item.Application, &item.DefaultImage,
+			&item.CPUIntensity, &item.MemoryIntensity, &item.IOIntensity,
+			&item.NetworkIntensity, &metadata); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(metadata), &item.Metadata); err != nil {
+			return nil, err
+		}
+		types = append(types, item)
+	}
+	return types, rows.Err()
+}
+
 func (r *Repository) Create(ctx context.Context, definition Definition) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {

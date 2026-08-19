@@ -10,16 +10,16 @@ import (
 	"github.com/UFFeScience/akoflow/internal/controlplane/eventloop"
 	controlexecution "github.com/UFFeScience/akoflow/internal/controlplane/execution"
 	domainevents "github.com/UFFeScience/akoflow/internal/domain/events"
-	"github.com/UFFeScience/akoflow/internal/provider/simgrid"
 )
 
 func buildEventLoop(
 	events ports.QueueStore,
 	executions ports.ExecutionStore,
 	activities *applicationexecution.Controller,
+	simulator ports.PlanExecutor,
 ) (*eventloop.Loop, error) {
 	dispatcher := eventloop.NewDispatcher()
-	if err := registerExecutionHandlers(dispatcher, executions, activities); err != nil {
+	if err := registerExecutionHandlers(dispatcher, executions, activities, simulator); err != nil {
 		return nil, err
 	}
 	for _, eventType := range domainEventTypes() {
@@ -37,13 +37,14 @@ func registerExecutionHandlers(
 	dispatcher *eventloop.Dispatcher,
 	executions ports.ExecutionStore,
 	activities *applicationexecution.Controller,
+	simulator ports.PlanExecutor,
 ) error {
 	if err := dispatcher.Register(eventloop.EventActivityExecutionRequested,
 		eventloop.NewActivityExecutionHandler(activities)); err != nil {
 		return err
 	}
 	supervisor, err := controlexecution.New(executions, activities,
-		simgrid.NewSimulationExecutor(), controlexecution.Config{PollInterval: time.Second, MaxParallel: 8})
+		simulator, controlexecution.Config{PollInterval: time.Second, MaxParallel: 8})
 	if err != nil {
 		return err
 	}

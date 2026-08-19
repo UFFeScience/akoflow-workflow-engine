@@ -100,3 +100,33 @@ func (r *Repository) Find(ctx context.Context, id string) (*domain.SchedulePlan,
 	}
 	return &plan, rows.Err()
 }
+
+func (r *Repository) List(ctx context.Context) ([]domain.SchedulePlan, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id FROM schedule_plans ORDER BY created_at DESC, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	plans := make([]domain.SchedulePlan, 0, len(ids))
+	for _, id := range ids {
+		plan, err := r.Find(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if plan != nil {
+			plans = append(plans, *plan)
+		}
+	}
+	return plans, nil
+}

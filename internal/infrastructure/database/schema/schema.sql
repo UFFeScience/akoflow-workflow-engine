@@ -1,3 +1,12 @@
+CREATE TABLE system_instance (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		description TEXT NOT NULL DEFAULT '',
+		organization TEXT NOT NULL DEFAULT '',
+		location TEXT NOT NULL DEFAULT '',
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
 CREATE TABLE runtimes (
 		name TEXT PRIMARY KEY,
 		status INTEGER NOT NULL DEFAULT 0,
@@ -103,6 +112,15 @@ CREATE TABLE resource_snapshots (
 		disk_write_bps REAL NOT NULL DEFAULT 0,
 		queue_length INTEGER NOT NULL DEFAULT 0,
 		metadata TEXT NOT NULL DEFAULT '{}'
+	);
+CREATE TABLE resource_relations (
+		environment_version_id TEXT NOT NULL REFERENCES environment_versions(id),
+		source_resource_id TEXT NOT NULL REFERENCES resources(id) ON DELETE CASCADE,
+		target_resource_id TEXT NOT NULL REFERENCES resources(id) ON DELETE CASCADE,
+		relation_type TEXT NOT NULL CHECK(relation_type IN ('contains', 'member_of', 'accessible_via')),
+		metadata TEXT NOT NULL DEFAULT '{}',
+		PRIMARY KEY(source_resource_id, target_resource_id, relation_type),
+		CHECK(source_resource_id <> target_resource_id)
 	);
 CREATE TABLE network_topologies (
 		id TEXT PRIMARY KEY,

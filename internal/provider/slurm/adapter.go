@@ -46,7 +46,14 @@ func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionC
 	if a.executor == nil {
 		return domain.ActivityHandle{}, fmt.Errorf("slurm command executor is required")
 	}
-	script, err := batchScript(execution.Activity, a.partition)
+	partition, node := a.partition, ""
+	if execution.Resource.Type == domain.ResourceHPCPartition && execution.Resource.ProviderID != "" {
+		partition = execution.Resource.ProviderID
+	}
+	if execution.Resource.Type == domain.ResourceHPCMachine && execution.Resource.ProviderID != "" {
+		node = execution.Resource.ProviderID
+	}
+	script, err := batchScript(execution.Activity, partition, node)
 	if err != nil {
 		return domain.ActivityHandle{}, err
 	}
@@ -170,7 +177,7 @@ func directScript(activity domain.Activity) (string, error) {
 	return script.String(), nil
 }
 
-func batchScript(activity domain.Activity, partition string) (string, error) {
+func batchScript(activity domain.Activity, partition, node string) (string, error) {
 	if activity.Command.Entrypoint == "" {
 		return "", fmt.Errorf("activity entrypoint is required")
 	}
@@ -182,6 +189,11 @@ func batchScript(activity domain.Activity, partition string) (string, error) {
 	if partition != "" {
 		script.WriteString("#SBATCH --partition=")
 		script.WriteString(shellToken(partition))
+		script.WriteByte('\n')
+	}
+	if node != "" {
+		script.WriteString("#SBATCH --nodelist=")
+		script.WriteString(shellToken(node))
 		script.WriteByte('\n')
 	}
 	if activity.Resources.CPU > 0 {

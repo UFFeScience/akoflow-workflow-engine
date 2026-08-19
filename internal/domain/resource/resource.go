@@ -4,6 +4,7 @@ import "time"
 
 type ResourceType string
 type ResourceExecutionTarget string
+type ResourceRelationType string
 
 const (
 	ResourceCluster             ResourceType = "cluster"
@@ -22,6 +23,12 @@ const (
 
 	ExecutionTargetBatch  ResourceExecutionTarget = "batch"
 	ExecutionTargetDirect ResourceExecutionTarget = "direct"
+)
+
+const (
+	ResourceRelationContains      ResourceRelationType = "contains"
+	ResourceRelationMemberOf      ResourceRelationType = "member_of"
+	ResourceRelationAccessibleVia ResourceRelationType = "accessible_via"
 )
 
 type Resource struct {
@@ -47,6 +54,14 @@ type Resource struct {
 	ContainerOverhead    float64                 `json:"containerOverheadSeconds"`
 	Schedulable          bool                    `json:"schedulable"`
 	Metadata             map[string]any          `json:"metadata,omitempty"`
+}
+
+type ResourceRelation struct {
+	EnvironmentVersionID string               `json:"environmentVersionId"`
+	SourceResourceID     string               `json:"sourceResourceId"`
+	TargetResourceID     string               `json:"targetResourceId"`
+	Type                 ResourceRelationType `json:"type"`
+	Metadata             map[string]any       `json:"metadata,omitempty"`
 }
 
 type ResourceSnapshot struct {

@@ -8,6 +8,7 @@ import (
 
 type ResourceInventory interface {
 	Upsert(context.Context, domain.Resource) error
+	List(context.Context) ([]domain.Resource, error)
 	FindByID(context.Context, string) (*domain.Resource, error)
 	FindByProviderID(context.Context, string, string) (*domain.Resource, error)
 	ListByRuntime(context.Context, string, string) ([]domain.Resource, error)

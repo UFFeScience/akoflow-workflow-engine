@@ -91,6 +91,36 @@ func (r *Repository) Find(ctx context.Context, id string) (*domain.NetworkTopolo
 	return &topology, rows.Err()
 }
 
+func (r *Repository) List(ctx context.Context) ([]domain.NetworkTopology, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id FROM network_topologies ORDER BY name, version DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	topologies := make([]domain.NetworkTopology, 0, len(ids))
+	for _, id := range ids {
+		topology, err := r.Find(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if topology != nil {
+			topologies = append(topologies, *topology)
+		}
+	}
+	return topologies, nil
+}
+
 func validate(topology domain.NetworkTopology) error {
 	if topology.ID == "" || topology.Name == "" || topology.Version < 1 {
 		return fmt.Errorf("network topology id, name and positive version are required")

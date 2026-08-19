@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/UFFeScience/akoflow/internal/controlplane/eventloop"
 	"github.com/UFFeScience/akoflow/internal/domain"
 	domainevents "github.com/UFFeScience/akoflow/internal/domain/events"
+	domaininstance "github.com/UFFeScience/akoflow/internal/domain/instance"
 	domainqueue "github.com/UFFeScience/akoflow/internal/domain/queue"
 	"gopkg.in/yaml.v3"
 )
@@ -25,6 +27,7 @@ type PlanValidator interface {
 
 type ExecutionQuery interface {
 	FindRun(context.Context, string) (*domain.ExecutionRun, error)
+	ListRuns(context.Context) ([]domain.ExecutionRun, error)
 	ListTasks(context.Context, string) ([]domain.TaskExecution, error)
 	ListHandles(context.Context, string) ([]domain.ActivityHandle, error)
 	ListEvents(context.Context, string) ([]domainevents.Event, error)
@@ -39,6 +42,8 @@ type Dependencies struct {
 	Executions   ExecutionQuery
 	Topologies   ports.NetworkTopologyStore
 	Data         ports.DataCatalog
+	Resources    ports.ResourceInventory
+	Instance     ports.InstanceStore
 }
 
 type Handler struct {
@@ -50,10 +55,12 @@ type Handler struct {
 	executions   ExecutionQuery
 	topologies   ports.NetworkTopologyStore
 	data         ports.DataCatalog
+	resources    ports.ResourceInventory
+	instance     ports.InstanceStore
 }
 
 func New(dependencies Dependencies) (*Handler, error) {
-	if dependencies.Environments == nil || dependencies.Workflows == nil || dependencies.Plans == nil || dependencies.Events == nil || dependencies.Validator == nil || dependencies.Executions == nil || dependencies.Topologies == nil {
+	if missingDependencies(dependencies) {
 		return nil, fmt.Errorf("workflow API dependencies are required")
 	}
 	return &Handler{
@@ -62,7 +69,142 @@ func New(dependencies Dependencies) (*Handler, error) {
 		validator: dependencies.Validator, executions: dependencies.Executions,
 		topologies: dependencies.Topologies,
 		data:       dependencies.Data,
+		resources:  dependencies.Resources,
+		instance:   dependencies.Instance,
 	}, nil
+}
+
+func missingDependencies(dependencies Dependencies) bool {
+	return dependencies.Environments == nil || dependencies.Workflows == nil ||
+		dependencies.Plans == nil || dependencies.Events == nil ||
+		dependencies.Validator == nil || dependencies.Executions == nil ||
+		dependencies.Topologies == nil || dependencies.Resources == nil ||
+		dependencies.Instance == nil
+}
+
+func (h *Handler) GetInstance(w http.ResponseWriter, r *http.Request) {
+	value, err := h.instance.Find(r.Context())
+	writeItem(w, value, err)
+}
+
+func (h *Handler) SaveInstance(w http.ResponseWriter, r *http.Request) {
+	var value domaininstance.Instance
+	if !decode(w, r, &value) {
+		return
+	}
+	if strings.TrimSpace(value.ID) == "" || strings.TrimSpace(value.Name) == "" {
+		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("instance id and name are required"))
+		return
+	}
+	if err := h.instance.Save(r.Context(), value); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	stored, err := h.instance.Find(r.Context())
+	writeItem(w, stored, err)
+}
+
+func (h *Handler) ListEnvironments(w http.ResponseWriter, r *http.Request) {
+	items, err := h.environments.List(r.Context())
+	writeList(w, items, err)
+}
+
+func (h *Handler) GetEnvironment(w http.ResponseWriter, r *http.Request) {
+	item, err := h.environments.Find(r.Context(), r.PathValue("environmentId"))
+	writeItem(w, item, err)
+}
+
+func (h *Handler) ListResources(w http.ResponseWriter, r *http.Request) {
+	items, err := h.resources.List(r.Context())
+	writeList(w, items, err)
+}
+
+func (h *Handler) GetResource(w http.ResponseWriter, r *http.Request) {
+	item, err := h.resources.FindByID(r.Context(), r.PathValue("resourceId"))
+	writeItem(w, item, err)
+}
+
+func (h *Handler) GetResourceSnapshot(w http.ResponseWriter, r *http.Request) {
+	item, err := h.resources.LatestSnapshot(r.Context(), r.PathValue("resourceId"))
+	writeItem(w, item, err)
+}
+
+func (h *Handler) CreateResource(w http.ResponseWriter, r *http.Request) {
+	var item domain.Resource
+	if !decode(w, r, &item) {
+		return
+	}
+	if err := h.resources.Upsert(r.Context(), item); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (h *Handler) ListNetworkTopologies(w http.ResponseWriter, r *http.Request) {
+	items, err := h.topologies.List(r.Context())
+	writeList(w, items, err)
+}
+
+func (h *Handler) ListWorkflows(w http.ResponseWriter, r *http.Request) {
+	items, err := h.workflows.List(r.Context())
+	writeList(w, items, err)
+}
+
+func (h *Handler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
+	item, err := h.workflows.Find(r.Context(), r.PathValue("workflowId"))
+	writeItem(w, item, err)
+}
+
+func (h *Handler) ListPlans(w http.ResponseWriter, r *http.Request) {
+	items, err := h.plans.List(r.Context())
+	writeList(w, items, err)
+}
+
+func (h *Handler) ListExecutions(w http.ResponseWriter, r *http.Request) {
+	runs, err := h.executions.ListRuns(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	items := make([]map[string]any, 0, len(runs))
+	for _, run := range runs {
+		tasks, taskErr := h.executions.ListTasks(r.Context(), run.ID)
+		if taskErr != nil {
+			writeError(w, http.StatusInternalServerError, taskErr)
+			return
+		}
+		items = append(items, map[string]any{"run": run, "activities": tasks})
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func writeList(w http.ResponseWriter, value any, err error) {
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, value)
+}
+
+func writeItem(w http.ResponseWriter, value any, err error) {
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if isNil(value) {
+		writeError(w, http.StatusNotFound, nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, value)
+}
+
+func isNil(value any) bool {
+	if value == nil {
+		return true
+	}
+	reflectValue := reflect.ValueOf(value)
+	return (reflectValue.Kind() == reflect.Ptr || reflectValue.Kind() == reflect.Interface) && reflectValue.IsNil()
 }
 
 func (h *Handler) CreateNetworkTopology(w http.ResponseWriter, r *http.Request) {
@@ -229,8 +371,9 @@ func (h *Handler) CreateExecution(w http.ResponseWriter, r *http.Request) {
 }
 
 func decode(w http.ResponseWriter, r *http.Request, target any) bool {
-	if !isYAML(r.Header.Get("Content-Type")) {
-		writeError(w, http.StatusUnsupportedMediaType, fmt.Errorf("request Content-Type must be application/yaml"))
+	contentType := normalizedContentType(r.Header.Get("Content-Type"))
+	if contentType != "application/json" && !isYAML(contentType) {
+		writeError(w, http.StatusUnsupportedMediaType, fmt.Errorf("request Content-Type must be application/json or application/yaml"))
 		return false
 	}
 	payload, err := io.ReadAll(io.LimitReader(r.Body, 10<<20))
@@ -238,15 +381,17 @@ func decode(w http.ResponseWriter, r *http.Request, target any) bool {
 		writeError(w, http.StatusBadRequest, err)
 		return false
 	}
-	var document any
-	if err := yaml.Unmarshal(payload, &document); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("decode YAML: %w", err))
-		return false
-	}
-	payload, err = json.Marshal(document)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("normalize YAML: %w", err))
-		return false
+	if isYAML(contentType) {
+		var document any
+		if err := yaml.Unmarshal(payload, &document); err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("decode YAML: %w", err))
+			return false
+		}
+		payload, err = json.Marshal(document)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("normalize YAML: %w", err))
+			return false
+		}
 	}
 	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.DisallowUnknownFields()
@@ -258,8 +403,11 @@ func decode(w http.ResponseWriter, r *http.Request, target any) bool {
 }
 
 func isYAML(contentType string) bool {
-	contentType = strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
 	return contentType == "application/yaml" || contentType == "application/x-yaml" || contentType == "text/yaml"
+}
+
+func normalizedContentType(contentType string) string {
+	return strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

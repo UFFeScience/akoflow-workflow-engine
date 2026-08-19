@@ -9,6 +9,11 @@
 			"program": "${workspaceFolder}/cmd/server",
 			"cwd": "${workspaceFolder}",
 			"envFile": "${workspaceFolder}/.env",
+			"env": {
+				"AKOFLOW_SIMULATION_BACKEND": "simgrid",
+				"AKOFLOW_SIMGRID_BINARY": "${workspaceFolder}/build/simgrid-runner/akoflow-simgrid-runner"
+			},
+			"preLaunchTask": "Build SimGrid runner",
             "buildFlags": ["-gcflags=all=-N"]
         },
     ]

@@ -10,6 +10,7 @@ import (
 
 	"github.com/UFFeScience/akoflow/internal/domain"
 	domainevents "github.com/UFFeScience/akoflow/internal/domain/events"
+	domaininstance "github.com/UFFeScience/akoflow/internal/domain/instance"
 	domainqueue "github.com/UFFeScience/akoflow/internal/domain/queue"
 	"github.com/stretchr/testify/require"
 )
@@ -18,6 +19,12 @@ type environmentRepositoryStub struct{ err error }
 
 func (s environmentRepositoryStub) Create(context.Context, domain.EnvironmentDefinition) error {
 	return s.err
+}
+func (s environmentRepositoryStub) List(context.Context) ([]domain.EnvironmentDefinition, error) {
+	return nil, s.err
+}
+func (s environmentRepositoryStub) Find(context.Context, string) (*domain.EnvironmentDefinition, error) {
+	return nil, s.err
 }
 func (s environmentRepositoryStub) UpdateStatus(context.Context, string, domain.EnvironmentStatus) error {
 	return s.err
@@ -34,6 +41,12 @@ type workflowRepositoryStub struct{ err error }
 func (s workflowRepositoryStub) Create(context.Context, domain.WorkflowDefinition) error {
 	return s.err
 }
+func (s workflowRepositoryStub) List(context.Context) ([]domain.WorkflowDefinition, error) {
+	return nil, s.err
+}
+func (s workflowRepositoryStub) Find(context.Context, string) (*domain.WorkflowDefinition, error) {
+	return nil, s.err
+}
 func (s workflowRepositoryStub) FindVersion(context.Context, string) (*domain.WorkflowVersion, error) {
 	return nil, nil
 }
@@ -44,6 +57,9 @@ type planRepositoryStub struct {
 }
 
 func (s planRepositoryStub) Save(context.Context, domain.SchedulePlan) error { return s.err }
+func (s planRepositoryStub) List(context.Context) ([]domain.SchedulePlan, error) {
+	return nil, s.err
+}
 func (s planRepositoryStub) Find(context.Context, string) (*domain.SchedulePlan, error) {
 	return s.plan, s.err
 }
@@ -84,9 +100,21 @@ func (s *topologyStoreStub) Create(_ context.Context, topology domain.NetworkTop
 func (s *topologyStoreStub) Find(context.Context, string) (*domain.NetworkTopology, error) {
 	return s.topology, s.err
 }
+func (s *topologyStoreStub) List(context.Context) ([]domain.NetworkTopology, error) {
+	if s.topology == nil {
+		return nil, s.err
+	}
+	return []domain.NetworkTopology{*s.topology}, s.err
+}
 
 func (s executionQueryStub) FindRun(context.Context, string) (*domain.ExecutionRun, error) {
 	return s.run, nil
+}
+func (s executionQueryStub) ListRuns(context.Context) ([]domain.ExecutionRun, error) {
+	if s.run == nil {
+		return nil, nil
+	}
+	return []domain.ExecutionRun{*s.run}, nil
 }
 func (s executionQueryStub) ListTasks(context.Context, string) ([]domain.TaskExecution, error) {
 	return s.tasks, nil
@@ -98,12 +126,50 @@ func (s executionQueryStub) ListEvents(context.Context, string) ([]domainevents.
 	return s.events, nil
 }
 
+type resourceInventoryStub struct{}
+
+type instanceStoreStub struct {
+	value *domaininstance.Instance
+}
+
+func (store *instanceStoreStub) Find(context.Context) (*domaininstance.Instance, error) {
+	return store.value, nil
+}
+
+func (store *instanceStoreStub) Save(_ context.Context, value domaininstance.Instance) error {
+	store.value = &value
+	return nil
+}
+
+func (resourceInventoryStub) Upsert(context.Context, domain.Resource) error   { return nil }
+func (resourceInventoryStub) List(context.Context) ([]domain.Resource, error) { return nil, nil }
+func (resourceInventoryStub) FindByID(context.Context, string) (*domain.Resource, error) {
+	return nil, nil
+}
+func (resourceInventoryStub) FindByProviderID(context.Context, string, string) (*domain.Resource, error) {
+	return nil, nil
+}
+func (resourceInventoryStub) ListByRuntime(context.Context, string, string) ([]domain.Resource, error) {
+	return nil, nil
+}
+func (resourceInventoryStub) ListSchedulable(context.Context, string) ([]domain.Resource, error) {
+	return nil, nil
+}
+func (resourceInventoryStub) CreateSnapshot(context.Context, domain.ResourceSnapshot) error {
+	return nil
+}
+func (resourceInventoryStub) LatestSnapshot(context.Context, string) (*domain.ResourceSnapshot, error) {
+	return nil, nil
+}
+
 func newTestHandler() *Handler {
 	handler, err := New(Dependencies{
 		Environments: environmentRepositoryStub{}, Workflows: workflowRepositoryStub{},
 		Plans: planRepositoryStub{}, Events: &eventPublisherStub{}, Validator: validatorStub{},
 		Executions: executionQueryStub{},
 		Topologies: &topologyStoreStub{},
+		Resources:  resourceInventoryStub{},
+		Instance:   &instanceStoreStub{},
 	})
 	if err != nil {
 		panic(err)
@@ -252,12 +318,12 @@ func TestCreateExecutionPublishesPersistentCommand(t *testing.T) {
 	require.Contains(t, recorder.Body.String(), `"eventType":"execution.run.requested"`)
 }
 
-func TestJSONRequestsAreRejected(t *testing.T) {
+func TestJSONRequestsAreAccepted(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"environment":{"id":"env"}}`))
 	request.Header.Set("Content-Type", "application/json")
 	newTestHandler().CreateEnvironment(recorder, request)
-	require.Equal(t, http.StatusUnsupportedMediaType, recorder.Code)
+	require.Equal(t, http.StatusCreated, recorder.Code)
 }
 
 func yamlRequest(body string) *http.Request {

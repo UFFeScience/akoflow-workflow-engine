@@ -15,5 +15,7 @@ func buildAPI(storage persistence) (*workflow_engine_api_handler.Handler, error)
 		Executions:   storage.executions,
 		Topologies:   storage.topologies,
 		Data:         storage.data,
+		Resources:    storage.resources,
+		Instance:     storage.instance,
 	})
 }
