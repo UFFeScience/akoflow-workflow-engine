@@ -116,6 +116,31 @@ func TestResourceSnapshots(t *testing.T) {
 	}
 }
 
+func TestRepositoryUpsertsBindingsAndRelations(t *testing.T) {
+	repository := testRepository(t)
+	ctx := context.Background()
+	if err := repository.Upsert(ctx, domain.Resource{ID: "r1", EnvironmentVersionID: "env", Type: domain.ResourceHPCMachine, Name: "node", ProviderID: "node"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.UpsertRuntimeBinding(ctx, domain.ResourceRuntimeBinding{ResourceID: "r1", RuntimeID: "k8s", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.UpsertRelation(ctx, domain.ResourceRelation{EnvironmentVersionID: "env", SourceResourceID: "parent", TargetResourceID: "r1", Type: domain.ResourceRelationContains}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.UpsertRuntimeBinding(ctx, domain.ResourceRuntimeBinding{ResourceID: "r1", RuntimeID: "k8s", Enabled: false}); err != nil {
+		t.Fatal(err)
+	}
+	var enabled bool
+	if err := repository.db.QueryRow(`SELECT enabled FROM resource_runtime_bindings WHERE resource_id='r1' AND runtime_id='k8s'`).Scan(&enabled); err != nil || enabled {
+		t.Fatalf("enabled=%v err=%v", enabled, err)
+	}
+	var relations int
+	if err := repository.db.QueryRow(`SELECT COUNT(*) FROM resource_relations WHERE target_resource_id='r1'`).Scan(&relations); err != nil || relations != 1 {
+		t.Fatalf("relations=%d err=%v", relations, err)
+	}
+}
+
 func TestRepositoryRejectsUnserializableMetadata(t *testing.T) {
 	repository := testRepository(t)
 	ctx := context.Background()

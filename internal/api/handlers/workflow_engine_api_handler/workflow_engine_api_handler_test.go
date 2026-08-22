@@ -152,7 +152,13 @@ func (store *instanceStoreStub) Save(_ context.Context, value domaininstance.Ins
 	return nil
 }
 
-func (resourceInventoryStub) Upsert(context.Context, domain.Resource) error   { return nil }
+func (resourceInventoryStub) Upsert(context.Context, domain.Resource) error { return nil }
+func (resourceInventoryStub) UpsertRuntimeBinding(context.Context, domain.ResourceRuntimeBinding) error {
+	return nil
+}
+func (resourceInventoryStub) UpsertRelation(context.Context, domain.ResourceRelation) error {
+	return nil
+}
 func (resourceInventoryStub) List(context.Context) ([]domain.Resource, error) { return nil, nil }
 func (resourceInventoryStub) FindByID(context.Context, string) (*domain.Resource, error) {
 	return nil, nil

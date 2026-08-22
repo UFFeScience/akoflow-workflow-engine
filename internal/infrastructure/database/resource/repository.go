@@ -53,6 +53,34 @@ func (r *Repository) Upsert(ctx context.Context, resource domain.Resource) error
 	return err
 }
 
+func (r *Repository) UpsertRuntimeBinding(ctx context.Context, binding domain.ResourceRuntimeBinding) error {
+	configuration, err := json.Marshal(binding.Configuration)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(ctx, `INSERT INTO resource_runtime_bindings
+		(resource_id, runtime_id, enabled, configuration) VALUES (?, ?, ?, ?)
+		ON CONFLICT(resource_id, runtime_id) DO UPDATE SET
+		enabled=excluded.enabled, configuration=excluded.configuration`,
+		binding.ResourceID, binding.RuntimeID, binding.Enabled, string(configuration))
+	return err
+}
+
+func (r *Repository) UpsertRelation(ctx context.Context, relation domain.ResourceRelation) error {
+	metadata, err := json.Marshal(relation.Metadata)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(ctx, `INSERT INTO resource_relations
+		(environment_version_id, source_resource_id, target_resource_id, relation_type, metadata)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(source_resource_id, target_resource_id, relation_type) DO UPDATE SET
+		environment_version_id=excluded.environment_version_id, metadata=excluded.metadata`,
+		relation.EnvironmentVersionID, relation.SourceResourceID, relation.TargetResourceID,
+		relation.Type, string(metadata))
+	return err
+}
+
 const resourceColumns = `id, environment_version_id, execution_target, parent_resource_id,
 	type, name, provider_id, tier, region, zone, architecture, cpu_cores, cpu_capacity,
 	memory_bytes, storage_bytes, compute_speedup, price_per_second,
