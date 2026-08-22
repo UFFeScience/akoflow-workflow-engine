@@ -4,7 +4,7 @@
         {
             "label": "Build SimGrid runner",
             "type": "shell",
-            "command": "cmake -S simgrid-runner -B build/simgrid-runner -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build/simgrid-runner --parallel",
+            "command": "cmake -S simgrid-runner -B build/simgrid-runner -DCMAKE_BUILD_TYPE=Debug && cmake --build build/simgrid-runner --parallel",
             "problemMatcher": ["$gcc"]
         },
         {

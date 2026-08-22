@@ -20,3 +20,4 @@ volumes/
 /hello-world-*.yaml
 /hybrid.yaml
 /wf-*.yaml
+/build/
