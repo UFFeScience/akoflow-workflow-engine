@@ -43,6 +43,16 @@ type ExecutionRun struct {
 	FailureReason          string                 `json:"failureReason,omitempty"`
 	ActivityCount          int                    `json:"activityCount,omitempty"`
 	CompletedActivityCount int                    `json:"completedActivityCount,omitempty"`
+	Breakdown              ExecutionBreakdown     `json:"breakdown"`
+	TransferredBytes       int64                  `json:"transferredBytes"`
+}
+
+type ExecutionBreakdown struct {
+	ComputeSeconds      float64 `json:"computeSeconds"`
+	TransferSeconds     float64 `json:"transferSeconds"`
+	QueueSeconds        float64 `json:"queueSeconds"`
+	InterferenceSeconds float64 `json:"interferenceSeconds"`
+	OverheadSeconds     float64 `json:"overheadSeconds"`
 }
 
 type TaskExecution struct {

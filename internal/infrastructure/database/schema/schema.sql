@@ -452,3 +452,40 @@ CREATE TABLE schema_metadata (
 	applied_at DATETIME NOT NULL,
 	checksum TEXT NOT NULL
 );
+CREATE TABLE environment_connection_checks (
+		id TEXT PRIMARY KEY,
+		connection_id TEXT NOT NULL REFERENCES environment_connections(id) ON DELETE CASCADE,
+		status TEXT NOT NULL CHECK(status IN ('online', 'offline')),
+		message TEXT NOT NULL DEFAULT '',
+		latency_ms REAL NOT NULL DEFAULT 0,
+		checked_at DATETIME NOT NULL,
+		metadata TEXT NOT NULL DEFAULT '{}'
+	);
+CREATE INDEX environment_connection_checks_history_idx
+	ON environment_connection_checks(connection_id, checked_at DESC);
+
+CREATE TABLE simulation_engines (
+	id TEXT PRIMARY KEY,
+	name TEXT NOT NULL,
+	driver TEXT NOT NULL UNIQUE,
+	enabled INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE simulation_scenarios (
+	id TEXT PRIMARY KEY,
+	name TEXT NOT NULL,
+	environment_version_id TEXT NOT NULL REFERENCES environment_versions(id),
+	environment_snapshot_id TEXT NOT NULL DEFAULT '',
+	engine_id TEXT NOT NULL REFERENCES simulation_engines(id),
+	seed INTEGER NOT NULL DEFAULT 0,
+	network_overrides TEXT NOT NULL DEFAULT '{}',
+	interference_model TEXT NOT NULL DEFAULT '{}',
+	cost_model TEXT NOT NULL DEFAULT '{}',
+	data_scale REAL NOT NULL DEFAULT 1,
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE simulation_runs (
+	id TEXT PRIMARY KEY,
+	scenario_id TEXT NOT NULL REFERENCES simulation_scenarios(id),
+	execution_run_id TEXT NOT NULL UNIQUE REFERENCES execution_runs(id),
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

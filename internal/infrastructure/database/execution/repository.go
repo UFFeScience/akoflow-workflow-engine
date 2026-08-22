@@ -47,9 +47,19 @@ func (r *Repository) CreateRun(ctx context.Context, run domain.ExecutionRun) err
 func (r *Repository) FindRun(ctx context.Context, id string) (*domain.ExecutionRun, error) {
 	var run domain.ExecutionRun
 	err := r.db.QueryRowContext(ctx, `SELECT id, schedule_plan_id, mode, seed,
-		status, environment_snapshot_id FROM execution_runs WHERE id=?`, id).
+		status, environment_snapshot_id, makespan_seconds, cost, failure_reason,
+		COALESCE((SELECT SUM(runtime_seconds) FROM task_executions t WHERE t.execution_run_id=execution_runs.id), 0),
+		COALESCE((SELECT SUM(duration_seconds) FROM data_transfers d WHERE d.execution_run_id=execution_runs.id), 0),
+		COALESCE((SELECT SUM(queue_seconds) FROM task_executions t WHERE t.execution_run_id=execution_runs.id), 0),
+		COALESCE((SELECT SUM(interference_seconds) FROM task_executions t WHERE t.execution_run_id=execution_runs.id), 0),
+		COALESCE((SELECT SUM(overhead_seconds) FROM task_executions t WHERE t.execution_run_id=execution_runs.id), 0),
+		COALESCE((SELECT SUM(bytes) FROM data_transfers d WHERE d.execution_run_id=execution_runs.id), 0)
+		FROM execution_runs WHERE id=?`, id).
 		Scan(&run.ID, &run.SchedulePlanID, &run.Mode, &run.Seed, &run.Status,
-			&run.EnvironmentSnapshotID)
+			&run.EnvironmentSnapshotID, &run.MakespanSeconds, &run.Cost, &run.FailureReason,
+			&run.Breakdown.ComputeSeconds, &run.Breakdown.TransferSeconds,
+			&run.Breakdown.QueueSeconds, &run.Breakdown.InterferenceSeconds,
+			&run.Breakdown.OverheadSeconds, &run.TransferredBytes)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -60,8 +70,28 @@ func (r *Repository) FindRun(ctx context.Context, id string) (*domain.ExecutionR
 }
 
 func (r *Repository) ListRuns(ctx context.Context) ([]domain.ExecutionRun, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, schedule_plan_id, mode, seed,
-		status, environment_snapshot_id FROM execution_runs ORDER BY started_at DESC, id`)
+	rows, err := r.db.QueryContext(ctx, `SELECT e.id, e.schedule_plan_id, e.mode, e.seed,
+		e.status, e.environment_snapshot_id, e.makespan_seconds, e.cost, e.failure_reason,
+		COALESCE(t.activity_count, 0), COALESCE(t.completed_count, 0),
+		COALESCE(t.compute_seconds, 0), COALESCE(d.transfer_seconds, 0),
+		COALESCE(t.queue_seconds, 0), COALESCE(t.interference_seconds, 0),
+		COALESCE(t.overhead_seconds, 0), COALESCE(d.transferred_bytes, 0)
+		FROM execution_runs e
+		LEFT JOIN (
+			SELECT execution_run_id, COUNT(*) AS activity_count,
+				SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed_count,
+				SUM(runtime_seconds) AS compute_seconds,
+				SUM(queue_seconds) AS queue_seconds,
+				SUM(interference_seconds) AS interference_seconds,
+				SUM(overhead_seconds) AS overhead_seconds
+			FROM task_executions GROUP BY execution_run_id
+		) t ON t.execution_run_id=e.id
+		LEFT JOIN (
+			SELECT execution_run_id, SUM(duration_seconds) AS transfer_seconds,
+				SUM(bytes) AS transferred_bytes
+			FROM data_transfers GROUP BY execution_run_id
+		) d ON d.execution_run_id=e.id
+		ORDER BY e.started_at DESC, e.id`)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +100,11 @@ func (r *Repository) ListRuns(ctx context.Context) ([]domain.ExecutionRun, error
 	for rows.Next() {
 		var run domain.ExecutionRun
 		if err := rows.Scan(&run.ID, &run.SchedulePlanID, &run.Mode, &run.Seed,
-			&run.Status, &run.EnvironmentSnapshotID); err != nil {
+			&run.Status, &run.EnvironmentSnapshotID, &run.MakespanSeconds, &run.Cost,
+			&run.FailureReason, &run.ActivityCount, &run.CompletedActivityCount,
+			&run.Breakdown.ComputeSeconds, &run.Breakdown.TransferSeconds,
+			&run.Breakdown.QueueSeconds, &run.Breakdown.InterferenceSeconds,
+			&run.Breakdown.OverheadSeconds, &run.TransferredBytes); err != nil {
 			return nil, err
 		}
 		runs = append(runs, run)
@@ -103,6 +137,31 @@ func (r *Repository) ListTasks(ctx context.Context, runID string) ([]domain.Task
 		tasks = append(tasks, task)
 	}
 	return tasks, rows.Err()
+}
+
+func (r *Repository) ListTransfers(ctx context.Context, runID string) ([]domain.DataTransfer, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id, execution_run_id,
+		producer_activity_id, consumer_activity_id, source_resource_id,
+		target_resource_id, bytes, started_at, finished_at, duration_seconds, cost
+		FROM data_transfers WHERE execution_run_id=?
+		ORDER BY started_at, producer_activity_id, consumer_activity_id`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	transfers := make([]domain.DataTransfer, 0)
+	for rows.Next() {
+		var transfer domain.DataTransfer
+		if err := rows.Scan(&transfer.ID, &transfer.ExecutionRunID,
+			&transfer.ProducerActivityID, &transfer.ConsumerActivityID,
+			&transfer.SourceResourceID, &transfer.TargetResourceID, &transfer.Bytes,
+			&transfer.StartedAt, &transfer.FinishedAt, &transfer.DurationSeconds,
+			&transfer.Cost); err != nil {
+			return nil, err
+		}
+		transfers = append(transfers, transfer)
+	}
+	return transfers, rows.Err()
 }
 
 func (r *Repository) ListEvents(ctx context.Context, runID string) ([]domainevents.Event, error) {
@@ -236,14 +295,17 @@ func (r *Repository) CompleteRun(ctx context.Context, trace domain.ExecutionTrac
 	}
 	defer tx.Rollback()
 	for _, task := range trace.Tasks {
-		previous, err := taskStatus(ctx, tx, task.ExecutionRunID, task.ActivityID, task.Attempt)
-		if err != nil {
-			return err
+		var previous string
+		if trace.Mode != domain.ExecutionModeSimulation {
+			previous, err = taskStatus(ctx, tx, task.ExecutionRunID, task.ActivityID, task.Attempt)
+			if err != nil {
+				return err
+			}
 		}
 		if err := saveTask(ctx, tx, task); err != nil {
 			return err
 		}
-		if previous != string(task.Status) {
+		if trace.Mode != domain.ExecutionModeSimulation && previous != string(task.Status) {
 			if err := appendTaskEvent(ctx, tx, task); err != nil {
 				return err
 			}

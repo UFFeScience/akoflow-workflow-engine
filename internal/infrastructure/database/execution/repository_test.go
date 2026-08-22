@@ -89,9 +89,22 @@ func TestRepositoryOwnsCompleteExecutionAggregate(t *testing.T) {
 	if err := repository.SaveTask(ctx, task); err != nil {
 		t.Fatal(err)
 	}
-	trace := domain.ExecutionTrace{RunID: "run", Executed: domain.ExecutionMetrics{MakespanSeconds: 4, Cost: 2}}
+	trace := domain.ExecutionTrace{
+		RunID:    "run",
+		Executed: domain.ExecutionMetrics{MakespanSeconds: 4, Cost: 2},
+		Transfers: []domain.DataTransfer{{
+			ID: "transfer", ExecutionRunID: "run", ProducerActivityID: "activity",
+			ConsumerActivityID: "activity", SourceResourceID: "resource",
+			TargetResourceID: "resource", Bytes: 1024, StartedAt: 1,
+			FinishedAt: 2, DurationSeconds: 1, Cost: 0.25,
+		}},
+	}
 	if err := repository.CompleteRun(ctx, trace); err != nil {
 		t.Fatal(err)
+	}
+	transfers, err := repository.ListTransfers(ctx, "run")
+	if err != nil || len(transfers) != 1 || transfers[0].Bytes != 1024 || transfers[0].DurationSeconds != 1 {
+		t.Fatalf("transfers=%+v err=%v", transfers, err)
 	}
 	var domainEvents, lifecycleEvents, outboxDeliveries int
 	if err := repository.db.QueryRow(`SELECT COUNT(*) FROM domain_events`).Scan(&domainEvents); err != nil {
