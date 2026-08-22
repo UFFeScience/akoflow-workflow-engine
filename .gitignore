@@ -21,3 +21,4 @@ volumes/
 /hybrid.yaml
 /wf-*.yaml
 /build/
+/examples/
