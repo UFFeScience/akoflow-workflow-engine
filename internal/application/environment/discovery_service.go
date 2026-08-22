@@ -3,6 +3,7 @@ package environment
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/UFFeScience/akoflow/internal/application/ports"
@@ -37,12 +38,17 @@ func (s *DiscoveryCoordinator) DiscoverConnection(ctx context.Context, connectio
 	if err != nil {
 		return nil, err
 	}
+	nodeSnapshots, err := s.materializeNodes(ctx, *definition, connection, observation)
+	if err != nil {
+		return nil, err
+	}
 	resourceIDs := boundResourceIDs(*definition, connection.ID)
 	if len(resourceIDs) == 0 {
 		return nil, fmt.Errorf("connection %q has no bound resources", connection.ID)
 	}
 	now := time.Now().UTC()
-	items := make([]domain.ResourceSnapshot, 0, len(resourceIDs))
+	items := make([]domain.ResourceSnapshot, 0, len(resourceIDs)+len(nodeSnapshots))
+	items = append(items, nodeSnapshots...)
 	for _, resourceID := range resourceIDs {
 		metadata := cloneMetadata(observation.Metadata)
 		metadata["connectionId"] = connection.ID
@@ -58,6 +64,96 @@ func (s *DiscoveryCoordinator) DiscoverConnection(ctx context.Context, connectio
 		items = append(items, snapshot)
 	}
 	return items, nil
+}
+
+func (s *DiscoveryCoordinator) materializeNodes(ctx context.Context, definition domain.EnvironmentDefinition, connection domain.EnvironmentConnection, observation ports.ConnectionDiscovery) ([]domain.ResourceSnapshot, error) {
+	if len(observation.Nodes) == 0 {
+		return nil, nil
+	}
+	runtimeIDs := runtimeIDsForConnection(definition, connection.ID)
+	partitions := map[string]domain.Resource{}
+	var clusterID string
+	for _, resource := range definition.Resources {
+		if resource.Type == domain.ResourceCluster && clusterID == "" {
+			clusterID = resource.ID
+		}
+		if resource.Type == domain.ResourceHPCPartition {
+			partitions[resource.ProviderID] = resource
+			partitions[resource.Name] = resource
+			if clusterID == "" && resource.ParentResourceID != nil {
+				clusterID = *resource.ParentResourceID
+			}
+		}
+	}
+	now := time.Now().UTC()
+	snapshots := make([]domain.ResourceSnapshot, 0, len(observation.Nodes))
+	for _, discovered := range observation.Nodes {
+		resourceID := discoveredNodeID(connection.ID, discovered.Name)
+		var parent *string
+		if clusterID != "" {
+			parent = &clusterID
+		}
+		metadata := cloneMetadata(discovered.Metadata)
+		metadata["connectionId"] = connection.ID
+		metadata["discovered"] = true
+		resource := domain.Resource{ID: resourceID, EnvironmentVersionID: definition.Version.ID,
+			ParentResourceID: parent, ExecutionTarget: domain.ExecutionTargetBatch,
+			Type: domain.ResourceHPCMachine, Name: discovered.Name, ProviderID: discovered.Name,
+			Architecture: discovered.Architecture, CPUCores: discovered.CPUCores,
+			CPUCapacity: float64(discovered.CPUCores), MemoryBytes: discovered.MemoryBytes,
+			StorageBytes: discovered.StorageBytes, ComputeSpeedup: 1, Schedulable: true, Metadata: metadata}
+		if err := s.resources.Upsert(ctx, resource); err != nil {
+			return nil, fmt.Errorf("upsert discovered SLURM node %q: %w", discovered.Name, err)
+		}
+		for _, runtimeID := range runtimeIDs {
+			if err := s.resources.UpsertRuntimeBinding(ctx, domain.ResourceRuntimeBinding{ResourceID: resourceID, RuntimeID: runtimeID, Enabled: true}); err != nil {
+				return nil, fmt.Errorf("bind discovered SLURM node %q: %w", discovered.Name, err)
+			}
+		}
+		for _, partitionName := range discovered.Partitions {
+			partition, ok := partitions[partitionName]
+			if !ok {
+				continue
+			}
+			if err := s.resources.UpsertRelation(ctx, domain.ResourceRelation{EnvironmentVersionID: definition.Version.ID,
+				SourceResourceID: partition.ID, TargetResourceID: resourceID, Type: domain.ResourceRelationContains,
+				Metadata: map[string]any{"discovered": true}}); err != nil {
+				return nil, fmt.Errorf("relate partition %q to node %q: %w", partitionName, discovered.Name, err)
+			}
+		}
+		snapshot := domain.ResourceSnapshot{ID: provider.NewID("resource-discovery"), ResourceID: resourceID,
+			CapturedAt: now, Available: slurmNodeAvailable(discovered.State), Metadata: metadata}
+		if err := s.resources.CreateSnapshot(ctx, snapshot); err != nil {
+			return nil, fmt.Errorf("snapshot discovered SLURM node %q: %w", discovered.Name, err)
+		}
+		snapshots = append(snapshots, snapshot)
+	}
+	return snapshots, nil
+}
+
+func runtimeIDsForConnection(definition domain.EnvironmentDefinition, connectionID string) []string {
+	result := []string{}
+	for _, runtime := range definition.Runtimes {
+		if configuredConnectionID(runtime.Configuration) == connectionID {
+			result = append(result, runtime.ID)
+		}
+	}
+	return result
+}
+
+func discoveredNodeID(connectionID, nodeName string) string {
+	replacer := strings.NewReplacer("/", "-", " ", "-", ":", "-")
+	return replacer.Replace(connectionID + "-node-" + nodeName)
+}
+
+func slurmNodeAvailable(state string) bool {
+	state = strings.ToLower(strings.TrimRight(strings.TrimSpace(state), "*~#$+"))
+	for _, unavailable := range []string{"down", "drain", "drained", "fail", "failing", "unknown"} {
+		if state == unavailable {
+			return false
+		}
+	}
+	return state != ""
 }
 
 func (s *DiscoveryCoordinator) findConnection(ctx context.Context, id string) (*domain.EnvironmentDefinition, domain.EnvironmentConnection, error) {

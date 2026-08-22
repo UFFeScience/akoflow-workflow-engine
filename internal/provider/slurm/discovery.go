@@ -106,7 +106,18 @@ func parseDiscovery(output []byte) ports.ConnectionDiscovery {
 		nodes = append(nodes, nodesByName[name])
 	}
 	metadata["partitions"], metadata["nodes"], metadata["filesystems"] = partitions, nodes, filesystems
-	return ports.ConnectionDiscovery{Available: len(partitions) > 0, Metadata: metadata, Warnings: warnings}
+	discovered := make([]ports.DiscoveredNode, 0, len(nodes))
+	architecture, _ := metadata["architecture"].(string)
+	for _, node := range nodes {
+		discovered = append(discovered, ports.DiscoveredNode{
+			Name: node["name"].(string), State: node["state"].(string),
+			CPUCores: int(node["cpuCores"].(int64)), MemoryBytes: node["memoryMiB"].(int64) * 1024 * 1024,
+			StorageBytes: node["temporaryDiskMiB"].(int64) * 1024 * 1024, Architecture: architecture,
+			Partitions: node["partitions"].([]string), Features: node["features"].([]string),
+			GenericResources: node["gres"].([]string), Reason: node["reason"].(string), Metadata: node,
+		})
+	}
+	return ports.ConnectionDiscovery{Available: len(partitions) > 0, Metadata: metadata, Warnings: warnings, Nodes: discovered}
 }
 
 func cleanPartition(value string) string { return strings.TrimSuffix(strings.TrimSpace(value), "*") }

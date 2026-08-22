@@ -51,6 +51,23 @@ type ConnectionDiscovery struct {
 	Available bool
 	Metadata  map[string]any
 	Warnings  []string
+	Nodes     []DiscoveredNode
+}
+
+// DiscoveredNode is the scheduler's current view of one physical compute node.
+// Partitions contains provider IDs, not Akoflow resource IDs.
+type DiscoveredNode struct {
+	Name             string
+	State            string
+	CPUCores         int
+	MemoryBytes      int64
+	StorageBytes     int64
+	Architecture     string
+	Partitions       []string
+	Features         []string
+	GenericResources []string
+	Reason           string
+	Metadata         map[string]any
 }
 
 type ConnectionDiscoverer interface {
