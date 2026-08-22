@@ -81,3 +81,37 @@ func TestAdapterMapsSlurmStatus(t *testing.T) {
 		t.Fatalf("handle=%+v err=%v", handle, err)
 	}
 }
+
+func TestConnectionFactorySubmitsToConfiguredSSHLoginNode(t *testing.T) {
+	executor := &executorFake{output: []byte("123;cluster\n")}
+	adapter, err := (ConnectionFactory{Executor: executor, DefaultScriptDirectory: t.TempDir()}).Build(
+		domain.EnvironmentRuntime{ID: "hpc", Driver: domain.RuntimeDriverSlurm,
+			Configuration: map[string]any{"connectionId": "hpc-ssh", "partition": "cpu"}},
+		domain.EnvironmentConnection{ID: "hpc-ssh", Type: domain.ConnectionSSH,
+			Endpoint: "login.example", Username: "wes", Configuration: map[string]any{"port": float64(2222)}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = adapter.Start(context.Background(), domain.ActivityExecutionContext{
+		Run: domain.ExecutionRun{ID: "run"}, RuntimeID: "hpc", Resource: domain.Resource{ID: "node"},
+		Activity: domain.Activity{ID: "task", Command: domain.ActivityCommand{Entrypoint: "echo", Arguments: []string{"ok"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if executor.name != "ssh" || !strings.Contains(strings.Join(executor.args, " "), "wes@login.example") ||
+		!strings.Contains(string(executor.input), "#SBATCH --partition=cpu") {
+		t.Fatalf("name=%s args=%v input=%s", executor.name, executor.args, executor.input)
+	}
+}
+
+func TestConnectionProberChecksSlurmThroughSSH(t *testing.T) {
+	executor := &executorFake{output: []byte("cpu*\ngpu\n")}
+	health := NewConnectionProber(executor).Probe(context.Background(), domain.EnvironmentConnection{
+		Type: domain.ConnectionSSH, Endpoint: "login.example", Username: "wes",
+	})
+	if !health.Healthy || executor.name != "ssh" || !strings.Contains(health.Message, "cpu") {
+		t.Fatalf("health=%+v command=%s", health, executor.name)
+	}
+}

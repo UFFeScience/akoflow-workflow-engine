@@ -19,11 +19,16 @@ type Adapter struct {
 	partition       string
 	direct          *local.Adapter
 	scriptDirectory string
+	submitFromStdin bool
 }
 
 type Config struct {
 	Partition       string
 	ScriptDirectory string
+	// SubmitFromStdin is required for an SSH-backed adapter: the audit copy of
+	// the script stays with the engine while sbatch receives its contents on the
+	// remote login node's stdin.
+	SubmitFromStdin bool
 }
 
 func New(executor runtimecommon.CommandExecutor, partition string) *Adapter {
@@ -32,7 +37,7 @@ func New(executor runtimecommon.CommandExecutor, partition string) *Adapter {
 
 func NewWithConfig(executor runtimecommon.CommandExecutor, config Config) *Adapter {
 	return &Adapter{executor: executor, partition: config.Partition, direct: local.New(),
-		scriptDirectory: config.ScriptDirectory}
+		scriptDirectory: config.ScriptDirectory, submitFromStdin: config.SubmitFromStdin}
 }
 
 func (*Adapter) Modes() []domain.ExecutionMode {
@@ -61,7 +66,11 @@ func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionC
 	if err != nil {
 		return domain.ActivityHandle{}, err
 	}
-	output, err := a.executor.Run(ctx, "sbatch", []string{"--parsable", scriptPath}, nil)
+	arguments, input := []string{"--parsable", scriptPath}, []byte(nil)
+	if a.submitFromStdin {
+		arguments, input = []string{"--parsable"}, []byte(script)
+	}
+	output, err := a.executor.Run(ctx, "sbatch", arguments, input)
 	if err != nil {
 		return domain.ActivityHandle{}, err
 	}

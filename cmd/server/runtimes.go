@@ -44,7 +44,7 @@ func connectKubernetes(settings config.Settings) (kubernetes.API, error) {
 	return client, nil
 }
 
-func buildRuntimes(settings config.Settings, kubernetesAPI kubernetes.API) (*registry.Registry, error) {
+func buildRuntimes(settings config.Settings, kubernetesAPI kubernetes.API, catalogs ...ports.EnvironmentCatalog) (ports.RuntimeResolver, error) {
 	runtimes := registry.New()
 	adapters := map[string]ports.RuntimeAdapter{
 		"*":          simgrid.NewActivityRuntime(),
@@ -58,6 +58,18 @@ func buildRuntimes(settings config.Settings, kubernetesAPI kubernetes.API) (*reg
 		if err := runtimes.Register(runtimeID, adapter); err != nil {
 			return nil, err
 		}
+	}
+	if len(catalogs) > 0 && catalogs[0] != nil {
+		return registry.NewCatalogResolver(runtimes, catalogs[0],
+			kubernetes.ConnectionFactory{
+				DefaultNamespace: settings.DefaultNamespace,
+				Fallback: kubernetes.ClientConfig{Endpoint: settings.KubernetesAPIServer,
+					Token: settings.KubernetesToken, CAFile: settings.KubernetesCAFile,
+					InsecureSkipTLSVerify: settings.KubernetesInsecureSkipTLS},
+			},
+			slurm.ConnectionFactory{Executor: provider.OSCommandExecutor{},
+				DefaultScriptDirectory: settings.SlurmScriptDirectory},
+		), nil
 	}
 	return runtimes, nil
 }
