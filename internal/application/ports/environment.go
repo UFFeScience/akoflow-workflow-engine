@@ -86,6 +86,7 @@ type EnvironmentStore interface {
 
 type ConnectionStore interface {
 	FindConnection(context.Context, string) (*domain.EnvironmentConnection, error)
+	ListAllConnections(context.Context) ([]domain.EnvironmentConnection, error)
 	SaveConnectionCheck(context.Context, domain.ConnectionCheck) error
 	ListConnectionChecks(context.Context, string, int) ([]domain.ConnectionCheck, error)
 }

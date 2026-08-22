@@ -625,6 +625,32 @@ func (r *Repository) FindConnection(ctx context.Context, id string) (*domain.Env
 	return &connection, nil
 }
 
+func (r *Repository) ListAllConnections(ctx context.Context) ([]domain.EnvironmentConnection, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id, environment_id, name, type,
+		endpoint, username, credential_ref, configuration, created_at
+		FROM environment_connections ORDER BY environment_id, name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	connections := make([]domain.EnvironmentConnection, 0)
+	for rows.Next() {
+		var connection domain.EnvironmentConnection
+		var connectionType, configuration string
+		if err := rows.Scan(&connection.ID, &connection.EnvironmentID, &connection.Name,
+			&connectionType, &connection.Endpoint, &connection.Username,
+			&connection.CredentialRef, &configuration, &connection.CreatedAt); err != nil {
+			return nil, err
+		}
+		connection.Type = domain.ConnectionType(connectionType)
+		if err := json.Unmarshal([]byte(configuration), &connection.Configuration); err != nil {
+			return nil, err
+		}
+		connections = append(connections, connection)
+	}
+	return connections, rows.Err()
+}
+
 func (r *Repository) SaveConnectionCheck(ctx context.Context, check domain.ConnectionCheck) error {
 	metadata, err := json.Marshal(check.Metadata)
 	if err != nil {

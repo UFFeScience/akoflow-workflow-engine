@@ -88,20 +88,18 @@ func (m *ConnectionMonitor) History(
 }
 
 func (m *ConnectionMonitor) CheckAll(ctx context.Context) {
-	definitions, err := m.store.List(ctx)
+	connections, err := m.store.ListAllConnections(ctx)
 	if err != nil {
 		return
 	}
-	for _, definition := range definitions {
-		for _, connection := range definition.Connections {
-			if ctx.Err() != nil {
-				return
-			}
-			if !m.isDue(connection.ID, m.now()) {
-				continue
-			}
-			_, _ = m.Check(ctx, connection.ID)
+	for _, connection := range connections {
+		if ctx.Err() != nil {
+			return
 		}
+		if !m.isDue(connection.ID, m.now()) {
+			continue
+		}
+		_, _ = m.Check(ctx, connection.ID)
 	}
 }
 

@@ -87,6 +87,9 @@ func (s *monitorStore) ListConnections(context.Context, string) ([]domain.Enviro
 func (s *monitorStore) FindConnection(context.Context, string) (*domain.EnvironmentConnection, error) {
 	return &s.connection, nil
 }
+func (s *monitorStore) ListAllConnections(context.Context) ([]domain.EnvironmentConnection, error) {
+	return []domain.EnvironmentConnection{s.connection}, nil
+}
 func (s *monitorStore) SaveConnectionCheck(_ context.Context, check domain.ConnectionCheck) error {
 	s.checks = append(s.checks, check)
 	return nil
