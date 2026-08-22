@@ -81,10 +81,11 @@ func (s validatorStub) Validate(domain.SchedulePlan, domain.WorkflowVersion, []d
 }
 
 type executionQueryStub struct {
-	run     *domain.ExecutionRun
-	tasks   []domain.TaskExecution
-	handles []domain.ActivityHandle
-	events  []domainevents.Event
+	run       *domain.ExecutionRun
+	tasks     []domain.TaskExecution
+	transfers []domain.DataTransfer
+	handles   []domain.ActivityHandle
+	events    []domainevents.Event
 }
 
 type topologyStoreStub struct {
@@ -125,6 +126,9 @@ func (s executionQueryStub) ListRuns(context.Context) ([]domain.ExecutionRun, er
 }
 func (s executionQueryStub) ListTasks(context.Context, string) ([]domain.TaskExecution, error) {
 	return s.tasks, nil
+}
+func (s executionQueryStub) ListTransfers(context.Context, string) ([]domain.DataTransfer, error) {
+	return s.transfers, nil
 }
 func (s executionQueryStub) ListHandles(context.Context, string) ([]domain.ActivityHandle, error) {
 	return s.handles, nil
@@ -303,6 +307,8 @@ func TestGetExecutionReturnsActivitiesAndEvents(t *testing.T) {
 	handler.executions = executionQueryStub{
 		run:   &domain.ExecutionRun{ID: "run", Status: domain.ExecutionRunRunning},
 		tasks: []domain.TaskExecution{{ID: "run:activity", ActivityID: "activity", Status: domain.TaskRunning}},
+		transfers: []domain.DataTransfer{{ID: "transfer", ExecutionRunID: "run",
+			ProducerActivityID: "producer", ConsumerActivityID: "activity", Bytes: 1024}},
 		handles: []domain.ActivityHandle{{ID: "run:activity", Artifacts: &domain.ArtifactManifest{
 			SchemaVersion: 1,
 		}}},
@@ -316,6 +322,7 @@ func TestGetExecutionReturnsActivitiesAndEvents(t *testing.T) {
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.Contains(t, recorder.Body.String(), `"eventType":"activity.started"`)
 	require.Contains(t, recorder.Body.String(), `"schemaVersion":1`)
+	require.Contains(t, recorder.Body.String(), `"dataTransfers":[{"id":"transfer"`)
 }
 
 func TestCreateExecutionPublishesPersistentCommand(t *testing.T) {

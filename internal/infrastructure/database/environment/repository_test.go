@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"testing"
+	"time"
 
 	"github.com/UFFeScience/akoflow/internal/domain"
 	database "github.com/UFFeScience/akoflow/internal/infrastructure/database"
@@ -69,6 +70,23 @@ func TestEnvironmentDefinitionCreate(t *testing.T) {
 	connections, _ = repository.ListConnections(context.Background(), "env")
 	if connections[0].Endpoint != "new-login.example" {
 		t.Fatal("connection upsert failed")
+	}
+	check := domain.ConnectionCheck{ID: "check-1", ConnectionID: "c1", Status: domain.ConnectionOnline,
+		Message: "reachable", LatencyMS: 3.5, CheckedAt: time.Now().UTC(), Metadata: map[string]any{"namespace": "akoflow"}}
+	if err := repository.SaveConnectionCheck(context.Background(), check); err != nil {
+		t.Fatal(err)
+	}
+	history, err := repository.ListConnectionChecks(context.Background(), "c1", 10)
+	if err != nil || len(history) != 1 || history[0].Status != domain.ConnectionOnline {
+		t.Fatalf("history=%+v err=%v", history, err)
+	}
+	foundConnection, err := repository.FindConnection(context.Background(), "c1")
+	if err != nil || foundConnection == nil || foundConnection.ID != "c1" {
+		t.Fatalf("connection=%+v err=%v", foundConnection, err)
+	}
+	definitionWithHistory, err := repository.Find(context.Background(), "env")
+	if err != nil || len(definitionWithHistory.ConnectionChecks) != 1 {
+		t.Fatalf("definition checks=%+v err=%v", definitionWithHistory, err)
 	}
 	if err := repository.UpdateStatus(context.Background(), "env", domain.EnvironmentReady); err != nil {
 		t.Fatal(err)

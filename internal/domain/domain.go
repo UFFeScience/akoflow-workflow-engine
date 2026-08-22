@@ -8,8 +8,14 @@ import (
 	"github.com/UFFeScience/akoflow/internal/domain/execution"
 	"github.com/UFFeScience/akoflow/internal/domain/planning"
 	"github.com/UFFeScience/akoflow/internal/domain/resource"
+	"github.com/UFFeScience/akoflow/internal/domain/simulation"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow"
 )
+
+type SimulationEngine = simulation.Engine
+type SimulationModel = simulation.Model
+type SimulationScenario = simulation.Scenario
+type SimulationRun = simulation.Run
 
 type EnvironmentVersionStatus = environment.EnvironmentVersionStatus
 type EnvironmentStatus = environment.EnvironmentStatus
@@ -21,6 +27,8 @@ type RuntimeDriver = environment.RuntimeDriver
 type RuntimeMode = environment.RuntimeMode
 type ExecutionScope = environment.ExecutionScope
 type EnvironmentConnection = environment.EnvironmentConnection
+type ConnectionCheck = environment.ConnectionCheck
+type ConnectionStatus = environment.ConnectionStatus
 type EnvironmentCapabilities = environment.Capabilities
 type DiscoveryRun = environment.DiscoveryRun
 type EnvironmentDefinition = environment.Definition
@@ -41,6 +49,8 @@ const (
 	ConnectionCloud             = environment.ConnectionCloud
 	ConnectionLocal             = environment.ConnectionLocal
 	ConnectionAgent             = environment.ConnectionAgent
+	ConnectionOnline            = environment.ConnectionOnline
+	ConnectionOffline           = environment.ConnectionOffline
 	RuntimeDriverSlurm          = environment.RuntimeDriverSlurm
 	RuntimeDriverKubernetes     = environment.RuntimeDriverKubernetes
 	RuntimeDriverSSH            = environment.RuntimeDriverSSH

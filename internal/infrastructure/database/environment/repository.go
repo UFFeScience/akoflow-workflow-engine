@@ -78,6 +78,13 @@ func (r *Repository) Find(ctx context.Context, id string) (*domain.EnvironmentDe
 	if err != nil {
 		return nil, err
 	}
+	for _, connection := range definition.Connections {
+		checks, checkErr := r.ListConnectionChecks(ctx, connection.ID, 20)
+		if checkErr != nil {
+			return nil, checkErr
+		}
+		definition.ConnectionChecks = append(definition.ConnectionChecks, checks...)
+	}
 	if definition.Version.ID == "" {
 		return &definition, nil
 	}
@@ -593,6 +600,86 @@ func (r *Repository) ListConnections(ctx context.Context, environmentID string) 
 		connections = append(connections, connection)
 	}
 	return connections, rows.Err()
+}
+
+func (r *Repository) FindConnection(ctx context.Context, id string) (*domain.EnvironmentConnection, error) {
+	var connection domain.EnvironmentConnection
+	var connectionType, configuration string
+	err := r.db.QueryRowContext(ctx, `SELECT id, environment_id, name, type,
+		endpoint, username, credential_ref, configuration, created_at
+		FROM environment_connections WHERE id=?`, id).Scan(
+		&connection.ID, &connection.EnvironmentID, &connection.Name, &connectionType,
+		&connection.Endpoint, &connection.Username, &connection.CredentialRef,
+		&configuration, &connection.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	connection.Type = domain.ConnectionType(connectionType)
+	if err := json.Unmarshal([]byte(configuration), &connection.Configuration); err != nil {
+		return nil, err
+	}
+	return &connection, nil
+}
+
+func (r *Repository) SaveConnectionCheck(ctx context.Context, check domain.ConnectionCheck) error {
+	metadata, err := json.Marshal(check.Metadata)
+	if err != nil {
+		return err
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `INSERT INTO environment_connection_checks (
+		id, connection_id, status, message, latency_ms, checked_at, metadata
+	) VALUES (?, ?, ?, ?, ?, ?, ?)`, check.ID, check.ConnectionID, check.Status,
+		check.Message, check.LatencyMS, check.CheckedAt, string(metadata)); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM environment_connection_checks
+		WHERE connection_id=? AND id NOT IN (
+			SELECT id FROM environment_connection_checks WHERE connection_id=?
+			ORDER BY checked_at DESC LIMIT 1000
+		)`, check.ConnectionID, check.ConnectionID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *Repository) ListConnectionChecks(
+	ctx context.Context,
+	connectionID string,
+	limit int,
+) ([]domain.ConnectionCheck, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT id, connection_id, status, message,
+		latency_ms, checked_at, metadata FROM environment_connection_checks
+		WHERE connection_id=? ORDER BY checked_at DESC LIMIT ?`, connectionID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	checks := make([]domain.ConnectionCheck, 0)
+	for rows.Next() {
+		var check domain.ConnectionCheck
+		var metadata string
+		if err := rows.Scan(&check.ID, &check.ConnectionID, &check.Status, &check.Message,
+			&check.LatencyMS, &check.CheckedAt, &metadata); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(metadata), &check.Metadata); err != nil {
+			return nil, err
+		}
+		checks = append(checks, check)
+	}
+	return checks, rows.Err()
 }
 
 func (r *Repository) ListRuntimeStorages(ctx context.Context, versionID, runtimeID string) ([]domain.StorageResource, error) {

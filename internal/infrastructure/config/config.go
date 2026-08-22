@@ -16,7 +16,9 @@ type Settings struct {
 	KubernetesCleanupEnabled   bool
 	KubernetesCleanupInterval  time.Duration
 	KubernetesHistoryRetention time.Duration
+	ConnectionCheckInterval    time.Duration
 	SlurmScriptDirectory       string
+	SSHKeyDirectory            string
 	SimulationBackend          string
 	SimGridBinaryPath          string
 	SimGridWorkspace           string
@@ -30,7 +32,9 @@ func Load() Settings {
 		HTTPAddress: ":8080", DefaultNamespace: "akoflow",
 		KubernetesCleanupEnabled: true, KubernetesCleanupInterval: 15 * time.Minute,
 		KubernetesHistoryRetention: 24 * time.Hour,
+		ConnectionCheckInterval:    30 * time.Second,
 		SlurmScriptDirectory:       "storage/slurm/scripts",
+		SSHKeyDirectory:            "storage/credentials/ssh",
 		SimulationBackend:          "simgrid",
 		SimGridBinaryPath:          "akoflow-simgrid-runner",
 		SimGridWorkspace:           "storage/simgrid",
@@ -50,6 +54,9 @@ func Load() Settings {
 	settings.KubernetesInsecureSkipTLS = os.Getenv("K8S_API_SERVER_INSECURE_SKIP_TLS_VERIFY") == "true"
 	if value := os.Getenv("AKOFLOW_SLURM_SCRIPT_DIRECTORY"); value != "" {
 		settings.SlurmScriptDirectory = value
+	}
+	if value := os.Getenv("AKOFLOW_SSH_KEY_DIRECTORY"); value != "" {
+		settings.SSHKeyDirectory = value
 	}
 	if value := os.Getenv("AKOFLOW_SIMULATION_BACKEND"); value != "" {
 		settings.SimulationBackend = value
@@ -77,6 +84,9 @@ func Load() Settings {
 	)
 	settings.KubernetesHistoryRetention = durationOrDefault(
 		os.Getenv("AKOFLOW_KUBERNETES_HISTORY_RETENTION"), settings.KubernetesHistoryRetention,
+	)
+	settings.ConnectionCheckInterval = durationOrDefault(
+		os.Getenv("AKOFLOW_CONNECTION_CHECK_INTERVAL"), settings.ConnectionCheckInterval,
 	)
 	return settings
 }

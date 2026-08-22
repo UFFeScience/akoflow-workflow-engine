@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	domainevents "github.com/UFFeScience/akoflow/internal/domain/events"
 	domaininstance "github.com/UFFeScience/akoflow/internal/domain/instance"
 	domainqueue "github.com/UFFeScience/akoflow/internal/domain/queue"
+	"github.com/UFFeScience/akoflow/internal/infrastructure/credentials/sshkey"
 	"gopkg.in/yaml.v3"
 )
 
@@ -27,6 +29,7 @@ type ExecutionQuery interface {
 	FindRun(context.Context, string) (*domain.ExecutionRun, error)
 	ListRuns(context.Context) ([]domain.ExecutionRun, error)
 	ListTasks(context.Context, string) ([]domain.TaskExecution, error)
+	ListTransfers(context.Context, string) ([]domain.DataTransfer, error)
 	ListHandles(context.Context, string) ([]domain.ActivityHandle, error)
 	ListEvents(context.Context, string) ([]domainevents.Event, error)
 }
@@ -43,6 +46,9 @@ type Dependencies struct {
 	Data         ports.DataCatalog
 	Resources    ports.ResourceInventory
 	Instance     ports.InstanceStore
+	Connections  ports.ConnectionHealthMonitor
+	Discovery    ports.EnvironmentDiscovery
+	SSHKeys      *sshkey.Manager
 }
 
 type Handler struct {
@@ -57,6 +63,9 @@ type Handler struct {
 	data         ports.DataCatalog
 	resources    ports.ResourceInventory
 	instance     ports.InstanceStore
+	connections  ports.ConnectionHealthMonitor
+	discovery    ports.EnvironmentDiscovery
+	sshKeys      *sshkey.Manager
 }
 
 func New(dependencies Dependencies) (*Handler, error) {
@@ -67,12 +76,87 @@ func New(dependencies Dependencies) (*Handler, error) {
 		environments: dependencies.Environments, workflows: dependencies.Workflows,
 		plans: dependencies.Plans, events: dependencies.Events,
 		validator: dependencies.Validator, executions: dependencies.Executions,
-		topologies: dependencies.Topologies,
-		scopes:     dependencies.Scopes,
-		data:       dependencies.Data,
-		resources:  dependencies.Resources,
-		instance:   dependencies.Instance,
+		topologies:  dependencies.Topologies,
+		scopes:      dependencies.Scopes,
+		data:        dependencies.Data,
+		resources:   dependencies.Resources,
+		instance:    dependencies.Instance,
+		connections: dependencies.Connections,
+		discovery:   dependencies.Discovery,
+		sshKeys:     dependencies.SSHKeys,
 	}, nil
+}
+
+func (h *Handler) GenerateSSHKey(w http.ResponseWriter, r *http.Request) {
+	if h.sshKeys == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("SSH key management is unavailable"))
+		return
+	}
+	var request struct {
+		ID      string `json:"id"`
+		Comment string `json:"comment"`
+	}
+	if !decode(w, r, &request) {
+		return
+	}
+	key, err := h.sshKeys.Generate(request.ID, request.Comment)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, key)
+}
+
+func (h *Handler) DiscoverEnvironmentConnection(w http.ResponseWriter, r *http.Request) {
+	if h.discovery == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("environment discovery is unavailable"))
+		return
+	}
+	snapshots, err := h.discovery.DiscoverConnection(r.Context(), r.PathValue("connectionId"))
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"snapshots": snapshots})
+}
+
+func (h *Handler) CheckEnvironmentConnection(w http.ResponseWriter, r *http.Request) {
+	if h.connections == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("connection monitoring is unavailable"))
+		return
+	}
+	check, err := h.connections.Check(r.Context(), r.PathValue("connectionId"))
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, check)
+}
+
+func (h *Handler) UpdateEnvironmentConnection(w http.ResponseWriter, r *http.Request) {
+	var connection domain.EnvironmentConnection
+	if !decode(w, r, &connection) {
+		return
+	}
+	if connection.ID == "" || connection.ID != r.PathValue("connectionId") || connection.EnvironmentID == "" {
+		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("connection id and environment id are required"))
+		return
+	}
+	if err := h.environments.UpsertConnection(r.Context(), connection); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, connection)
+}
+
+func (h *Handler) ListEnvironmentConnectionHistory(w http.ResponseWriter, r *http.Request) {
+	if h.connections == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("connection monitoring is unavailable"))
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	checks, err := h.connections.History(r.Context(), r.PathValue("connectionId"), limit)
+	writeList(w, checks, err)
 }
 
 func missingDependencies(dependencies Dependencies) bool {
@@ -265,6 +349,11 @@ func (h *Handler) GetExecution(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	transfers, err := h.executions.ListTransfers(r.Context(), run.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
 	handles, err := h.executions.ListHandles(r.Context(), run.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
@@ -276,7 +365,8 @@ func (h *Handler) GetExecution(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response := map[string]any{
-		"run": run, "activities": tasks, "handles": handles, "events": events,
+		"run": run, "activities": tasks, "dataTransfers": transfers,
+		"handles": handles, "events": events,
 	}
 	if h.data != nil {
 		instances, dataErr := h.data.ListInstances(r.Context(), run.ID)

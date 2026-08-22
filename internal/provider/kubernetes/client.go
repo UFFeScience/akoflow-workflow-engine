@@ -101,6 +101,11 @@ func (c *Client) List(ctx context.Context, namespace, resource, labelSelector st
 	return c.request(ctx, http.MethodGet, path, nil)
 }
 
+// ListCluster returns cluster-scoped Kubernetes resources such as nodes.
+func (c *Client) ListCluster(ctx context.Context, resource string) ([]byte, error) {
+	return c.request(ctx, http.MethodGet, "/api/v1/"+url.PathEscape(resource), nil)
+}
+
 func (c *Client) Logs(ctx context.Context, namespace, pod, container string) ([]byte, error) {
 	query := url.Values{"container": []string{container}}
 	path := resourcePath(namespace, "pods", pod) + "/log?" + query.Encode()

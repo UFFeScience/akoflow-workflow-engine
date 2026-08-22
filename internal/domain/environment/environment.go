@@ -13,11 +13,17 @@ type ConnectionType string
 type DiscoveryRunStatus string
 type RuntimeDriver string
 type RuntimeMode string
+type ConnectionStatus string
 
 const (
 	EnvironmentVersionDraft     EnvironmentVersionStatus = "draft"
 	EnvironmentVersionPublished EnvironmentVersionStatus = "published"
 	EnvironmentVersionRetired   EnvironmentVersionStatus = "retired"
+)
+
+const (
+	ConnectionOnline  ConnectionStatus = "online"
+	ConnectionOffline ConnectionStatus = "offline"
 )
 
 const (
@@ -66,6 +72,16 @@ type EnvironmentConnection struct {
 	CredentialRef string         `json:"credentialRef,omitempty"`
 	Configuration map[string]any `json:"configuration,omitempty"`
 	CreatedAt     time.Time      `json:"createdAt"`
+}
+
+type ConnectionCheck struct {
+	ID           string           `json:"id"`
+	ConnectionID string           `json:"connectionId"`
+	Status       ConnectionStatus `json:"status"`
+	Message      string           `json:"message,omitempty"`
+	LatencyMS    float64          `json:"latencyMs"`
+	CheckedAt    time.Time        `json:"checkedAt"`
+	Metadata     map[string]any   `json:"metadata,omitempty"`
 }
 
 type Capabilities struct {
@@ -126,13 +142,14 @@ type ExecutionScope struct {
 }
 
 type Definition struct {
-	Environment     Environment                        `json:"environment"`
-	Version         EnvironmentVersion                 `json:"version"`
-	Runtimes        []EnvironmentRuntime               `json:"runtimes"`
-	Resources       []resource.Resource                `json:"resources"`
-	RuntimeBindings []resource.ResourceRuntimeBinding  `json:"resourceRuntimeBindings,omitempty"`
-	Relations       []resource.ResourceRelation        `json:"resourceRelations,omitempty"`
-	Storages        []resource.StorageResource         `json:"storages,omitempty"`
-	Profiles        []workflow.ActivityResourceProfile `json:"activityResourceProfiles,omitempty"`
-	Connections     []EnvironmentConnection            `json:"connections,omitempty"`
+	Environment      Environment                        `json:"environment"`
+	Version          EnvironmentVersion                 `json:"version"`
+	Runtimes         []EnvironmentRuntime               `json:"runtimes"`
+	Resources        []resource.Resource                `json:"resources"`
+	RuntimeBindings  []resource.ResourceRuntimeBinding  `json:"resourceRuntimeBindings,omitempty"`
+	Relations        []resource.ResourceRelation        `json:"resourceRelations,omitempty"`
+	Storages         []resource.StorageResource         `json:"storages,omitempty"`
+	Profiles         []workflow.ActivityResourceProfile `json:"activityResourceProfiles,omitempty"`
+	Connections      []EnvironmentConnection            `json:"connections,omitempty"`
+	ConnectionChecks []ConnectionCheck                  `json:"connectionChecks,omitempty"`
 }
