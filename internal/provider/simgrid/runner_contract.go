@@ -19,11 +19,12 @@ type runnerInput struct {
 }
 
 type runnerTask struct {
-	ID             string  `json:"id"`
-	AssignmentID   string  `json:"assignmentId"`
-	ResourceID     string  `json:"resourceId"`
-	FLOPs          float64 `json:"flops"`
-	PricePerSecond float64 `json:"pricePerSecond"`
+	ID              string  `json:"id"`
+	AssignmentID    string  `json:"assignmentId"`
+	ResourceID      string  `json:"resourceId"`
+	FLOPs           float64 `json:"flops"`
+	OverheadSeconds float64 `json:"overheadSeconds"`
+	PricePerSecond  float64 `json:"pricePerSecond"`
 }
 
 type runnerDependency struct {
@@ -54,14 +55,14 @@ func buildRunnerInput(request ports.ExecutionRequest, referenceFLOPS float64) ([
 			return nil, fmt.Errorf("assignment for %q references missing resource %q", activity.ID, assignment.ResourceID)
 		}
 		flops := activityFLOPS(activity)
+		overhead := resolveAssignmentOverhead(assignment, resource)
 		if flops <= 0 {
 			runtimeSeconds := resolveRuntime(activity, resource, model.profiles)
-			overhead := resolveAssignmentOverhead(assignment, resource)
-			flops = (runtimeSeconds + overhead) * resourceFLOPS(resource, referenceFLOPS)
+			flops = runtimeSeconds * resourceFLOPS(resource, referenceFLOPS)
 		}
 		input.Tasks = append(input.Tasks, runnerTask{
 			ID: activity.ID, AssignmentID: assignment.ID, ResourceID: resource.ID,
-			FLOPs:          flops,
+			FLOPs: flops, OverheadSeconds: overhead,
 			PricePerSecond: resource.PricePerSecond,
 		})
 	}

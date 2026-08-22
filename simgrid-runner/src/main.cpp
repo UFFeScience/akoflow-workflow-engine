@@ -13,6 +13,7 @@
 
 namespace sg4 = simgrid::s4u;
 using json    = nlohmann::json;
+static int mailbox_token = 1;
 
 struct Arguments {
   std::string platform;
@@ -25,9 +26,12 @@ struct TaskModel {
   std::string assignment_id;
   std::string resource_id;
   double price_per_second = 0;
+  double flops            = 0;
+  double overhead_seconds = 0;
   double started_at       = 0;
+  double compute_started_at = 0;
+  double compute_finished_at = 0;
   double finished_at      = 0;
-  sg4::ExecPtr execution;
 };
 
 struct TransferModel {
@@ -39,7 +43,6 @@ struct TransferModel {
   double price_per_byte = 0;
   double started_at     = 0;
   double finished_at    = 0;
-  sg4::CommPtr communication;
 };
 
 static Arguments parse_arguments(int argc, char** argv)
@@ -88,16 +91,16 @@ static std::map<std::string, TaskModel> create_tasks(sg4::Engine& engine, const 
     task.assignment_id    = value.at("assignmentId").get<std::string>();
     task.resource_id      = value.at("resourceId").get<std::string>();
     task.price_per_second = value.value("pricePerSecond", 0.0);
-    auto* host            = engine.host_by_name(task.resource_id);
-    const double flops    = value.at("flops").get<double>();
-    task.execution = sg4::Exec::init()->set_name(task.id)->set_flops_amount(std::max(0.0, flops))->set_host(host);
+    engine.host_by_name(task.resource_id);
+    task.flops = std::max(0.0, value.at("flops").get<double>());
+    task.overhead_seconds = std::max(0.0, value.value("overheadSeconds", 0.0));
     if (!tasks.emplace(task.id, task).second)
       throw std::runtime_error("duplicate task: " + task.id);
   }
   return tasks;
 }
 
-static std::vector<TransferModel> connect_dependencies(const json& input, std::map<std::string, TaskModel>& tasks)
+static std::vector<TransferModel> create_transfers(const json& input, const std::map<std::string, TaskModel>& tasks)
 {
   std::vector<TransferModel> transfers;
   for (const auto& value : input.at("dependencies")) {
@@ -106,10 +109,8 @@ static std::vector<TransferModel> connect_dependencies(const json& input, std::m
     auto& producer                = tasks.at(producer_id);
     auto& consumer                = tasks.at(consumer_id);
     const long long bytes         = value.value("bytes", 0LL);
-    if (bytes <= 0 || producer.resource_id == consumer.resource_id) {
-      producer.execution->add_successor(consumer.execution);
+    if (bytes <= 0 || producer.resource_id == consumer.resource_id)
       continue;
-    }
     TransferModel transfer;
     transfer.producer_id       = producer_id;
     transfer.consumer_id       = consumer_id;
@@ -117,41 +118,84 @@ static std::vector<TransferModel> connect_dependencies(const json& input, std::m
     transfer.target_resource_id = consumer.resource_id;
     transfer.bytes              = bytes;
     transfer.price_per_byte     = value.value("pricePerByte", 0.0);
-    transfer.communication = sg4::Comm::sendto_init();
-    producer.execution->add_successor(transfer.communication);
-    transfer.communication->add_successor(consumer.execution);
-    transfer.communication->set_name(producer_id + "->" + consumer_id)
-        ->set_payload_size(static_cast<double>(bytes))
-        ->set_source(producer.execution->get_host())
-        ->set_destination(consumer.execution->get_host());
     transfers.push_back(transfer);
   }
   return transfers;
 }
 
-static void connect_lane_orders(const json& input, std::map<std::string, TaskModel>& tasks)
+static std::string mailbox_name(const std::string& run_id, const std::string& kind,
+                                const std::string& predecessor, const std::string& successor)
 {
-  for (const auto& value : input.at("resourceLaneOrders")) {
-    const auto predecessor = value.at("predecessorId").get<std::string>();
-    const auto successor   = value.at("successorId").get<std::string>();
-    tasks.at(predecessor).execution->add_successor(tasks.at(successor).execution);
-  }
+  return run_id + ":" + kind + ":" + predecessor + ":" + successor;
 }
 
-static void run_simulation(sg4::Engine& engine, std::map<std::string, TaskModel>& tasks,
+static void run_simulation(sg4::Engine& engine, const json& input,
+                           std::map<std::string, TaskModel>& tasks,
                            std::vector<TransferModel>& transfers)
 {
-  for (auto& [_, task] : tasks)
-    task.execution->start();
-  engine.run();
-  for (auto& [_, task] : tasks) {
-    task.started_at  = task.execution->get_start_time();
-    task.finished_at = task.execution->get_finish_time();
+  const auto run_id = input.at("runId").get<std::string>();
+  std::map<std::string, std::vector<std::pair<std::string, std::string>>> incoming_dependencies;
+  std::map<std::string, std::vector<std::string>> outgoing_dependency_signals;
+  std::map<std::string, std::vector<std::string>> incoming_lanes;
+  std::map<std::string, std::vector<std::string>> outgoing_lanes;
+
+  for (const auto& dependency : input.at("dependencies")) {
+    const auto producer = dependency.at("producerId").get<std::string>();
+    const auto consumer = dependency.at("consumerId").get<std::string>();
+    incoming_dependencies[consumer].push_back({producer, mailbox_name(run_id, "data", producer, consumer)});
+    outgoing_dependency_signals[producer].push_back(mailbox_name(run_id, "ready", producer, consumer));
   }
+  for (const auto& order : input.at("resourceLaneOrders")) {
+    const auto predecessor = order.at("predecessorId").get<std::string>();
+    const auto successor   = order.at("successorId").get<std::string>();
+    const auto mailbox     = mailbox_name(run_id, "lane", predecessor, successor);
+    incoming_lanes[successor].push_back(mailbox);
+    outgoing_lanes[predecessor].push_back(mailbox);
+  }
+
   for (auto& transfer : transfers) {
-    transfer.started_at  = transfer.communication->get_start_time();
-    transfer.finished_at = transfer.communication->get_finish_time();
+    auto* transfer_model = &transfer;
+    auto* source_host = engine.host_by_name(transfer.source_resource_id);
+    sg4::Actor::create("transfer-" + transfer.producer_id + "-" + transfer.consumer_id, source_host,
+                       [transfer_model, run_id]() {
+      sg4::Mailbox::by_name(mailbox_name(run_id, "ready", transfer_model->producer_id,
+                                         transfer_model->consumer_id))->get();
+      transfer_model->started_at = sg4::Engine::get_clock();
+      sg4::Mailbox::by_name(mailbox_name(run_id, "data", transfer_model->producer_id,
+                                         transfer_model->consumer_id))
+          ->put(&mailbox_token, transfer_model->bytes);
+      transfer_model->finished_at = sg4::Engine::get_clock();
+    });
   }
+
+  for (auto& [id, task] : tasks) {
+    auto* task_model = &task;
+    auto* host = engine.host_by_name(task.resource_id);
+    sg4::Actor::create("task-" + id, host,
+                       [task_model, id, &incoming_dependencies, &outgoing_dependency_signals,
+                        &incoming_lanes, &outgoing_lanes, &tasks, run_id]() {
+      for (const auto& [producer_id, mailbox] : incoming_dependencies[id]) {
+        if (tasks.at(producer_id).resource_id == task_model->resource_id)
+          sg4::Mailbox::by_name(mailbox_name(run_id, "ready", producer_id, id))->get();
+        else
+          sg4::Mailbox::by_name(mailbox)->get();
+      }
+      for (const auto& mailbox : incoming_lanes[id])
+        sg4::Mailbox::by_name(mailbox)->get();
+      task_model->started_at = sg4::Engine::get_clock();
+      if (task_model->overhead_seconds > 0)
+        sg4::this_actor::sleep_for(task_model->overhead_seconds);
+      task_model->compute_started_at = sg4::Engine::get_clock();
+      sg4::this_actor::execute(task_model->flops);
+      task_model->compute_finished_at = sg4::Engine::get_clock();
+      task_model->finished_at = sg4::Engine::get_clock();
+      for (const auto& mailbox : outgoing_dependency_signals[id])
+		sg4::Mailbox::by_name(mailbox)->put_init(&mailbox_token, 0)->detach();
+      for (const auto& mailbox : outgoing_lanes[id])
+		sg4::Mailbox::by_name(mailbox)->put_init(&mailbox_token, 0)->detach();
+    });
+  }
+  engine.run();
 }
 
 static std::map<std::string, double> task_costs(const std::map<std::string, TaskModel>& tasks,
@@ -204,6 +248,7 @@ static json build_result(const json& input, const std::map<std::string, TaskMode
   double compute = 0;
   double queue = 0;
   double transfer_seconds = 0;
+  double overhead_seconds = 0;
   double total_cost = 0;
   std::map<std::string, double> data_ready;
   std::map<std::string, double> inbound_transfer;
@@ -233,12 +278,13 @@ static json build_result(const json& input, const std::map<std::string, TaskMode
   for (const auto& [id, task] : tasks) {
     const double start = effective_starts.at(id);
     const double finish = task.finished_at;
-    const double duration = std::max(0.0, finish - start);
+    const double duration = std::max(0.0, task.compute_finished_at - task.compute_started_at);
     makespan = std::max(makespan, finish);
     compute += duration;
     const double ready = data_ready[id];
     const double queued = std::max(0.0, start - ready);
     queue += queued;
+    overhead_seconds += task.overhead_seconds;
     total_cost += costs.at(id);
     result["tasks"].push_back({
         {"id", input.at("runId").get<std::string>() + ":" + id},
@@ -247,7 +293,7 @@ static json build_result(const json& input, const std::map<std::string, TaskMode
         {"attempt", 1}, {"status", "completed"}, {"readyAt", ready}, {"dataReadyAt", ready},
         {"queuedAt", ready}, {"startedAt", start}, {"finishedAt", finish},
         {"runtimeSeconds", duration}, {"queueSeconds", queued}, {"transferSeconds", inbound_transfer[id]},
-        {"interferenceSeconds", 0}, {"overheadSeconds", 0}, {"cost", costs.at(id)},
+        {"interferenceSeconds", 0}, {"overheadSeconds", task.overhead_seconds}, {"cost", costs.at(id)},
     });
   }
   for (const auto& transfer : transfers) {
@@ -271,7 +317,7 @@ static json build_result(const json& input, const std::map<std::string, TaskMode
   result["executed"] = {
       {"makespanSeconds", makespan}, {"cost", total_cost}, {"computeSeconds", compute},
       {"transferSeconds", transfer_seconds}, {"queueSeconds", queue}, {"interferenceSeconds", 0},
-      {"overheadSeconds", 0}, {"feasible", feasible},
+      {"overheadSeconds", overhead_seconds}, {"feasible", feasible},
   };
   return result;
 }
@@ -283,11 +329,14 @@ int main(int argc, char** argv)
     const json input           = read_json(arguments.input);
     sg4::Engine engine(&argc, argv);
     engine.load_platform(arguments.platform);
+    const auto hosts = engine.get_all_hosts();
+    if (hosts.empty())
+      throw std::runtime_error("platform has no hosts");
     auto tasks     = create_tasks(engine, input);
-    auto transfers = connect_dependencies(input, tasks);
-    connect_lane_orders(input, tasks);
-    run_simulation(engine, tasks, transfers);
-    write_json(arguments.output, build_result(input, tasks, transfers));
+    auto transfers = create_transfers(input, tasks);
+    run_simulation(engine, input, tasks, transfers);
+    const json result = build_result(input, tasks, transfers);
+    write_json(arguments.output, result);
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "akoflow-simgrid-runner: " << error.what() << '\n';
