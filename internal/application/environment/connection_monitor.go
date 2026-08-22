@@ -14,7 +14,18 @@ type ConnectionMonitor struct {
 	store   connectionCatalog
 	probers map[domain.ConnectionType]ports.ConnectionProber
 	mu      sync.Mutex
+
+	scheduleMu sync.Mutex
+	schedules  map[string]connectionSchedule
+	now        func() time.Time
 }
+
+type connectionSchedule struct {
+	consecutiveSuccesses int
+	nextCheckAt          time.Time
+}
+
+const maximumStableCheckInterval = 10 * time.Minute
 
 type connectionCatalog interface {
 	ports.EnvironmentCatalog
@@ -27,7 +38,7 @@ func NewConnectionMonitor(
 	store connectionCatalog,
 	probers map[domain.ConnectionType]ports.ConnectionProber,
 ) *ConnectionMonitor {
-	return &ConnectionMonitor{store: store, probers: probers}
+	return &ConnectionMonitor{store: store, probers: probers, schedules: map[string]connectionSchedule{}, now: time.Now}
 }
 
 func (m *ConnectionMonitor) Check(ctx context.Context, connectionID string) (domain.ConnectionCheck, error) {
@@ -40,12 +51,12 @@ func (m *ConnectionMonitor) Check(ctx context.Context, connectionID string) (dom
 	if connection == nil {
 		return domain.ConnectionCheck{}, fmt.Errorf("environment connection %q was not found", connectionID)
 	}
-	started := time.Now()
+	started := m.now()
 	health := ports.ConnectionHealth{Message: "no connection prober is configured"}
 	if prober := m.probers[connection.Type]; prober != nil {
 		health = prober.Probe(ctx, *connection)
 	}
-	checkedAt := time.Now().UTC()
+	checkedAt := m.now().UTC()
 	status := domain.ConnectionOffline
 	environmentStatus := domain.EnvironmentUnreachable
 	if health.Healthy {
@@ -55,7 +66,7 @@ func (m *ConnectionMonitor) Check(ctx context.Context, connectionID string) (dom
 	check := domain.ConnectionCheck{
 		ID: fmt.Sprintf("connection-check-%d", checkedAt.UnixNano()), ConnectionID: connection.ID,
 		Status: status, Message: health.Message,
-		LatencyMS: float64(time.Since(started).Microseconds()) / 1000, CheckedAt: checkedAt,
+		LatencyMS: float64(m.now().Sub(started).Microseconds()) / 1000, CheckedAt: checkedAt,
 		Metadata: map[string]any{"endpoint": connection.Endpoint, "connectionType": connection.Type},
 	}
 	if err := m.store.SaveConnectionCheck(ctx, check); err != nil {
@@ -64,6 +75,7 @@ func (m *ConnectionMonitor) Check(ctx context.Context, connectionID string) (dom
 	if err := m.store.UpdateStatus(ctx, connection.EnvironmentID, environmentStatus); err != nil {
 		return domain.ConnectionCheck{}, err
 	}
+	m.recordResult(connection.ID, status, checkedAt)
 	return check, nil
 }
 
@@ -85,6 +97,9 @@ func (m *ConnectionMonitor) CheckAll(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
+			if !m.isDue(connection.ID, m.now()) {
+				continue
+			}
 			_, _ = m.Check(ctx, connection.ID)
 		}
 	}
@@ -92,7 +107,7 @@ func (m *ConnectionMonitor) CheckAll(ctx context.Context) {
 
 func (m *ConnectionMonitor) Run(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
-		interval = 30 * time.Second
+		interval = time.Minute
 	}
 	m.CheckAll(ctx)
 	ticker := time.NewTicker(interval)
@@ -104,5 +119,38 @@ func (m *ConnectionMonitor) Run(ctx context.Context, interval time.Duration) {
 		case <-ticker.C:
 			m.CheckAll(ctx)
 		}
+	}
+}
+
+func (m *ConnectionMonitor) isDue(connectionID string, now time.Time) bool {
+	m.scheduleMu.Lock()
+	defer m.scheduleMu.Unlock()
+	schedule, found := m.schedules[connectionID]
+	return !found || !now.Before(schedule.nextCheckAt)
+}
+
+func (m *ConnectionMonitor) recordResult(connectionID string, status domain.ConnectionStatus, checkedAt time.Time) {
+	m.scheduleMu.Lock()
+	defer m.scheduleMu.Unlock()
+	schedule := m.schedules[connectionID]
+	if status == domain.ConnectionOnline {
+		schedule.consecutiveSuccesses++
+	} else {
+		schedule.consecutiveSuccesses = 0
+	}
+	schedule.nextCheckAt = checkedAt.Add(adaptiveCheckInterval(schedule.consecutiveSuccesses))
+	m.schedules[connectionID] = schedule
+}
+
+func adaptiveCheckInterval(consecutiveSuccesses int) time.Duration {
+	switch {
+	case consecutiveSuccesses >= 30:
+		return maximumStableCheckInterval
+	case consecutiveSuccesses >= 15:
+		return 5 * time.Minute
+	case consecutiveSuccesses >= 5:
+		return 2 * time.Minute
+	default:
+		return time.Minute
 	}
 }

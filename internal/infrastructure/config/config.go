@@ -32,7 +32,7 @@ func Load() Settings {
 		HTTPAddress: ":8080", DefaultNamespace: "akoflow",
 		KubernetesCleanupEnabled: true, KubernetesCleanupInterval: 15 * time.Minute,
 		KubernetesHistoryRetention: 24 * time.Hour,
-		ConnectionCheckInterval:    30 * time.Second,
+		ConnectionCheckInterval:    time.Minute,
 		SlurmScriptDirectory:       "storage/slurm/scripts",
 		SSHKeyDirectory:            "storage/credentials/ssh",
 		SimulationBackend:          "simgrid",
