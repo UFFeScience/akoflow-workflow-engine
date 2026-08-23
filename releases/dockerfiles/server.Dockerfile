@@ -51,6 +51,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgpgme11 \
     libfuse3-4 \
     openssh-client \
+    kubernetes-client \
     squashfs-tools \
     uidmap \
  && rm -rf /var/lib/apt/lists/*

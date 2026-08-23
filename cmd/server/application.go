@@ -78,7 +78,7 @@ func newApplication(ctx context.Context, settings config.Settings, log *logger.L
 		controller := applicationconsole.NewCommandController(storage.environments, storage.resources, storage.console,
 			slurm.ConsoleRunner{Executor: provider.OSCommandExecutor{}}, storage.audit)
 		consoleCommands = controller
-		terminal = applicationconsole.NewTerminalController(controller, slurm.TerminalRunner{}, storage.audit, storage.console)
+		terminal = applicationconsole.NewTerminalController(controller, terminalRunner{kubernetes: kubernetes.TerminalRunner{Fallback: kubernetes.ClientConfig{Endpoint: settings.KubernetesAPIServer, Token: settings.KubernetesToken, CAFile: settings.KubernetesCAFile, InsecureSkipTLSVerify: settings.KubernetesInsecureSkipTLS}}, slurm: slurm.TerminalRunner{}}, storage.audit, storage.console)
 	}
 	api, err := buildAPI(storage, settings, connectionMonitor, discovery, consoleCommands, terminal, sshkey.New(settings.SSHKeyDirectory))
 	if err != nil {
