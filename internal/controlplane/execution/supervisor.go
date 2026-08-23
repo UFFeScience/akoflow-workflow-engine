@@ -190,7 +190,7 @@ func (s *Supervisor) startReadyActivities(
 			if prepareErr != nil {
 				return fmt.Errorf("prepare activity %q: %w", activityID, prepareErr)
 			}
-		} else if activity.Command.Executable != nil {
+		} else if activity.Command.Executable != nil && activity.Command.Executable.Source.Type == domain.ExecutableSourceType("build") {
 			// Authored executable references are location-independent contracts.
 			// Running them without a generated preparation requirement would let a
 			// provider fall back to a caller supplied path/image and bypass the
