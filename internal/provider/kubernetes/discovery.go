@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/UFFeScience/akoflow/internal/application/ports"
@@ -83,14 +84,41 @@ func (d *Discovery) DiscoverConnection(ctx context.Context, connection domain.En
 	// interactive direct resource so the Cloud Shell can enter the same node
 	// that hosts the local Kubernetes API. Other Kubernetes providers need a
 	// pod-exec implementation and are intentionally not represented as shells.
-	if contextName := configString(connection.Configuration, "context"); strings.HasPrefix(contextName, "kind-") && len(names) > 0 {
+	if contextName := configString(connection.Configuration, "context"); strings.HasPrefix(contextName, "kind-") && len(nodes.Items) > 0 {
 		clusterName := strings.TrimPrefix(contextName, "kind-")
-		result.LoginNode = &ports.DiscoveredLoginNode{Name: names[0], Architecture: "", Metadata: map[string]any{
-			"role": "kind-control-plane", "interactiveDockerContainer": clusterName + "-control-plane",
-			"interactive": true, "kindContext": contextName,
-		}}
+		node := nodes.Items[0]
+		result.LoginNode = &ports.DiscoveredLoginNode{Name: node.Metadata.Name, Architecture: node.Status.NodeInfo.Architecture,
+			CPUCores: kubernetesCPUCores(node.Status.Allocatable["cpu"]), MemoryBytes: kubernetesBytes(node.Status.Allocatable["memory"]), Metadata: map[string]any{
+				"role": "kind-control-plane", "interactiveDockerContainer": clusterName + "-control-plane",
+				"interactive": true, "kindContext": contextName,
+			}}
 	}
 	return result, nil
+}
+
+func kubernetesCPUCores(value string) int {
+	value = strings.TrimSpace(value)
+	if strings.HasSuffix(value, "m") {
+		milli, _ := strconv.Atoi(strings.TrimSuffix(value, "m"))
+		return max(1, (milli+999)/1000)
+	}
+	cores, _ := strconv.Atoi(value)
+	return cores
+}
+
+func kubernetesBytes(value string) int64 {
+	value = strings.TrimSpace(value)
+	for _, unit := range []struct {
+		suffix     string
+		multiplier int64
+	}{{"Ki", 1024}, {"Mi", 1024 * 1024}, {"Gi", 1024 * 1024 * 1024}} {
+		if strings.HasSuffix(value, unit.suffix) {
+			amount, _ := strconv.ParseFloat(strings.TrimSuffix(value, unit.suffix), 64)
+			return int64(amount * float64(unit.multiplier))
+		}
+	}
+	amount, _ := strconv.ParseInt(value, 10, 64)
+	return amount
 }
 
 func mapKeys(values map[string]bool) []string {
