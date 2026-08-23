@@ -9,6 +9,32 @@
 
 # AkôFlow - Open Source Engine for Containerized Scientific Workflows
 
+## Database lifecycle
+
+The SQLite database is installed from one canonical schema and is not
+migrated between schema shapes. When an engine reports an incompatible
+database, stop it, remove the configured SQLite database file, and start it
+again to create a clean database. Export any data that must be retained before
+removing the file.
+
+## Docker build service
+
+The Compose stack runs the API, a rootless BuildKit daemon, and a persistent
+artifact-store volume. It does **not** mount `/var/run/docker.sock`.
+
+```sh
+cp .env.example .env
+# edit both values in .env
+docker compose up --build
+```
+
+`AKOFLOW_API_TOKEN` is mandatory when the container listens on `0.0.0.0`; send
+it as `Authorization: Bearer <token>`. Set `AKOFLOW_API_ALLOWED_ORIGINS` to the
+specific Admin UI origins allowed to make browser requests. BuildKit produces
+OCI archives. The server image includes a native-architecture Apptainer build
+and can convert OCI to SIF; Compose grants `/dev/fuse` and `SYS_ADMIN` solely
+for that operation, not Docker host control.
+
 ## Executable and workspace delivery
 
 An activity declares how its executable is obtained. The planner resolves it

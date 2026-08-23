@@ -1,0 +1,37 @@
+services:
+  akoflow-server:
+    build:
+      context: .
+      dockerfile: releases/dockerfiles/server.Dockerfile
+    environment:
+      AKOFLOW_HTTP_ADDRESS: 0.0.0.0:8080
+      AKOFLOW_API_TOKEN: ${AKOFLOW_API_TOKEN:?set AKOFLOW_API_TOKEN in .env}
+      AKOFLOW_API_ALLOWED_ORIGINS: ${AKOFLOW_API_ALLOWED_ORIGINS:?set AKOFLOW_API_ALLOWED_ORIGINS in .env}
+      AKOFLOW_ARTIFACT_STORE_ROOT: /var/lib/akoflow/artifacts
+      AKOFLOW_BUILDCTL: buildctl
+      AKOFLOW_APPTAINER: apptainer
+      BUILDKIT_HOST: tcp://buildkitd:1234
+    volumes:
+      - artifact-store:/var/lib/akoflow/artifacts
+    ports:
+      - "8080:8080"
+    depends_on:
+      buildkitd:
+        condition: service_started
+    # Apptainer needs mount/fuse support to create SIF. This grants only that
+    # capability; the Docker socket is intentionally never mounted.
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - /dev/fuse:/dev/fuse
+    security_opt:
+      - apparmor:unconfined
+  buildkitd:
+    image: moby/buildkit:rootless
+    command: ["buildkitd", "--addr", "tcp://0.0.0.0:1234", "--oci-worker-no-process-sandbox"]
+    volumes:
+      - buildkit-state:/var/lib/buildkit
+      - artifact-store:/var/lib/akoflow/artifacts
+volumes:
+  artifact-store:
+  buildkit-state:
