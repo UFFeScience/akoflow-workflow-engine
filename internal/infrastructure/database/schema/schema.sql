@@ -536,6 +536,21 @@ CREATE TABLE console_commands (
 CREATE INDEX console_commands_created_idx ON console_commands(created_at DESC);
 CREATE INDEX console_commands_resource_idx ON console_commands(resource_id, created_at DESC);
 
+CREATE TABLE console_sessions (
+    id TEXT PRIMARY KEY,
+    resource_id TEXT NOT NULL REFERENCES resources(id),
+    runtime_id TEXT NOT NULL,
+    connection_id TEXT NOT NULL,
+    actor_id TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL CHECK(status IN ('starting','connected','closed','failed')),
+    external_id TEXT NOT NULL DEFAULT '',
+    failure TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL,
+    connected_at DATETIME,
+    finished_at DATETIME
+);
+CREATE INDEX console_sessions_created_idx ON console_sessions(created_at DESC);
+
 CREATE TABLE console_session_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL,

@@ -39,6 +39,9 @@ func migrateSchema(ctx context.Context, db *sql.DB) error {
 	if version == schema.Version {
 		return nil
 	}
+	if version == 6 && schema.Version == 7 {
+		return migrateV6ToV7(ctx, db)
+	}
 	if version == 5 && schema.Version == 6 {
 		return migrateV5ToV6(ctx, db)
 	}
@@ -72,6 +75,27 @@ func migrateSchema(ctx context.Context, db *sql.DB) error {
 	if _, err := tx.ExecContext(ctx, `UPDATE schema_metadata SET version=?, applied_at=?, checksum=?`,
 		schema.Version, time.Now().UTC(), schemaChecksum()); err != nil {
 		return fmt.Errorf("update schema metadata: %w", err)
+	}
+	return tx.Commit()
+}
+
+func migrateV6ToV7(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `CREATE TABLE console_sessions (
+		id TEXT PRIMARY KEY, resource_id TEXT NOT NULL REFERENCES resources(id), runtime_id TEXT NOT NULL,
+		connection_id TEXT NOT NULL, actor_id TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL CHECK(status IN ('starting','connected','closed','failed')),
+		external_id TEXT NOT NULL DEFAULT '', failure TEXT NOT NULL DEFAULT '', created_at DATETIME NOT NULL,
+		connected_at DATETIME, finished_at DATETIME);
+		CREATE INDEX console_sessions_created_idx ON console_sessions(created_at DESC);`); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE schema_metadata SET version=?, applied_at=?, checksum=?`, schema.Version, time.Now().UTC(), schemaChecksum()); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

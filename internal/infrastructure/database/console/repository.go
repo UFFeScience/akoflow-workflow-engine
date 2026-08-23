@@ -17,6 +17,16 @@ var _ ports.ConsoleSessionLogStore = (*Repository)(nil)
 
 func New(db *sql.DB) *Repository { return &Repository{db: db} }
 
+func (r *Repository) SaveConsoleSession(ctx context.Context, session domainconsole.Session) error {
+	_, err := r.db.ExecContext(ctx, `INSERT INTO console_sessions
+		(id,resource_id,runtime_id,connection_id,actor_id,status,external_id,failure,created_at,connected_at,finished_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,
+		external_id=excluded.external_id,failure=excluded.failure,connected_at=excluded.connected_at,finished_at=excluded.finished_at`,
+		session.ID, session.ResourceID, session.RuntimeID, session.ConnectionID, session.ActorID,
+		session.Status, session.ExternalID, session.Failure, session.CreatedAt, session.ConnectedAt, session.FinishedAt)
+	return err
+}
+
 func (r *Repository) SaveConsoleCommand(ctx context.Context, command domainconsole.Command) error {
 	environment, err := json.Marshal(command.Environment)
 	if err != nil {

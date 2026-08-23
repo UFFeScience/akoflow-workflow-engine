@@ -48,6 +48,7 @@ type InteractiveConsoleRunner interface {
 }
 
 type ConsoleSessionLogStore interface {
+	SaveConsoleSession(context.Context, domainconsole.Session) error
 	AppendConsoleSessionLog(context.Context, string, string, []byte, time.Time) error
 	ReadConsoleSessionLog(context.Context, string) ([]byte, error)
 }

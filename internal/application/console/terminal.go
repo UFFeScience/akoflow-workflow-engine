@@ -62,17 +62,31 @@ func (c *TerminalController) OpenSession(ctx context.Context, request domaincons
 	}
 	now := time.Now().UTC()
 	value := domainconsole.Session{ID: provider.NewID("console-session"), ResourceID: resource.ID, RuntimeID: runtime.ID, ConnectionID: connection.ID, ActorID: request.ActorID, Status: domainconsole.SessionStarting, CreatedAt: now}
+	if c.logs != nil {
+		if err := c.logs.SaveConsoleSession(ctx, value); err != nil {
+			return domainconsole.Session{}, fmt.Errorf("persist interactive session: %w", err)
+		}
+	}
 	c.record(value, environmentID, "console.session.started", domainaudit.OutcomeStarted, "Interactive terminal requested")
 	terminal, err := c.runner.StartInteractive(ctx, connection, *resource)
 	if err != nil {
 		value.Status, value.Failure = domainconsole.SessionFailed, err.Error()
 		finished := time.Now().UTC()
 		value.FinishedAt = &finished
+		if c.logs != nil {
+			_ = c.logs.SaveConsoleSession(context.Background(), value)
+		}
 		c.record(value, environmentID, "console.session.failed", domainaudit.OutcomeFailed, value.Failure)
 		return value, err
 	}
 	connected := time.Now().UTC()
 	value.Status, value.ConnectedAt = domainconsole.SessionConnected, &connected
+	if c.logs != nil {
+		if err := c.logs.SaveConsoleSession(ctx, value); err != nil {
+			_ = terminal.Close()
+			return domainconsole.Session{}, fmt.Errorf("persist connected interactive session: %w", err)
+		}
+	}
 	session := &liveSession{value: value, terminal: terminal, environment: environmentID, clients: map[*terminalClient]struct{}{}}
 	c.mu.Lock()
 	c.sessions[value.ID] = session
@@ -225,6 +239,9 @@ func (c *TerminalController) closeSession(session *liveSession) {
 		_ = session.terminal.Close()
 		finished := time.Now().UTC()
 		session.value.Status, session.value.FinishedAt = domainconsole.SessionClosed, &finished
+		if c.logs != nil {
+			_ = c.logs.SaveConsoleSession(context.Background(), session.value)
+		}
 		c.mu.Lock()
 		delete(c.sessions, session.value.ID)
 		c.mu.Unlock()
