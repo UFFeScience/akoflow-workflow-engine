@@ -21,12 +21,32 @@ type processResult struct {
 	log        string
 }
 
+type logBuffer struct {
+	mu sync.RWMutex
+	bytes.Buffer
+}
+
+func (b *logBuffer) Write(payload []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.Buffer.Write(payload)
+}
+
+func (b *logBuffer) String() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.Buffer.String()
+}
+
 type Adapter struct {
 	mu      sync.RWMutex
 	results map[string]processResult
+	logs    map[string]*logBuffer
 }
 
-func New() *Adapter { return &Adapter{results: make(map[string]processResult)} }
+func New() *Adapter {
+	return &Adapter{results: make(map[string]processResult), logs: make(map[string]*logBuffer)}
+}
 func (*Adapter) Modes() []domain.ExecutionMode {
 	return []domain.ExecutionMode{domain.ExecutionModeReal, domain.ExecutionModeInteractive}
 }
@@ -39,8 +59,8 @@ func (a *Adapter) Start(_ context.Context, execution domain.ActivityExecutionCon
 	command := exec.Command(activity.Command.Entrypoint, activity.Command.Arguments...)
 	command.Dir = activity.Command.WorkingDirectory
 	command.Env = os.Environ()
-	var output bytes.Buffer
-	command.Stdout, command.Stderr = &output, &output
+	output := &logBuffer{}
+	command.Stdout, command.Stderr = output, output
 	for key, value := range activity.Command.Environment {
 		command.Env = append(command.Env, key+"="+value)
 	}
@@ -52,6 +72,9 @@ func (a *Adapter) Start(_ context.Context, execution domain.ActivityExecutionCon
 		RuntimeID: execution.RuntimeID, ExternalID: strconv.Itoa(command.Process.Pid),
 		Status: domain.HandleRunning, StartedAt: runtimecommon.UnixSeconds(time.Now()),
 		Endpoints: localEndpoints(activity)}
+	a.mu.Lock()
+	a.logs[handle.ID] = output
+	a.mu.Unlock()
 	go func(id string) {
 		err := command.Wait()
 		exitCode := command.ProcessState.ExitCode()
@@ -77,6 +100,12 @@ func (a *Adapter) Inspect(_ context.Context, handle domain.ActivityHandle) (doma
 			handle.Status = domain.HandleCompleted
 		}
 		return handle, nil
+	}
+	a.mu.RLock()
+	output := a.logs[handle.ID]
+	a.mu.RUnlock()
+	if output != nil {
+		handle.Log = output.String()
 	}
 	// A short-lived process can exit after the results lookup above but before
 	// its Wait goroutine persists the final result. Keep it running for this
