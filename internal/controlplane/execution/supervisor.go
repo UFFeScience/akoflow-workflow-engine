@@ -190,6 +190,12 @@ func (s *Supervisor) startReadyActivities(
 			if prepareErr != nil {
 				return fmt.Errorf("prepare activity %q: %w", activityID, prepareErr)
 			}
+		} else if activity.Command.Executable != nil {
+			// Authored executable references are location-independent contracts.
+			// Running them without a generated preparation requirement would let a
+			// provider fall back to a caller supplied path/image and bypass the
+			// materialization gate.
+			return fmt.Errorf("activity %q has an executable reference but no preparation requirement", activityID)
 		}
 		handle, err := s.activities.Start(ctx, domain.ActivityExecutionContext{
 			Run: request.Run, Workflow: request.Workflow, Activity: activity,

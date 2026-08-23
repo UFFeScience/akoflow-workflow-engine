@@ -80,7 +80,7 @@ func newApplication(ctx context.Context, settings config.Settings, log *logger.L
 		consoleCommands = controller
 		terminal = applicationconsole.NewTerminalController(controller, slurm.TerminalRunner{}, storage.audit, storage.console)
 	}
-	api, err := buildAPI(storage, connectionMonitor, discovery, consoleCommands, terminal, sshkey.New(settings.SSHKeyDirectory))
+	api, err := buildAPI(storage, settings, connectionMonitor, discovery, consoleCommands, terminal, sshkey.New(settings.SSHKeyDirectory))
 	if err != nil {
 		return fail(err)
 	}

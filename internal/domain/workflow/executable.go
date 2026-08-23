@@ -61,9 +61,10 @@ type ExecutableSource struct {
 	ResourceRef    string               `json:"resourceRef,omitempty"`
 	ExpectedDigest string               `json:"expectedDigest,omitempty"`
 	Format         ExecutableFormat     `json:"format,omitempty"`
-	Context        *BuildContext        `json:"context,omitempty"`
-	Recipe         *BuildRecipe         `json:"recipe,omitempty"`
-	CredentialRef  string               `json:"credentialRef,omitempty"`
+	// ArtifactBuildRef identifies an immutable, server-created build
+	// specification. Authored workflows never contain browser/host paths.
+	ArtifactBuildRef string `json:"artifactBuildRef,omitempty"`
+	CredentialRef    string `json:"credentialRef,omitempty"`
 }
 
 type ArtifactReference struct {
@@ -71,15 +72,6 @@ type ArtifactReference struct {
 	Version string `json:"version,omitempty"`
 }
 
-type BuildContext struct {
-	Type string `json:"type"`
-	Path string `json:"path"`
-}
-
-type BuildRecipe struct {
-	Type string `json:"type"`
-	Path string `json:"path"`
-}
 type ExecutableDelivery struct {
 	Strategy     DeliveryStrategy `json:"strategy,omitempty"`
 	TargetFormat ExecutableFormat `json:"targetFormat,omitempty"`
@@ -125,8 +117,8 @@ func (e ExecutableReference) Validate() error {
 			return fmt.Errorf("%s executable requires source.reference", e.Source.Type)
 		}
 	case ExecutableSourceBuild:
-		if e.Source.Context == nil || e.Source.Context.Path == "" || e.Source.Recipe == nil || e.Source.Recipe.Path == "" {
-			return fmt.Errorf("build executable requires source.context.path and source.recipe.path")
+		if e.Source.ArtifactBuildRef == "" {
+			return fmt.Errorf("build executable requires source.artifactBuildRef")
 		}
 	case ExecutableSourceLocalFile:
 		if e.Source.Path == "" {

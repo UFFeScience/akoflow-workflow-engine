@@ -28,6 +28,21 @@ func (s *Controller) Start(ctx context.Context, execution domain.ActivityExecuti
 	if err := execution.Activity.Validate(); err != nil {
 		return domain.ActivityHandle{}, err
 	}
+	// This is intentionally enforced at the final execution boundary as well as
+	// by the supervisor. A caller cannot bypass a failed materialization by
+	// constructing an ActivityExecutionContext directly.
+	if execution.Preparation != nil {
+		if err := execution.Preparation.Ready(); err != nil {
+			return domain.ActivityHandle{}, fmt.Errorf("activity preparation is not ready: %w", err)
+		}
+		if executable := execution.Preparation.Executable; executable != nil {
+			execution.Activity.Command.ResolvedExecutable = &domain.ResolvedExecutable{
+				VariantID: executable.VariantID, Digest: executable.Digest, LocalPath: executable.DestinationPath,
+				EnvironmentID: executable.EnvironmentID, ResourceID: executable.ResourceID,
+				MaterializationID: executable.ID, MaterializationDone: executable.Committed(),
+			}
+		}
+	}
 	capability, err := capabilityFor(execution.Run.Mode)
 	if err != nil {
 		return domain.ActivityHandle{}, err

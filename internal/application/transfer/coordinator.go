@@ -43,6 +43,11 @@ func (c Coordinator) Prepare(ctx context.Context, _ string, requirement domain.P
 		}
 		// Workspace uses the same verified content transport. Artifact fields are
 		// a small adapter around the common materializer.
+		// Do not use a sentinel digest as proof of a workspace: each content blob
+		// in the plan must be verified before the workspace can be committed.
+		if len(requirement.Workspace.Missing) == 0 {
+			requirement.Workspace.Missing = append([]domain.BlobDescriptor(nil), requirement.WorkspaceTransfer.Blobs...)
+		}
 		result, run, err := c.Materializer.Materialize(ctx, *requirement.WorkspaceTransfer, domain.ArtifactMaterialization{ID: requirement.Workspace.ID, Digest: "workspace"})
 		if err != nil {
 			return nil, err

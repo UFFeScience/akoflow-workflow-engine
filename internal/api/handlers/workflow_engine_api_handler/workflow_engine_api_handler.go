@@ -13,6 +13,7 @@ import (
 	"time"
 
 	apirequests "github.com/UFFeScience/akoflow/internal/api/requests"
+	applicationbuild "github.com/UFFeScience/akoflow/internal/application/build"
 	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/controlplane/eventloop"
 	"github.com/UFFeScience/akoflow/internal/domain"
@@ -53,6 +54,11 @@ type StorageNavigator interface {
 	StartIndex(context.Context, string, string) (domain.IndexRun, error)
 	Delete(context.Context, string, string) error
 }
+type BuildOrchestrator interface {
+	Upload(context.Context, io.Reader) (domain.BuildContextArtifact, error)
+	Start(context.Context, domain.ArtifactBuild) (domain.BuildRun, error)
+	MaxUploadBytes() int64
+}
 
 type Dependencies struct {
 	Environments ports.EnvironmentCatalog
@@ -73,6 +79,7 @@ type Dependencies struct {
 	Console      ports.ConsoleCommands
 	Terminal     ports.InteractiveConsole
 	Storage      StorageNavigator
+	Build        BuildOrchestrator
 }
 
 type Handler struct {
@@ -94,6 +101,7 @@ type Handler struct {
 	console      ports.ConsoleCommands
 	terminal     ports.InteractiveConsole
 	storage      StorageNavigator
+	build        BuildOrchestrator
 }
 
 func New(dependencies Dependencies) (*Handler, error) {
@@ -116,6 +124,7 @@ func New(dependencies Dependencies) (*Handler, error) {
 		console:     dependencies.Console,
 		terminal:    dependencies.Terminal,
 		storage:     dependencies.Storage,
+		build:       dependencies.Build,
 	}, nil
 }
 
@@ -789,6 +798,104 @@ func (h *Handler) SaveArtifactMaterialization(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusCreated, value)
 }
 
+// SaveBuildContext records metadata for bytes already uploaded to the artifact
+// store. It deliberately accepts no local path: browser paths are never build
+// contexts on the server.
+func (h *Handler) SaveBuildContext(w http.ResponseWriter, r *http.Request) {
+	if h.build != nil && strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		r.Body = http.MaxBytesReader(w, r.Body, h.build.MaxUploadBytes()+1<<20)
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			writeError(w, http.StatusRequestEntityTooLarge, err)
+			return
+		}
+		file, _, err := r.FormFile("context")
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("multipart field context is required: %w", err))
+			return
+		}
+		defer file.Close()
+		value, err := h.build.Upload(r.Context(), file)
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, value)
+		return
+	}
+	var value domain.BuildContextArtifact
+	if !decode(w, r, &value) {
+		return
+	}
+	if value.Digest == "" || value.StorageURI == "" || value.SizeBytes < 1 {
+		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("digest, storageUri and positive sizeBytes are required"))
+		return
+	}
+	if err := h.data.SaveBuildContext(r.Context(), value); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, value)
+}
+func (h *Handler) CreateArtifactBuild(w http.ResponseWriter, r *http.Request) {
+	var value domain.ArtifactBuild
+	if !decode(w, r, &value) {
+		return
+	}
+	if value.ID == "" || value.ArtifactVersionID == "" || value.ContextDigest == "" || value.RecipeDigest == "" || value.CacheKey == "" {
+		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("id, artifactVersionId, contextDigest, recipeDigest and cacheKey are required"))
+		return
+	}
+	if existing, err := h.data.FindArtifactBuildByCacheKey(r.Context(), value.CacheKey); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	} else if existing != nil {
+		writeJSON(w, http.StatusOK, existing)
+		return
+	}
+	if contextArtifact, err := h.data.FindBuildContext(r.Context(), value.ContextDigest); err != nil || contextArtifact == nil {
+		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("build context %q is not uploaded", value.ContextDigest))
+		return
+	}
+	if err := h.data.SaveArtifactBuild(r.Context(), value); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, value)
+}
+func (h *Handler) GetArtifactBuild(w http.ResponseWriter, r *http.Request) {
+	value, err := h.data.FindArtifactBuild(r.Context(), r.PathValue("buildId"))
+	writeItem(w, value, err)
+}
+func (h *Handler) ListBuildRuns(w http.ResponseWriter, r *http.Request) {
+	values, err := h.data.ListBuildRuns(r.Context(), r.PathValue("buildId"))
+	writeList(w, values, err)
+}
+func (h *Handler) GetBuildRun(w http.ResponseWriter, r *http.Request) {
+	value, err := h.data.FindBuildRun(r.Context(), r.PathValue("runId"))
+	writeItem(w, value, err)
+}
+func (h *Handler) StartArtifactBuildRun(w http.ResponseWriter, r *http.Request) {
+	if h.build == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("build service is unavailable"))
+		return
+	}
+	spec, err := h.data.FindArtifactBuild(r.Context(), r.PathValue("buildId"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if spec == nil {
+		writeError(w, http.StatusNotFound, fmt.Errorf("artifact build not found"))
+		return
+	}
+	run, err := h.build.Start(r.Context(), *spec)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, run)
+}
+
 func (h *Handler) CreateEnvironment(w http.ResponseWriter, r *http.Request) {
 	var definition domain.EnvironmentDefinition
 	if !decode(w, r, &definition) {
@@ -863,6 +970,10 @@ func (h *Handler) CreateExecution(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &request) {
 		return
 	}
+	if err := h.resolveBuildPreparations(r.Context(), &request); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
 	request.Run.SchedulePlanID = request.Plan.ID
 	payload, err := json.Marshal(request)
 	if err != nil {
@@ -882,6 +993,40 @@ func (h *Handler) CreateExecution(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, stored)
+}
+
+func (h *Handler) resolveBuildPreparations(ctx context.Context, request *ports.ExecutionRequest) error {
+	resources := make(map[string]domain.Resource, len(request.Resources))
+	for _, resource := range request.Resources {
+		resources[resource.ID] = resource
+	}
+	assignments := make(map[string]domain.PlanAssignment, len(request.Plan.Assignments))
+	for _, assignment := range request.Plan.Assignments {
+		assignments[assignment.ActivityID] = assignment
+	}
+	resolver := applicationbuild.OutputResolver{Catalog: h.data}
+	for _, activity := range request.Workflow.Activities {
+		if activity.Command.Executable == nil || activity.Command.Executable.Source.Type != domain.ExecutableSourceType("build") {
+			continue
+		}
+		assignment, ok := assignments[activity.ID]
+		if !ok {
+			return fmt.Errorf("build activity %q has no plan assignment", activity.ID)
+		}
+		resource, ok := resources[assignment.ResourceID]
+		if !ok {
+			return fmt.Errorf("build activity %q has unknown resource %q", activity.ID, assignment.ResourceID)
+		}
+		requirement, err := resolver.Preparation(ctx, activity.Command.Executable.Source.ArtifactBuildRef, activity.ID, resource, "")
+		if err != nil {
+			return err
+		}
+		if request.PreparationRequirementsByActivity == nil {
+			request.PreparationRequirementsByActivity = make(map[string]domain.PreparationRequirement)
+		}
+		request.PreparationRequirementsByActivity[activity.ID] = requirement
+	}
+	return nil
 }
 
 func decode(w http.ResponseWriter, r *http.Request, target any) bool {
