@@ -130,6 +130,41 @@ type DataTransferRun struct {
 	Error           string           `json:"error,omitempty"`
 }
 
+// ArtifactBuild is an immutable build specification. Context and recipe are
+// addressed by digest so retries are reproducible.
+type ArtifactBuild struct {
+	ID                 string `json:"id"`
+	ArtifactVersionID  string `json:"artifactVersionId"`
+	SourceType         string `json:"sourceType"`
+	ContextDigest      string `json:"contextDigest"`
+	RecipePath         string `json:"recipePath,omitempty"`
+	RecipeDigest       string `json:"recipeDigest"`
+	TargetFormat       string `json:"targetFormat"`
+	TargetOS           string `json:"targetOs"`
+	TargetArchitecture string `json:"targetArchitecture"`
+	BuildArguments     string `json:"buildArguments,omitempty"`
+	CacheKey           string `json:"cacheKey"`
+}
+
+type BuildRun struct {
+	ID              string `json:"id"`
+	ArtifactBuildID string `json:"artifactBuildId"`
+	Status          string `json:"status"`
+	OutputVariantID string `json:"outputVariantId,omitempty"`
+	OutputDigest    string `json:"outputDigest,omitempty"`
+	Logs            string `json:"logs,omitempty"`
+	Error           string `json:"error,omitempty"`
+}
+
+// BuildContextArtifact identifies an uploaded, immutable build context. The
+// bytes are owned by the artifact store; the database stores only its metadata.
+type BuildContextArtifact struct {
+	Digest     string `json:"digest"`
+	StorageURI string `json:"storageUri"`
+	SizeBytes  int64  `json:"sizeBytes"`
+	MediaType  string `json:"mediaType,omitempty"`
+}
+
 type WorkspaceBlob struct {
 	Path      string `json:"path"`
 	Digest    string `json:"digest"`

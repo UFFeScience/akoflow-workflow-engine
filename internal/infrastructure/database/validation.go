@@ -5,62 +5,33 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
+	"sort"
 
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database/schema"
 )
 
 var ErrIncompatibleSchema = errors.New("database schema is incompatible; recreate the database")
 
-var requiredTables = []string{
-	"schema_metadata",
-	"environments",
-	"environment_connections",
-	"environment_connection_checks",
-	"simulation_engines",
-	"simulation_scenarios",
-	"simulation_runs",
-	"audit_events",
-	"console_commands",
-	"console_session_logs",
-	"environment_versions",
-	"environment_runtimes",
-	"environment_runtime_capabilities",
-	"discovery_runs",
-	"resources",
-	"resource_runtime_bindings",
-	"resource_snapshots",
-	"resource_relations",
-	"execution_scopes",
-	"execution_scope_environments",
-	"network_links",
-	"network_topologies",
-	"workflow_definitions",
-	"workflow_versions",
-	"activity_types",
-	"activity_definitions",
-	"activity_dependencies",
-	"activity_resource_profiles",
-	"schedule_plans",
-	"schedule_plan_assignments",
-	"execution_runs",
-	"task_executions",
-	"activity_lifecycle_events",
-	"activity_handles",
-	"data_objects",
-	"data_object_instances",
-	"storage_resources",
-	"storage_runtime_bindings",
-	"data_locations",
-	"data_transfers",
-	"queue_jobs",
-	"domain_events",
+var createTable = regexp.MustCompile(`(?im)CREATE\s+TABLE\s+([a-z_][a-z0-9_]*)\s*\(`)
+
+// requiredTables is derived from the canonical SQL so validation cannot drift
+// when a table is added to the schema.
+func requiredTables() []string {
+	matches := createTable.FindAllStringSubmatch(schema.SQL, -1)
+	values := make([]string, 0, len(matches))
+	for _, match := range matches {
+		values = append(values, match[1])
+	}
+	sort.Strings(values)
+	return values
 }
 
 func Validate(ctx context.Context, db *sql.DB) error {
 	if err := validateMetadata(ctx, db); err != nil {
 		return err
 	}
-	for _, table := range requiredTables {
+	for _, table := range requiredTables() {
 		if err := requireTable(ctx, db, table); err != nil {
 			return err
 		}
@@ -69,19 +40,19 @@ func Validate(ctx context.Context, db *sql.DB) error {
 }
 
 func validateMetadata(ctx context.Context, db *sql.DB) error {
-	var version, rows int
+	var rows int
 	var checksum string
 	err := db.QueryRowContext(ctx, `
-		SELECT COUNT(*), COALESCE(MAX(version), 0), COALESCE(MAX(checksum), '')
+		SELECT COUNT(*), COALESCE(MAX(checksum), '')
 		FROM schema_metadata
-	`).Scan(&rows, &version, &checksum)
+	`).Scan(&rows, &checksum)
 	if err != nil {
 		return fmt.Errorf("%w: metadata unavailable: %v", ErrIncompatibleSchema, err)
 	}
-	if rows != 1 || version != schema.Version || checksum != schemaChecksum() {
+	if rows != 1 || checksum != schemaChecksum() {
 		return fmt.Errorf(
-			"%w: expected version %d with checksum %s, found version %d with checksum %s",
-			ErrIncompatibleSchema, schema.Version, schemaChecksum(), version, checksum,
+			"%w: expected checksum %s, found checksum %s",
+			ErrIncompatibleSchema, schemaChecksum(), checksum,
 		)
 	}
 	return nil

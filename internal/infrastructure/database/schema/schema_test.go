@@ -6,9 +6,6 @@ import (
 )
 
 func TestCanonicalSchemaIsEmbedded(t *testing.T) {
-	if Version != 11 {
-		t.Fatalf("schema version = %d", Version)
-	}
 	for _, definition := range []string{
 		"CREATE TABLE schema_metadata",
 		"CREATE TABLE environments",
@@ -24,6 +21,8 @@ func TestCanonicalSchemaIsEmbedded(t *testing.T) {
 		"CREATE TABLE artifact_materializations",
 		"CREATE TABLE storage_download_runs",
 		"CREATE TABLE storage_index_runs",
+		"CREATE TABLE transfer_runs",
+		"CREATE TABLE data_transfer_observations",
 	} {
 		if !strings.Contains(SQL, definition) {
 			t.Errorf("canonical schema does not contain %q", definition)

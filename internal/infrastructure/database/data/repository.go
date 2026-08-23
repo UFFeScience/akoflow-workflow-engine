@@ -172,7 +172,7 @@ func (r *Repository) ListArtifactLocations(ctx context.Context) ([]domain.Artifa
 }
 
 func (r *Repository) ListArtifacts(ctx context.Context) ([]domain.ExecutableArtifact, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT artifact_id, version FROM artifact_versions ORDER BY artifact_id, version`)
+	rows, err := r.db.QueryContext(ctx, `SELECT artifact_id, name, version FROM artifact_versions ORDER BY artifact_id, version, scope, scope_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -180,17 +180,16 @@ func (r *Repository) ListArtifacts(ctx context.Context) ([]domain.ExecutableArti
 	var values []domain.ExecutableArtifact
 	for rows.Next() {
 		var value domain.ExecutableArtifact
-		if err := rows.Scan(&value.ID, &value.Version); err != nil {
+		if err := rows.Scan(&value.ID, &value.Name, &value.Version); err != nil {
 			return nil, err
 		}
-		value.Name = value.ID
 		values = append(values, value)
 	}
 	return values, rows.Err()
 }
 
 func (r *Repository) ListArtifactMaterializations(ctx context.Context, runID string) ([]domain.ArtifactMaterialization, error) {
-	query := `SELECT id, run_id, activity_id, variant_id, digest, resource_id, environment_id, destination_path, status, verified_digest FROM artifact_materializations`
+	query := `SELECT id, COALESCE(run_id, ''), COALESCE(activity_id, ''), variant_id, digest, resource_id, COALESCE(environment_version_id, ''), destination_path, status, verified_digest FROM artifact_materializations`
 	args := []any{}
 	if runID != "" {
 		query += ` WHERE run_id=?`
@@ -214,7 +213,7 @@ func (r *Repository) ListArtifactMaterializations(ctx context.Context, runID str
 }
 func (r *Repository) SaveArtifactMaterialization(ctx context.Context, value domain.ArtifactMaterialization) error {
 	const query = `INSERT INTO artifact_materializations (
-		id,run_id,activity_id,variant_id,digest,resource_id,environment_id,destination_path,status,verified_digest
+		id,run_id,activity_id,variant_id,digest,resource_id,environment_version_id,destination_path,status,verified_digest
 	) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
 		run_id=excluded.run_id,
 		activity_id=excluded.activity_id,
@@ -223,10 +222,210 @@ func (r *Repository) SaveArtifactMaterialization(ctx context.Context, value doma
 		destination_path=excluded.destination_path,
 		updated_at=CURRENT_TIMESTAMP`
 	_, err := r.db.ExecContext(ctx, query,
-		value.ID, value.RunID, value.ActivityID, value.VariantID, value.Digest,
-		value.ResourceID, value.EnvironmentID, value.DestinationPath, value.Status, value.VerifiedDigest,
+		value.ID, nullable(value.RunID), nullable(value.ActivityID), value.VariantID, value.Digest,
+		value.ResourceID, nullable(value.EnvironmentID), value.DestinationPath, value.Status, value.VerifiedDigest,
 	)
 	return err
+}
+
+// SaveTransferRun persists resumable transfer state rather than leaving it in
+// the process memory of a materializer worker.
+func (r *Repository) SaveTransferRun(ctx context.Context, value domain.DataTransferRun) error {
+	verified, err := json.Marshal(value.VerifiedBlobs)
+	if err != nil {
+		return err
+	}
+	chunks, err := json.Marshal(value.CompletedChunks)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(ctx, `INSERT INTO transfer_runs(id,plan_id,strategy,status,verified_blobs,completed_chunks,error)
+		VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, verified_blobs=excluded.verified_blobs,
+		completed_chunks=excluded.completed_chunks, error=excluded.error`, value.ID, value.PlanID, value.Strategy, value.Status, string(verified), string(chunks), value.Error)
+	return err
+}
+
+func (r *Repository) FindTransferRun(ctx context.Context, id string) (*domain.DataTransferRun, error) {
+	var value domain.DataTransferRun
+	var verified, chunks string
+	err := r.db.QueryRowContext(ctx, `SELECT id,plan_id,strategy,status,verified_blobs,completed_chunks,error FROM transfer_runs WHERE id=?`, id).
+		Scan(&value.ID, &value.PlanID, &value.Strategy, &value.Status, &verified, &chunks, &value.Error)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(verified), &value.VerifiedBlobs); err != nil {
+		return nil, fmt.Errorf("decode verified blobs: %w", err)
+	}
+	if err := json.Unmarshal([]byte(chunks), &value.CompletedChunks); err != nil {
+		return nil, fmt.Errorf("decode transfer chunks: %w", err)
+	}
+	return &value, nil
+}
+
+func (r *Repository) SaveArtifactBuild(ctx context.Context, value domain.ArtifactBuild) error {
+	const query = `INSERT INTO artifact_builds(
+		id, artifact_version_id, source_type, context_digest, recipe_path,
+		recipe_digest, target_format, target_os, target_architecture, build_arguments, cache_key
+	) VALUES(?,?,?,?,?,?,?,?,?,?,?)`
+	_, err := r.db.ExecContext(ctx, query,
+		value.ID, value.ArtifactVersionID, value.SourceType, value.ContextDigest,
+		value.RecipePath, value.RecipeDigest, value.TargetFormat, value.TargetOS,
+		value.TargetArchitecture, value.BuildArguments, value.CacheKey)
+	return err
+}
+
+func (r *Repository) FindArtifactBuildByCacheKey(ctx context.Context, cacheKey string) (*domain.ArtifactBuild, error) {
+	return r.findArtifactBuild(ctx, `SELECT id,artifact_version_id,source_type,context_digest,recipe_path,recipe_digest,target_format,target_os,target_architecture,build_arguments,cache_key FROM artifact_builds WHERE cache_key=?`, cacheKey)
+}
+
+func (r *Repository) FindArtifactBuild(ctx context.Context, id string) (*domain.ArtifactBuild, error) {
+	return r.findArtifactBuild(ctx, `SELECT id,artifact_version_id,source_type,context_digest,recipe_path,recipe_digest,target_format,target_os,target_architecture,build_arguments,cache_key FROM artifact_builds WHERE id=?`, id)
+}
+
+func (r *Repository) findArtifactBuild(ctx context.Context, query, argument string) (*domain.ArtifactBuild, error) {
+	var value domain.ArtifactBuild
+	err := r.db.QueryRowContext(ctx, query, argument).
+		Scan(&value.ID, &value.ArtifactVersionID, &value.SourceType, &value.ContextDigest, &value.RecipePath, &value.RecipeDigest, &value.TargetFormat, &value.TargetOS, &value.TargetArchitecture, &value.BuildArguments, &value.CacheKey)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &value, nil
+}
+
+func (r *Repository) SaveBuildRun(ctx context.Context, value domain.BuildRun) error {
+	_, err := r.db.ExecContext(ctx, `INSERT INTO build_runs(id,artifact_build_id,status,output_variant_id,output_digest,logs,error)
+		VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, output_variant_id=excluded.output_variant_id, output_digest=excluded.output_digest, logs=excluded.logs, error=excluded.error`,
+		value.ID, value.ArtifactBuildID, value.Status, nullable(value.OutputVariantID), value.OutputDigest, value.Logs, value.Error)
+	return err
+}
+
+func (r *Repository) FindBuildRun(ctx context.Context, id string) (*domain.BuildRun, error) {
+	var value domain.BuildRun
+	err := r.db.QueryRowContext(ctx, `SELECT id,artifact_build_id,status,COALESCE(output_variant_id,''),output_digest,logs,error FROM build_runs WHERE id=?`, id).
+		Scan(&value.ID, &value.ArtifactBuildID, &value.Status, &value.OutputVariantID, &value.OutputDigest, &value.Logs, &value.Error)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &value, nil
+}
+
+func (r *Repository) ListBuildRuns(ctx context.Context, buildID string) ([]domain.BuildRun, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id,artifact_build_id,status,COALESCE(output_variant_id,''),output_digest,logs,error FROM build_runs WHERE artifact_build_id=? ORDER BY created_at DESC`, buildID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	values := []domain.BuildRun{}
+	for rows.Next() {
+		var value domain.BuildRun
+		if err := rows.Scan(&value.ID, &value.ArtifactBuildID, &value.Status, &value.OutputVariantID, &value.OutputDigest, &value.Logs, &value.Error); err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+	}
+	return values, rows.Err()
+}
+
+func (r *Repository) SaveBuildContext(ctx context.Context, value domain.BuildContextArtifact) error {
+	_, err := r.db.ExecContext(ctx, `INSERT INTO build_contexts(digest,storage_uri,size_bytes,media_type) VALUES(?,?,?,?)`, value.Digest, value.StorageURI, value.SizeBytes, value.MediaType)
+	return err
+}
+
+func (r *Repository) FindBuildContext(ctx context.Context, digest string) (*domain.BuildContextArtifact, error) {
+	var value domain.BuildContextArtifact
+	err := r.db.QueryRowContext(ctx, `SELECT digest,storage_uri,size_bytes,media_type FROM build_contexts WHERE digest=?`, digest).Scan(&value.Digest, &value.StorageURI, &value.SizeBytes, &value.MediaType)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &value, nil
+}
+
+// FindBuildOutput resolves only a published output; queued or failed builds
+// are deliberately not executable workflow inputs.
+func (r *Repository) FindBuildOutput(ctx context.Context, buildID string) (*domain.ArtifactVariant, *domain.ArtifactLocation, error) {
+	const query = `SELECT v.id,v.digest,v.format,v.architecture,v.size_bytes,
+		l.id,l.variant_id,l.scope,l.scope_id,l.endpoint_id,l.uri,l.digest,l.available
+		FROM build_runs r JOIN artifact_variants v ON v.id=r.output_variant_id
+		JOIN artifact_locations l ON l.variant_id=v.id
+		WHERE r.artifact_build_id=? AND r.status='completed' ORDER BY r.finished_at DESC LIMIT 1`
+	var variant domain.ArtifactVariant
+	var location domain.ArtifactLocation
+	err := r.db.QueryRowContext(ctx, query, buildID).Scan(&variant.ID, &variant.Digest, &variant.Format, &variant.Architecture, &variant.SizeBytes,
+		&location.ID, &location.VariantID, &location.Scope, &location.ScopeID, &location.EndpointID, &location.URI, &location.Digest, &location.Available)
+	if err == sql.ErrNoRows {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	return &variant, &location, nil
+}
+
+// PublishBuildOutput makes a variant visible only together with the completed
+// build run and its durable location.
+func (r *Repository) PublishBuildOutput(ctx context.Context, runID string, variant domain.ArtifactVariant, location domain.ArtifactLocation) error {
+	if variant.ID == "" || location.ID == "" || variant.Digest == "" || variant.Digest != location.Digest {
+		return fmt.Errorf("build output must have matching variant and location digests")
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var artifactVersionID string
+	if err := tx.QueryRowContext(ctx, `SELECT b.artifact_version_id FROM build_runs r JOIN artifact_builds b ON b.id=r.artifact_build_id WHERE r.id=?`, runID).Scan(&artifactVersionID); err != nil {
+		return fmt.Errorf("resolve build run: %w", err)
+	}
+	const insertVariant = `INSERT INTO artifact_variants(
+		id, artifact_version_id, digest, format, architecture, size_bytes
+	) VALUES(?,?,?,?,?,?)`
+	if _, err := tx.ExecContext(ctx, insertVariant,
+		variant.ID, artifactVersionID, variant.Digest, variant.Format,
+		variant.Architecture, variant.SizeBytes); err != nil {
+		return fmt.Errorf("create build variant: %w", err)
+	}
+	const insertLocation = `INSERT INTO artifact_locations(
+		id, variant_id, endpoint_id, uri, digest, scope, scope_id, available
+	) VALUES(?,?,?,?,?,?,?,?)`
+	// The managed artifact store is a first-class endpoint too; it is not tied
+	// to a compute resource or environment.
+	if location.EndpointID == "artifact-store" {
+		const artifactStoreEndpoint = `INSERT INTO transfer_endpoints(
+			id, kind, uri, configuration
+		) VALUES('artifact-store', 'artifact-store', 'artifact://', '{}')
+		ON CONFLICT(id) DO NOTHING`
+		if _, err := tx.ExecContext(ctx, artifactStoreEndpoint); err != nil {
+			return fmt.Errorf("register artifact store endpoint: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, insertLocation,
+		location.ID, variant.ID, location.EndpointID, location.URI,
+		location.Digest, location.Scope, location.ScopeID, location.Available); err != nil {
+		return fmt.Errorf("create build location: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE build_runs SET status='completed',output_variant_id=?,output_digest=?,finished_at=CURRENT_TIMESTAMP WHERE id=?`, variant.ID, variant.Digest, runID); err != nil {
+		return fmt.Errorf("publish build run: %w", err)
+	}
+	return tx.Commit()
+}
+
+func nullable(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }
 
 func stableID(parts ...string) string {

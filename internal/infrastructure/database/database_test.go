@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/UFFeScience/akoflow/internal/infrastructure/database/schema"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -52,13 +51,12 @@ func TestBootstrapInstallsAndValidatesCanonicalSchema(t *testing.T) {
 	if err := Bootstrap(ctx, db); err != nil {
 		t.Fatalf("valid schema should be reusable: %v", err)
 	}
-	var version int
 	var checksum string
-	if err := db.QueryRow(`SELECT version, checksum FROM schema_metadata`).Scan(&version, &checksum); err != nil {
+	if err := db.QueryRow(`SELECT checksum FROM schema_metadata`).Scan(&checksum); err != nil {
 		t.Fatal(err)
 	}
-	if version != schema.Version || checksum != schemaChecksum() {
-		t.Fatalf("metadata = version %d checksum %q", version, checksum)
+	if checksum != schemaChecksum() {
+		t.Fatalf("metadata checksum = %q", checksum)
 	}
 }
 

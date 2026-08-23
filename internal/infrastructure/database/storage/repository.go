@@ -6,12 +6,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/UFFeScience/akoflow/internal/domain"
 )
 
 type Repository struct{ db *sql.DB }
+
+var sha256Digest = regexp.MustCompile(`^sha256:[a-fA-F0-9]{64}$`)
 
 func New(db *sql.DB) *Repository { return &Repository{db} }
 func (r *Repository) ListEnvironmentStorages(ctx context.Context, environmentID string) ([]domain.StorageResource, error) {
@@ -36,8 +40,11 @@ func (r *Repository) ListEnvironmentStorages(ctx context.Context, environmentID 
 	return out, rows.Err()
 }
 func (r *Repository) PromoteData(ctx context.Context, storageID, filePath, workflowVersionID, runID, activityID, id string, entry domain.FileEntry, checksum string) error {
+	if !sha256Digest.MatchString(checksum) {
+		return fmt.Errorf("invalid SHA-256 digest %q", checksum)
+	}
 	if id == "" {
-		id = "data-" + checksum[7:19]
+		id = "data-" + checksum[7:]
 	}
 	tx, e := r.db.BeginTx(ctx, nil)
 	if e != nil {
@@ -80,8 +87,14 @@ func optionalReference(value string) any {
 	return value
 }
 func (r *Repository) PromoteArtifact(ctx context.Context, storageID, filePath, id, name, version, scope, scopeID, checksum string, entry domain.FileEntry) error {
+	if !sha256Digest.MatchString(checksum) {
+		return fmt.Errorf("invalid SHA-256 digest %q", checksum)
+	}
 	if id == "" {
-		id = "artifact-" + checksum[7:19]
+		id = "artifact-" + checksum[7:]
+	}
+	if name == "" {
+		name = id
 	}
 	if version == "" {
 		version = "1"
@@ -94,24 +107,42 @@ func (r *Repository) PromoteArtifact(ctx context.Context, storageID, filePath, i
 		return e
 	}
 	defer tx.Rollback()
-	vid := id + "-v-" + version
-	variant := vid + "-sif"
+	if !validSHA256(checksum) {
+		return fmt.Errorf("artifact checksum must be a sha256 digest")
+	}
+	vid := artifactVersionID(id, version, scope, scopeID)
+	variant := vid + "-sif-" + checksum[7:]
 	endpoint := "storage-" + storageID
-	_, e = tx.ExecContext(ctx, `INSERT INTO artifact_versions(id,artifact_id,version,scope,scope_id) VALUES(?,?,?,?,?) ON CONFLICT(id) DO NOTHING`, vid, id, version, scope, scopeID)
+	var environmentID string
+	e = tx.QueryRowContext(ctx, `SELECT e.id FROM storage_resources s
+		JOIN environment_versions ev ON ev.id=s.environment_version_id
+		JOIN environments e ON e.id=ev.environment_id WHERE s.id=?`, storageID).Scan(&environmentID)
 	if e != nil {
-		return e
+		return fmt.Errorf("resolve storage environment: %w", e)
 	}
-	_, e = tx.ExecContext(ctx, `INSERT INTO artifact_variants(id,artifact_version_id,digest,format,size_bytes) VALUES(?,?,?,'sif',?) ON CONFLICT(id) DO NOTHING`, variant, vid, checksum, entry.SizeBytes)
+	_, e = tx.ExecContext(ctx, `INSERT INTO artifact_versions(id,artifact_id,name,version,scope,scope_id) VALUES(?,?,?,?,?,?)`, vid, id, name, version, scope, scopeID)
 	if e != nil {
-		return e
+		return fmt.Errorf("create immutable artifact version: %w", e)
 	}
-	_, e = tx.ExecContext(ctx, `INSERT INTO transfer_endpoints(id,kind,uri) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING`, endpoint, "storage", storageID)
+	_, e = tx.ExecContext(ctx, `INSERT INTO artifact_variants(id,artifact_version_id,digest,format,architecture,size_bytes) VALUES(?,?,?,'sif','',?)`, variant, vid, checksum, entry.SizeBytes)
 	if e != nil {
-		return e
+		return fmt.Errorf("create immutable artifact variant: %w", e)
+	}
+	var existingURI, existingEnvironment string
+	e = tx.QueryRowContext(ctx, `SELECT uri, environment_id FROM transfer_endpoints WHERE id=?`, endpoint).Scan(&existingURI, &existingEnvironment)
+	if e == sql.ErrNoRows {
+		_, e = tx.ExecContext(ctx, `INSERT INTO transfer_endpoints(id,kind,uri,environment_id) VALUES(?,?,?,?)`, endpoint, "storage", storageID, environmentID)
+		if e != nil {
+			return fmt.Errorf("create transfer endpoint: %w", e)
+		}
+	} else if e != nil {
+		return fmt.Errorf("read transfer endpoint: %w", e)
+	} else if existingURI != storageID || existingEnvironment != environmentID {
+		return fmt.Errorf("transfer endpoint %q conflicts with storage identity", endpoint)
 	}
 	_, e = tx.ExecContext(ctx, `INSERT INTO artifact_locations(
 		id,variant_id,endpoint_id,uri,digest,scope,scope_id,available
-	) VALUES(?,?,?,?,?,?,?,1) ON CONFLICT(id) DO NOTHING`,
+	) VALUES(?,?,?,?,?,?,?,1)`,
 		variant+"-location", variant, endpoint,
 		fmt.Sprintf("storage://%s/%s", storageID, filePath), checksum, scope, scopeID,
 	)
@@ -119,6 +150,22 @@ func (r *Repository) PromoteArtifact(ctx context.Context, storageID, filePath, i
 		return e
 	}
 	return tx.Commit()
+}
+
+func validSHA256(value string) bool {
+	if len(value) != len("sha256:")+64 || !strings.HasPrefix(value, "sha256:") {
+		return false
+	}
+	for _, c := range value[len("sha256:"):] {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+func artifactVersionID(id, version, scope, scopeID string) string {
+	return fmt.Sprintf("artifact-version:%s:%s:%s:%s", id, version, scope, scopeID)
 }
 func (r *Repository) FindStorage(ctx context.Context, id string) (*domain.StorageResource, error) {
 	const query = `SELECT id,environment_version_id,name,type,endpoint,capacity_bytes,

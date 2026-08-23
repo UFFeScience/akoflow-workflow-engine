@@ -34,4 +34,16 @@ type DataCatalog interface {
 	ListArtifactLocations(context.Context) ([]domain.ArtifactLocation, error)
 	ListArtifactMaterializations(context.Context, string) ([]domain.ArtifactMaterialization, error)
 	SaveArtifactMaterialization(context.Context, domain.ArtifactMaterialization) error
+	SaveTransferRun(context.Context, domain.DataTransferRun) error
+	FindTransferRun(context.Context, string) (*domain.DataTransferRun, error)
+	SaveArtifactBuild(context.Context, domain.ArtifactBuild) error
+	FindArtifactBuildByCacheKey(context.Context, string) (*domain.ArtifactBuild, error)
+	FindArtifactBuild(context.Context, string) (*domain.ArtifactBuild, error)
+	SaveBuildRun(context.Context, domain.BuildRun) error
+	FindBuildRun(context.Context, string) (*domain.BuildRun, error)
+	ListBuildRuns(context.Context, string) ([]domain.BuildRun, error)
+	SaveBuildContext(context.Context, domain.BuildContextArtifact) error
+	FindBuildContext(context.Context, string) (*domain.BuildContextArtifact, error)
+	PublishBuildOutput(context.Context, string, domain.ArtifactVariant, domain.ArtifactLocation) error
+	FindBuildOutput(context.Context, string) (*domain.ArtifactVariant, *domain.ArtifactLocation, error)
 }

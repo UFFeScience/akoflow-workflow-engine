@@ -47,12 +47,12 @@ CREATE TABLE environment_runtimes (
 		mode TEXT NOT NULL CHECK(mode IN ('execution', 'simulation')),
 		role TEXT NOT NULL DEFAULT '',
 		configuration TEXT NOT NULL DEFAULT '{}',
-		UNIQUE(environment_version_id, name)
+		UNIQUE(environment_version_id, name),
+		UNIQUE(id, environment_version_id)
 	);
 CREATE TABLE environment_runtime_capabilities (
-		runtime_id TEXT PRIMARY KEY REFERENCES environment_runtimes(id) ON DELETE CASCADE,
-		capabilities TEXT NOT NULL DEFAULT '{}',
-		FOREIGN KEY(runtime_id) REFERENCES environment_runtimes(id)
+	runtime_id TEXT PRIMARY KEY REFERENCES environment_runtimes(id) ON DELETE CASCADE,
+	capabilities TEXT NOT NULL DEFAULT '{}'
 	);
 CREATE TABLE discovery_runs (
 		id TEXT PRIMARY KEY,
@@ -362,19 +362,21 @@ CREATE TABLE storage_resources (
 		configuration TEXT NOT NULL DEFAULT '{}',
 		credential_reference TEXT NOT NULL DEFAULT '',
 		metadata TEXT NOT NULL DEFAULT '{}',
-		UNIQUE(environment_version_id, name)
+		UNIQUE(environment_version_id, name),
+		UNIQUE(id, environment_version_id)
 	);
 CREATE TABLE storage_runtime_bindings (
 		storage_resource_id TEXT NOT NULL REFERENCES storage_resources(id) ON DELETE CASCADE,
-		environment_version_id TEXT NOT NULL,
-		runtime_id TEXT NOT NULL,
+		environment_version_id TEXT NOT NULL REFERENCES environment_versions(id) ON DELETE CASCADE,
+		runtime_id TEXT NOT NULL REFERENCES environment_runtimes(id) ON DELETE CASCADE,
 		is_default INTEGER NOT NULL DEFAULT 0,
 		host_path TEXT NOT NULL DEFAULT '',
 		container_path TEXT NOT NULL DEFAULT '/akoflow/data',
 		read_only INTEGER NOT NULL DEFAULT 0,
 		configuration TEXT NOT NULL DEFAULT '{}',
 		PRIMARY KEY(storage_resource_id, runtime_id),
-		FOREIGN KEY(runtime_id) REFERENCES environment_runtimes(id)
+		FOREIGN KEY(storage_resource_id, environment_version_id) REFERENCES storage_resources(id, environment_version_id),
+		FOREIGN KEY(runtime_id, environment_version_id) REFERENCES environment_runtimes(id, environment_version_id)
 	);
 CREATE UNIQUE INDEX one_default_storage_per_runtime
 	ON storage_runtime_bindings(environment_version_id, runtime_id)
@@ -393,7 +395,7 @@ CREATE TABLE data_locations (
 		metadata TEXT NOT NULL DEFAULT '{}',
 		UNIQUE(data_object_instance_id, uri)
 	);
-CREATE TABLE data_transfers (
+CREATE TABLE data_transfer_observations (
 		id TEXT PRIMARY KEY,
 		execution_run_id TEXT NOT NULL REFERENCES execution_runs(id),
 		data_object_id TEXT REFERENCES data_objects(id),
@@ -449,9 +451,8 @@ CREATE INDEX domain_events_aggregate_idx
 CREATE INDEX domain_events_type_idx
 		ON domain_events(event_type, occurred_at);
 CREATE TABLE schema_metadata (
-	version INTEGER NOT NULL,
-	applied_at DATETIME NOT NULL,
-	checksum TEXT NOT NULL
+	checksum TEXT NOT NULL,
+	applied_at DATETIME NOT NULL
 );
 CREATE TABLE storage_download_runs (
 	id TEXT PRIMARY KEY,
@@ -578,18 +579,18 @@ CREATE INDEX console_session_logs_session_idx ON console_session_logs(session_id
 -- Content-addressed executable/data plane. URI credentials are kept in
 -- connector bindings, never in location records.
 CREATE TABLE artifact_versions (
-    id TEXT PRIMARY KEY, artifact_id TEXT NOT NULL, version TEXT NOT NULL,
+    id TEXT PRIMARY KEY, artifact_id TEXT NOT NULL, name TEXT NOT NULL, version TEXT NOT NULL,
     scope TEXT NOT NULL, scope_id TEXT NOT NULL DEFAULT '',
     UNIQUE(artifact_id, version, scope, scope_id)
 );
 CREATE TABLE artifact_variants (
-    id TEXT PRIMARY KEY, artifact_version_id TEXT NOT NULL REFERENCES artifact_versions(id),
-    digest TEXT NOT NULL, format TEXT NOT NULL, architecture TEXT NOT NULL DEFAULT '', size_bytes INTEGER NOT NULL DEFAULT 0,
+    id TEXT PRIMARY KEY, artifact_version_id TEXT NOT NULL REFERENCES artifact_versions(id) ON DELETE CASCADE,
+    digest TEXT NOT NULL CHECK(digest GLOB 'sha256:[0-9a-fA-F]*' AND length(digest) = 71), format TEXT NOT NULL, architecture TEXT NOT NULL DEFAULT '', size_bytes INTEGER NOT NULL DEFAULT 0 CHECK(size_bytes >= 0),
     UNIQUE(artifact_version_id, digest)
 );
 CREATE TABLE transfer_endpoints (
-    id TEXT PRIMARY KEY, kind TEXT NOT NULL, uri TEXT NOT NULL, resource_id TEXT, environment_id TEXT,
-    configuration TEXT NOT NULL DEFAULT '{}'
+    id TEXT PRIMARY KEY, kind TEXT NOT NULL, uri TEXT NOT NULL, resource_id TEXT REFERENCES resources(id) ON DELETE CASCADE,
+    environment_id TEXT REFERENCES environments(id) ON DELETE CASCADE, configuration TEXT NOT NULL DEFAULT '{}'
 );
 CREATE TABLE connector_bindings (
     id TEXT PRIMARY KEY, endpoint_id TEXT NOT NULL REFERENCES transfer_endpoints(id) ON DELETE CASCADE,
@@ -597,17 +598,51 @@ CREATE TABLE connector_bindings (
 );
 CREATE TABLE artifact_locations (
     id TEXT PRIMARY KEY, variant_id TEXT NOT NULL REFERENCES artifact_variants(id) ON DELETE CASCADE,
-    endpoint_id TEXT NOT NULL REFERENCES transfer_endpoints(id), uri TEXT NOT NULL, digest TEXT NOT NULL,
+    endpoint_id TEXT NOT NULL REFERENCES transfer_endpoints(id) ON DELETE CASCADE, uri TEXT NOT NULL, digest TEXT NOT NULL CHECK(digest GLOB 'sha256:[0-9a-fA-F]*' AND length(digest) = 71),
     scope TEXT NOT NULL, scope_id TEXT NOT NULL DEFAULT '', available INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE artifact_materializations (
-    id TEXT PRIMARY KEY, run_id TEXT NOT NULL DEFAULT '', activity_id TEXT NOT NULL DEFAULT '',
-    variant_id TEXT NOT NULL, digest TEXT NOT NULL, resource_id TEXT NOT NULL,
-    environment_id TEXT NOT NULL DEFAULT '', destination_path TEXT NOT NULL, status TEXT NOT NULL,
+    id TEXT PRIMARY KEY, run_id TEXT REFERENCES execution_runs(id) ON DELETE CASCADE, activity_id TEXT REFERENCES activity_definitions(id) ON DELETE CASCADE,
+    variant_id TEXT NOT NULL REFERENCES artifact_variants(id) ON DELETE RESTRICT, digest TEXT NOT NULL CHECK(digest GLOB 'sha256:[0-9a-fA-F]*' AND length(digest) = 71), resource_id TEXT NOT NULL REFERENCES resources(id) ON DELETE CASCADE,
+	environment_version_id TEXT REFERENCES environment_versions(id) ON DELETE CASCADE, destination_path TEXT NOT NULL, status TEXT NOT NULL,
     verified_digest TEXT NOT NULL DEFAULT '', updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-CREATE TABLE transfer_runs_v2 (
+CREATE TABLE transfer_runs (
     id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, strategy TEXT NOT NULL, status TEXT NOT NULL,
     verified_blobs TEXT NOT NULL DEFAULT '[]', completed_chunks TEXT NOT NULL DEFAULT '[]', error TEXT NOT NULL DEFAULT '',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE artifact_builds (
+    id TEXT PRIMARY KEY,
+    artifact_version_id TEXT NOT NULL REFERENCES artifact_versions(id) ON DELETE CASCADE,
+    source_type TEXT NOT NULL,
+    context_digest TEXT NOT NULL CHECK(context_digest GLOB 'sha256:[0-9a-fA-F]*' AND length(context_digest) = 71),
+    recipe_path TEXT NOT NULL DEFAULT '',
+    recipe_digest TEXT NOT NULL CHECK(recipe_digest GLOB 'sha256:[0-9a-fA-F]*' AND length(recipe_digest) = 71),
+    target_format TEXT NOT NULL,
+    target_os TEXT NOT NULL DEFAULT 'linux',
+    target_architecture TEXT NOT NULL,
+    build_arguments TEXT NOT NULL DEFAULT '{}',
+    cache_key TEXT NOT NULL UNIQUE,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE build_contexts (
+    digest TEXT PRIMARY KEY CHECK(digest GLOB 'sha256:[0-9a-fA-F]*' AND length(digest) = 71),
+    storage_uri TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL DEFAULT 0 CHECK(size_bytes >= 0),
+    media_type TEXT NOT NULL DEFAULT 'application/vnd.akoflow.build-context.v1+tar',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE build_runs (
+    id TEXT PRIMARY KEY,
+    artifact_build_id TEXT NOT NULL REFERENCES artifact_builds(id) ON DELETE CASCADE,
+    status TEXT NOT NULL CHECK(status IN ('queued','preparing','building','verifying','publishing','completed','failed','cancelled')),
+    output_variant_id TEXT REFERENCES artifact_variants(id) ON DELETE RESTRICT,
+    output_digest TEXT NOT NULL DEFAULT '' CHECK(output_digest = '' OR (output_digest GLOB 'sha256:[0-9a-fA-F]*' AND length(output_digest) = 71)),
+    logs TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    started_at DATETIME,
+    finished_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX build_runs_build_idx ON build_runs(artifact_build_id, created_at DESC);

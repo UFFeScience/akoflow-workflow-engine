@@ -125,7 +125,7 @@ const runFeedSelect = `
 	) t ON t.execution_run_id=e.id
 	LEFT JOIN (
 		SELECT execution_run_id, SUM(duration_seconds) AS transfer_seconds, SUM(bytes) AS transferred_bytes
-		FROM data_transfers GROUP BY execution_run_id
+		FROM data_transfer_observations GROUP BY execution_run_id
 	) d ON d.execution_run_id=e.id
 	UNION ALL
 	SELECT s.id, '', 'interactive', 0,
@@ -194,7 +194,7 @@ func (r *Repository) ListTransfers(ctx context.Context, runID string) ([]domain.
 	rows, err := r.db.QueryContext(ctx, `SELECT id, execution_run_id,
 		producer_activity_id, consumer_activity_id, source_resource_id,
 		target_resource_id, bytes, started_at, finished_at, duration_seconds, cost
-		FROM data_transfers WHERE execution_run_id=?
+		FROM data_transfer_observations WHERE execution_run_id=?
 		ORDER BY started_at, producer_activity_id, consumer_activity_id`, runID)
 	if err != nil {
 		return nil, err
@@ -363,7 +363,7 @@ func (r *Repository) CompleteRun(ctx context.Context, trace domain.ExecutionTrac
 		}
 	}
 	for _, transfer := range trace.Transfers {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO data_transfers (
+		if _, err := tx.ExecContext(ctx, `INSERT INTO data_transfer_observations (
 			id, execution_run_id, producer_activity_id, consumer_activity_id,
 			source_resource_id, target_resource_id, bytes, status, started_at,
 			finished_at, duration_seconds, cost
