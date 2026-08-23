@@ -35,6 +35,7 @@ func (f ConnectionFactory) Build(runtime domain.EnvironmentRuntime, connection d
 			Port:         configInt(connection.Configuration, "port"),
 			IdentityFile: credentialFile(connection.CredentialRef),
 			ProxyCommand: configString(connection.Configuration, "proxyCommand"),
+			HostKeyAlias: configString(connection.Configuration, "hostKeyAlias"),
 			ForwardAgent: configBool(connection.Configuration, "forwardAgent", false),
 		}
 	}

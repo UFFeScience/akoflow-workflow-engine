@@ -8,6 +8,7 @@ import (
 
 	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/domain"
+	domainaudit "github.com/UFFeScience/akoflow/internal/domain/audit"
 	"github.com/UFFeScience/akoflow/internal/provider"
 )
 
@@ -17,12 +18,17 @@ type DiscoveryCoordinator struct {
 	catalog     ports.EnvironmentCatalog
 	resources   ports.ResourceInventory
 	discoverers map[domain.ConnectionType]ports.ConnectionDiscoverer
+	audit       ports.AuditStore
 }
 
 var _ ports.EnvironmentDiscovery = (*DiscoveryCoordinator)(nil)
 
-func NewDiscoveryCoordinator(catalog ports.EnvironmentCatalog, resources ports.ResourceInventory, discoverers map[domain.ConnectionType]ports.ConnectionDiscoverer) *DiscoveryCoordinator {
-	return &DiscoveryCoordinator{catalog: catalog, resources: resources, discoverers: discoverers}
+func NewDiscoveryCoordinator(catalog ports.EnvironmentCatalog, resources ports.ResourceInventory, discoverers map[domain.ConnectionType]ports.ConnectionDiscoverer, audits ...ports.AuditStore) *DiscoveryCoordinator {
+	coordinator := &DiscoveryCoordinator{catalog: catalog, resources: resources, discoverers: discoverers}
+	if len(audits) > 0 {
+		coordinator.audit = audits[0]
+	}
+	return coordinator
 }
 
 func (s *DiscoveryCoordinator) DiscoverConnection(ctx context.Context, connectionID string) ([]domain.ResourceSnapshot, error) {
@@ -34,11 +40,15 @@ func (s *DiscoveryCoordinator) DiscoverConnection(ctx context.Context, connectio
 	if discoverer == nil {
 		return nil, fmt.Errorf("no discovery driver is configured for connection type %q", connection.Type)
 	}
+	s.recordAudit(ctx, domainaudit.Event{EventType: "resource.discovery.started", EnvironmentID: definition.Environment.ID,
+		ConnectionID: connection.ID, Outcome: domainaudit.OutcomeStarted, Summary: "Infrastructure discovery started"})
 	observation, err := discoverer.DiscoverConnection(ctx, connection)
 	if err != nil {
+		s.recordAudit(ctx, domainaudit.Event{EventType: "resource.discovery.failed", EnvironmentID: definition.Environment.ID,
+			ConnectionID: connection.ID, Outcome: domainaudit.OutcomeFailed, Summary: err.Error()})
 		return nil, err
 	}
-	nodeSnapshots, err := s.materializeNodes(ctx, *definition, connection, observation)
+	structureSnapshots, err := s.materializeHPCStructure(ctx, *definition, connection, observation)
 	if err != nil {
 		return nil, err
 	}
@@ -47,9 +57,16 @@ func (s *DiscoveryCoordinator) DiscoverConnection(ctx context.Context, connectio
 		return nil, fmt.Errorf("connection %q has no bound resources", connection.ID)
 	}
 	now := time.Now().UTC()
-	items := make([]domain.ResourceSnapshot, 0, len(resourceIDs)+len(nodeSnapshots))
-	items = append(items, nodeSnapshots...)
+	items := make([]domain.ResourceSnapshot, 0, len(resourceIDs)+len(structureSnapshots))
+	items = append(items, structureSnapshots...)
+	materialized := make(map[string]bool, len(structureSnapshots))
+	for _, snapshot := range structureSnapshots {
+		materialized[snapshot.ResourceID] = true
+	}
 	for _, resourceID := range resourceIDs {
+		if materialized[resourceID] {
+			continue
+		}
 		metadata := cloneMetadata(observation.Metadata)
 		metadata["connectionId"] = connection.ID
 		metadata["warnings"] = observation.Warnings
@@ -63,26 +80,130 @@ func (s *DiscoveryCoordinator) DiscoverConnection(ctx context.Context, connectio
 		}
 		items = append(items, snapshot)
 	}
+	s.recordAudit(ctx, domainaudit.Event{EventType: "resource.discovery.completed", EnvironmentID: definition.Environment.ID,
+		ConnectionID: connection.ID, Outcome: domainaudit.OutcomeSucceeded, Summary: "Infrastructure discovery completed",
+		Metadata: map[string]any{"nodeCount": len(observation.Nodes), "snapshotCount": len(items), "loginNodeDiscovered": observation.LoginNode != nil}})
 	return items, nil
 }
 
-func (s *DiscoveryCoordinator) materializeNodes(ctx context.Context, definition domain.EnvironmentDefinition, connection domain.EnvironmentConnection, observation ports.ConnectionDiscovery) ([]domain.ResourceSnapshot, error) {
+func (s *DiscoveryCoordinator) recordAudit(ctx context.Context, event domainaudit.Event) {
+	if s.audit == nil {
+		return
+	}
+	event.ID, event.OccurredAt = provider.NewID("audit"), time.Now().UTC()
+	_ = s.audit.RecordAuditEvent(ctx, event)
+}
+
+func (s *DiscoveryCoordinator) materializeHPCStructure(ctx context.Context, definition domain.EnvironmentDefinition, connection domain.EnvironmentConnection, observation ports.ConnectionDiscovery) ([]domain.ResourceSnapshot, error) {
+	if observation.LoginNode == nil && len(observation.Nodes) == 0 {
+		return nil, nil
+	}
+	clusterID := clusterResourceID(connection.ID)
+	for _, resource := range definition.Resources {
+		if resource.Type == domain.ResourceCluster {
+			clusterID = resource.ID
+			break
+		}
+	}
+	cluster := domain.Resource{ID: clusterID, EnvironmentVersionID: definition.Version.ID,
+		Type: domain.ResourceCluster, Name: clusterResourceName(definition, connection), ProviderID: clusterID,
+		ComputeSpeedup: 1, Schedulable: false, Metadata: map[string]any{"connectionId": connection.ID, "discovered": true}}
+	if err := s.resources.Upsert(ctx, cluster); err != nil {
+		return nil, fmt.Errorf("upsert discovered HPC cluster: %w", err)
+	}
+	runtimeIDs := runtimeIDsForConnection(definition, connection.ID)
+	for _, runtimeID := range runtimeIDs {
+		if err := s.resources.UpsertRuntimeBinding(ctx, domain.ResourceRuntimeBinding{ResourceID: clusterID, RuntimeID: runtimeID, Enabled: true}); err != nil {
+			return nil, fmt.Errorf("bind discovered HPC cluster: %w", err)
+		}
+	}
+	for _, partition := range definition.Resources {
+		if partition.Type != domain.ResourceHPCPartition {
+			continue
+		}
+		partition.ParentResourceID = &clusterID
+		if err := s.resources.Upsert(ctx, partition); err != nil {
+			return nil, fmt.Errorf("attach partition %q to discovered cluster: %w", partition.ProviderID, err)
+		}
+	}
+	snapshots := []domain.ResourceSnapshot{}
+	if observation.LoginNode != nil {
+		snapshot, err := s.materializeLoginNode(ctx, definition, connection, clusterID, runtimeIDs, *observation.LoginNode, observation.Available)
+		if err != nil {
+			return nil, err
+		}
+		snapshots = append(snapshots, snapshot)
+	}
+	nodeSnapshots, err := s.materializeNodes(ctx, definition, connection, clusterID, observation)
+	if err != nil {
+		return nil, err
+	}
+	return append(snapshots, nodeSnapshots...), nil
+}
+
+func (s *DiscoveryCoordinator) materializeLoginNode(
+	ctx context.Context,
+	definition domain.EnvironmentDefinition,
+	connection domain.EnvironmentConnection,
+	clusterID string,
+	runtimeIDs []string,
+	discovered ports.DiscoveredLoginNode,
+	available bool,
+) (domain.ResourceSnapshot, error) {
+	resourceID := loginResourceID(connection.ID)
+	metadata := cloneMetadata(discovered.Metadata)
+	metadata["connectionId"], metadata["discovered"] = connection.ID, true
+	role, _ := metadata["role"].(string)
+	if strings.TrimSpace(role) == "" {
+		metadata["role"] = "login"
+	}
+	metadata["observedHostname"] = discovered.Name
+	metadata["interactive"] = true
+	metadata["commandExecution"] = true
+	if metadata["role"] == "login" {
+		metadata["schedulerGateway"] = true
+	}
+	metadata["maxDirectCpu"] = minPositive(discovered.CPUCores, 2)
+	metadata["maxDirectMemoryBytes"] = minPositive64(discovered.MemoryBytes, 4*1024*1024*1024)
+	metadata["maxDirectDurationSeconds"] = 1800
+	resource := domain.Resource{ID: resourceID, EnvironmentVersionID: definition.Version.ID, ParentResourceID: &clusterID,
+		ExecutionTarget: domain.ExecutionTargetDirect, Type: domain.ResourceHPCMachine, Name: connection.Name,
+		ProviderID: connection.Endpoint, Architecture: discovered.Architecture, CPUCores: discovered.CPUCores,
+		CPUCapacity: float64(minPositive(discovered.CPUCores, 2)), MemoryBytes: discovered.MemoryBytes,
+		StorageBytes: discovered.StorageBytes, ComputeSpeedup: 1, Schedulable: true, Metadata: metadata}
+	if err := s.resources.Upsert(ctx, resource); err != nil {
+		return domain.ResourceSnapshot{}, fmt.Errorf("upsert discovered login node %q: %w", discovered.Name, err)
+	}
+	for _, runtimeID := range runtimeIDs {
+		if err := s.resources.UpsertRuntimeBinding(ctx, domain.ResourceRuntimeBinding{ResourceID: resourceID, RuntimeID: runtimeID, Enabled: true,
+			Configuration: map[string]any{"executionTarget": "direct", "role": "login"}}); err != nil {
+			return domain.ResourceSnapshot{}, fmt.Errorf("bind discovered login node %q: %w", discovered.Name, err)
+		}
+	}
+	snapshot := domain.ResourceSnapshot{ID: provider.NewID("resource-discovery"), ResourceID: resourceID,
+		CapturedAt: time.Now().UTC(), Available: available, Metadata: metadata}
+	if err := s.resources.CreateSnapshot(ctx, snapshot); err != nil {
+		return domain.ResourceSnapshot{}, fmt.Errorf("snapshot discovered login node %q: %w", discovered.Name, err)
+	}
+	return snapshot, nil
+}
+
+func (s *DiscoveryCoordinator) materializeNodes(
+	ctx context.Context,
+	definition domain.EnvironmentDefinition,
+	connection domain.EnvironmentConnection,
+	clusterID string,
+	observation ports.ConnectionDiscovery,
+) ([]domain.ResourceSnapshot, error) {
 	if len(observation.Nodes) == 0 {
 		return nil, nil
 	}
 	runtimeIDs := runtimeIDsForConnection(definition, connection.ID)
 	partitions := map[string]domain.Resource{}
-	var clusterID string
 	for _, resource := range definition.Resources {
-		if resource.Type == domain.ResourceCluster && clusterID == "" {
-			clusterID = resource.ID
-		}
 		if resource.Type == domain.ResourceHPCPartition {
 			partitions[resource.ProviderID] = resource
 			partitions[resource.Name] = resource
-			if clusterID == "" && resource.ParentResourceID != nil {
-				clusterID = *resource.ParentResourceID
-			}
 		}
 	}
 	now := time.Now().UTC()
@@ -129,6 +250,30 @@ func (s *DiscoveryCoordinator) materializeNodes(ctx context.Context, definition 
 		snapshots = append(snapshots, snapshot)
 	}
 	return snapshots, nil
+}
+
+func clusterResourceID(connectionID string) string { return connectionID + "-cluster" }
+func loginResourceID(connectionID string) string   { return connectionID + "-login" }
+
+func clusterResourceName(definition domain.EnvironmentDefinition, connection domain.EnvironmentConnection) string {
+	if strings.TrimSpace(definition.Environment.Name) != "" {
+		return definition.Environment.Name + " cluster"
+	}
+	return connection.Name + " cluster"
+}
+
+func minPositive(value, limit int) int {
+	if value <= 0 || value > limit {
+		return limit
+	}
+	return value
+}
+
+func minPositive64(value, limit int64) int64 {
+	if value <= 0 || value > limit {
+		return limit
+	}
+	return value
 }
 
 func runtimeIDsForConnection(definition domain.EnvironmentDefinition, connectionID string) []string {

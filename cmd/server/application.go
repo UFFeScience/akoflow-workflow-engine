@@ -7,6 +7,7 @@ import (
 
 	"github.com/UFFeScience/akoflow/internal/api/handlers/workflow_engine_api_handler"
 	"github.com/UFFeScience/akoflow/internal/api/httpserver"
+	applicationconsole "github.com/UFFeScience/akoflow/internal/application/console"
 	applicationenvironment "github.com/UFFeScience/akoflow/internal/application/environment"
 	applicationexecution "github.com/UFFeScience/akoflow/internal/application/execution"
 	"github.com/UFFeScience/akoflow/internal/application/ports"
@@ -63,15 +64,23 @@ func newApplication(ctx context.Context, settings config.Settings, log *logger.L
 			domain.ConnectionSSH:        slurm.NewConnectionProber(provider.OSCommandExecutor{}),
 			domain.ConnectionAgent:      slurm.NewConnectionProber(provider.OSCommandExecutor{}),
 			domain.ConnectionLocal:      local.NewConnectionProber(),
-		})
+		}, storage.audit)
 	discovery := applicationenvironment.NewDiscoveryCoordinator(storage.environments, storage.resources,
 		map[domain.ConnectionType]ports.ConnectionDiscoverer{
 			domain.ConnectionKubernetes: kubernetes.NewDiscovery(kubernetes.ClientConfig{Endpoint: settings.KubernetesAPIServer, Token: settings.KubernetesToken, CAFile: settings.KubernetesCAFile, InsecureSkipTLSVerify: settings.KubernetesInsecureSkipTLS}),
 			domain.ConnectionLocal:      local.NewDiscovery(),
 			domain.ConnectionSSH:        slurm.NewDiscovery(provider.OSCommandExecutor{}),
 			domain.ConnectionAgent:      slurm.NewDiscovery(provider.OSCommandExecutor{}),
-		})
-	api, err := buildAPI(storage, connectionMonitor, discovery, sshkey.New(settings.SSHKeyDirectory))
+		}, storage.audit)
+	var consoleCommands ports.ConsoleCommands
+	var terminal ports.InteractiveConsole
+	if settings.ConsoleEnabled {
+		controller := applicationconsole.NewCommandController(storage.environments, storage.resources, storage.console,
+			slurm.ConsoleRunner{Executor: provider.OSCommandExecutor{}}, storage.audit)
+		consoleCommands = controller
+		terminal = applicationconsole.NewTerminalController(controller, slurm.TerminalRunner{}, storage.audit, storage.console)
+	}
+	api, err := buildAPI(storage, connectionMonitor, discovery, consoleCommands, terminal, sshkey.New(settings.SSHKeyDirectory))
 	if err != nil {
 		return fail(err)
 	}

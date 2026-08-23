@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/domain"
@@ -14,6 +15,8 @@ import (
 // the runtime. It intentionally checks Slurm itself rather than only opening
 // a TCP connection to the login node.
 type ConnectionProber struct{ executor runtimecommon.CommandExecutor }
+
+const defaultProbeTimeout = 15 * time.Second
 
 func NewConnectionProber(executor runtimecommon.CommandExecutor) *ConnectionProber {
 	if executor == nil {
@@ -32,9 +35,12 @@ func (p *ConnectionProber) Probe(ctx context.Context, connection domain.Environm
 			Username: connection.Username, Port: configInt(connection.Configuration, "port"),
 			IdentityFile: credentialFile(connection.CredentialRef),
 			ProxyCommand: configString(connection.Configuration, "proxyCommand"),
+			HostKeyAlias: configString(connection.Configuration, "hostKeyAlias"),
 			ForwardAgent: configBool(connection.Configuration, "forwardAgent", false)}
 	}
-	output, err := executor.Run(ctx, "sinfo", []string{"--noheader", "--format=%P"}, nil)
+	probeContext, cancel := context.WithTimeout(ctx, defaultProbeTimeout)
+	defer cancel()
+	output, err := executor.Run(probeContext, "sinfo", []string{"--noheader", "--format=%P"}, nil)
 	if err != nil {
 		return ports.ConnectionHealth{Message: fmt.Sprintf("SLURM is unreachable: %v", err)}
 	}

@@ -5,6 +5,8 @@ import (
 	"database/sql"
 
 	"github.com/UFFeScience/akoflow/internal/infrastructure/database"
+	dbaudit "github.com/UFFeScience/akoflow/internal/infrastructure/database/audit"
+	dbconsole "github.com/UFFeScience/akoflow/internal/infrastructure/database/console"
 	dbdata "github.com/UFFeScience/akoflow/internal/infrastructure/database/data"
 	dbenvironment "github.com/UFFeScience/akoflow/internal/infrastructure/database/environment"
 	dbexecution "github.com/UFFeScience/akoflow/internal/infrastructure/database/execution"
@@ -27,6 +29,8 @@ type persistence struct {
 	workflows    *dbworkflow.Repository
 	resources    *dbresource.Repository
 	instance     *dbinstance.Repository
+	audit        *dbaudit.Repository
+	console      *dbconsole.Repository
 }
 
 func openPersistence(ctx context.Context) (persistence, error) {
@@ -55,5 +59,7 @@ func openPersistence(ctx context.Context) (persistence, error) {
 		workflows: dbworkflow.New(db),
 		resources: dbresource.New(db),
 		instance:  instanceRepository,
+		audit:     dbaudit.New(db),
+		console:   dbconsole.New(db),
 	}, nil
 }

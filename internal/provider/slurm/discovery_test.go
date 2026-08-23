@@ -4,6 +4,9 @@ import "testing"
 
 func TestParseDiscoveryBuildsUniqueNodesWithPartitionMembership(t *testing.T) {
 	result := parseDiscovery([]byte(`FACT|architecture|x86_64
+FACT|hostname|login.plafrim.fr
+FACT|loginCpuCores|16
+FACT|loginMemoryKiB|32768
 PARTITION|routage*|up|2|48|192000|3-00:00:00
 PARTITION|preempt|up|1|48|192000|3-00:00:00
 NODE|routage*|bora001|idle|48|192000|1000|1|avx2|gpu:a100:2|none
@@ -25,6 +28,9 @@ FILESYSTEM|/dev/home|lustre|1000|200|800|/home
 	}
 	if nodes[0]["cpuCores"] != int64(48) || nodes[0]["memoryMiB"] != int64(192000) {
 		t.Fatalf("node capacities=%+v", nodes[0])
+	}
+	if result.LoginNode == nil || result.LoginNode.Name != "login.plafrim.fr" || result.LoginNode.CPUCores != 16 || result.LoginNode.MemoryBytes != 32768*1024 {
+		t.Fatalf("login=%+v", result.LoginNode)
 	}
 }
 

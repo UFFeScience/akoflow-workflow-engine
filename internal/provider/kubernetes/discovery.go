@@ -78,7 +78,19 @@ func (d *Discovery) DiscoverConnection(ctx context.Context, connection domain.En
 		"nodeCount": len(nodes.Items), "readyNodeCount": ready, "nodeNames": names,
 		"architectures": mapKeys(architectures), "containerRuntimes": mapKeys(runtimes),
 	}
-	return ports.ConnectionDiscovery{Available: ready > 0, Metadata: metadata}, nil
+	result := ports.ConnectionDiscovery{Available: ready > 0, Metadata: metadata}
+	// A Kind control-plane is a local Docker container. Surface it as an
+	// interactive direct resource so the Cloud Shell can enter the same node
+	// that hosts the local Kubernetes API. Other Kubernetes providers need a
+	// pod-exec implementation and are intentionally not represented as shells.
+	if contextName := configString(connection.Configuration, "context"); strings.HasPrefix(contextName, "kind-") && len(names) > 0 {
+		clusterName := strings.TrimPrefix(contextName, "kind-")
+		result.LoginNode = &ports.DiscoveredLoginNode{Name: names[0], Architecture: "", Metadata: map[string]any{
+			"role": "kind-control-plane", "interactiveDockerContainer": clusterName + "-control-plane",
+			"interactive": true, "kindContext": contextName,
+		}}
+	}
+	return result, nil
 }
 
 func mapKeys(values map[string]bool) []string {

@@ -16,6 +16,8 @@ import (
 	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/controlplane/eventloop"
 	"github.com/UFFeScience/akoflow/internal/domain"
+	domainaudit "github.com/UFFeScience/akoflow/internal/domain/audit"
+	domainconsole "github.com/UFFeScience/akoflow/internal/domain/console"
 	domainevents "github.com/UFFeScience/akoflow/internal/domain/events"
 	domaininstance "github.com/UFFeScience/akoflow/internal/domain/instance"
 	domainqueue "github.com/UFFeScience/akoflow/internal/domain/queue"
@@ -49,6 +51,9 @@ type Dependencies struct {
 	Connections  ports.ConnectionHealthMonitor
 	Discovery    ports.EnvironmentDiscovery
 	SSHKeys      *sshkey.Manager
+	Audit        ports.AuditStore
+	Console      ports.ConsoleCommands
+	Terminal     ports.InteractiveConsole
 }
 
 type Handler struct {
@@ -66,6 +71,9 @@ type Handler struct {
 	connections  ports.ConnectionHealthMonitor
 	discovery    ports.EnvironmentDiscovery
 	sshKeys      *sshkey.Manager
+	audit        ports.AuditStore
+	console      ports.ConsoleCommands
+	terminal     ports.InteractiveConsole
 }
 
 func New(dependencies Dependencies) (*Handler, error) {
@@ -84,7 +92,112 @@ func New(dependencies Dependencies) (*Handler, error) {
 		connections: dependencies.Connections,
 		discovery:   dependencies.Discovery,
 		sshKeys:     dependencies.SSHKeys,
+		audit:       dependencies.Audit,
+		console:     dependencies.Console,
+		terminal:    dependencies.Terminal,
 	}, nil
+}
+
+func (h *Handler) OpenConsoleSession(w http.ResponseWriter, r *http.Request) {
+	if h.terminal == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("interactive console is unavailable"))
+		return
+	}
+	var request domainconsole.SessionRequest
+	if !decode(w, r, &request) {
+		return
+	}
+	session, err := h.terminal.OpenSession(r.Context(), request)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, session)
+}
+
+func (h *Handler) StreamConsoleSession(w http.ResponseWriter, r *http.Request) {
+	if h.terminal == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("interactive console is unavailable"))
+		return
+	}
+	h.terminal.StreamSession(w, r, r.PathValue("sessionId"))
+}
+
+func (h *Handler) ListConsoleSessions(w http.ResponseWriter, r *http.Request) {
+	if h.terminal == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("interactive console is unavailable"))
+		return
+	}
+	items, err := h.terminal.ListSessions(r.Context())
+	writeList(w, items, err)
+}
+
+func (h *Handler) CloseConsoleSession(w http.ResponseWriter, r *http.Request) {
+	if h.terminal == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("interactive console is unavailable"))
+		return
+	}
+	if err := h.terminal.CloseSession(r.Context(), r.PathValue("sessionId")); err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) ExportConsoleSessionLog(w http.ResponseWriter, r *http.Request) {
+	if h.terminal == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("interactive console is unavailable"))
+		return
+	}
+	log, err := h.terminal.SessionLog(r.Context(), r.PathValue("sessionId"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Disposition", "attachment; filename=akoflow-"+r.PathValue("sessionId")+".log")
+	_, _ = w.Write(log)
+}
+
+func (h *Handler) ExecuteConsoleCommand(w http.ResponseWriter, r *http.Request) {
+	if h.console == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("console is unavailable"))
+		return
+	}
+	var request domainconsole.Request
+	if !decode(w, r, &request) {
+		return
+	}
+	command, err := h.console.ExecuteCommand(r.Context(), request)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, command)
+}
+
+func (h *Handler) ListConsoleCommands(w http.ResponseWriter, r *http.Request) {
+	if h.console == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("console is unavailable"))
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	items, err := h.console.ListCommands(r.Context(), limit)
+	writeList(w, items, err)
+}
+
+func (h *Handler) ListAuditEvents(w http.ResponseWriter, r *http.Request) {
+	if h.audit == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("audit is unavailable"))
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	filter := domainaudit.Filter{EventType: r.URL.Query().Get("eventType"), EnvironmentID: r.URL.Query().Get("environmentId"),
+		ResourceID: r.URL.Query().Get("resourceId"), ConnectionID: r.URL.Query().Get("connectionId"),
+		SessionID: r.URL.Query().Get("sessionId"), ExecutionID: r.URL.Query().Get("executionId"),
+		Outcome: domainaudit.Outcome(r.URL.Query().Get("outcome")), Limit: limit}
+	items, err := h.audit.ListAuditEvents(r.Context(), filter)
+	writeList(w, items, err)
 }
 
 func (h *Handler) GenerateSSHKey(w http.ResponseWriter, r *http.Request) {
@@ -105,6 +218,15 @@ func (h *Handler) GenerateSSHKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, key)
+}
+
+func (h *Handler) ListSSHKeys(w http.ResponseWriter, r *http.Request) {
+	if h.sshKeys == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("SSH key management is unavailable"))
+		return
+	}
+	keys, err := h.sshKeys.List()
+	writeList(w, keys, err)
 }
 
 func (h *Handler) DiscoverEnvironmentConnection(w http.ResponseWriter, r *http.Request) {

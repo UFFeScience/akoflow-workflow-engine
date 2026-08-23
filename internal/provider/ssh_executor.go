@@ -18,6 +18,7 @@ type SSHCommandExecutor struct {
 	Port         int
 	IdentityFile string
 	ProxyCommand string
+	HostKeyAlias string
 	ForwardAgent bool
 }
 
@@ -32,7 +33,10 @@ func (e SSHCommandExecutor) Run(ctx context.Context, name string, args []string,
 	if e.Username != "" && !strings.Contains(target, "@") {
 		target = e.Username + "@" + target
 	}
-	sshArgs := make([]string, 0, len(args)+8)
+	// Health checks and workers must never block indefinitely on an unreachable
+	// login node or a ProxyCommand that keeps a pipe open after its parent dies.
+	sshArgs := make([]string, 0, len(args)+14)
+	sshArgs = append(sshArgs, "-o", "BatchMode=yes", "-o", "ConnectionAttempts=1", "-o", "ConnectTimeout=10", "-o", "CheckHostIP=no")
 	if e.Port > 0 {
 		sshArgs = append(sshArgs, "-p", strconv.Itoa(e.Port))
 	}
@@ -41,6 +45,9 @@ func (e SSHCommandExecutor) Run(ctx context.Context, name string, args []string,
 	}
 	if e.ProxyCommand != "" {
 		sshArgs = append(sshArgs, "-o", "ProxyCommand="+e.ProxyCommand)
+	}
+	if e.HostKeyAlias != "" {
+		sshArgs = append(sshArgs, "-o", "HostKeyAlias="+e.HostKeyAlias)
 	}
 	if e.ForwardAgent {
 		sshArgs = append(sshArgs, "-A")

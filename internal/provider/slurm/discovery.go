@@ -31,6 +31,7 @@ func (d *Discovery) DiscoverConnection(ctx context.Context, connection domain.En
 		executor = runtimecommon.SSHCommandExecutor{Executor: d.executor, Endpoint: connection.Endpoint,
 			Username: connection.Username, Port: configInt(connection.Configuration, "port"),
 			IdentityFile: credentialFile(connection.CredentialRef), ProxyCommand: configString(connection.Configuration, "proxyCommand"),
+			HostKeyAlias: configString(connection.Configuration, "hostKeyAlias"),
 			ForwardAgent: configBool(connection.Configuration, "forwardAgent", false)}
 	}
 	script := strings.Join([]string{
@@ -41,6 +42,8 @@ func (d *Discovery) DiscoverConnection(ctx context.Context, connection domain.En
 		`printf 'FACT|workingDirectory|'; pwd -P`,
 		`printf 'FACT|homeDirectory|'; printf '%s\n' "$HOME"`,
 		`printf 'FACT|temporaryDirectory|'; printf '%s\n' "${TMPDIR:-/tmp}"`,
+		`printf 'FACT|loginCpuCores|'; (getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || printf '0\n')`,
+		`printf 'FACT|loginMemoryKiB|'; awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null`,
 		`printf 'FACT|slurmVersion|'; (sinfo --version 2>/dev/null || true)`,
 		`printf 'FACT|queueLength|'; squeue -h 2>/dev/null | wc -l | tr -d ' '`,
 		`(apptainer --version || singularity --version) 2>/dev/null | sed 's/^/FACT|containerRuntime|/'`,
@@ -117,7 +120,35 @@ func parseDiscovery(output []byte) ports.ConnectionDiscovery {
 			GenericResources: node["gres"].([]string), Reason: node["reason"].(string), Metadata: node,
 		})
 	}
-	return ports.ConnectionDiscovery{Available: len(partitions) > 0, Metadata: metadata, Warnings: warnings, Nodes: discovered}
+	login := discoveredLoginNode(metadata, filesystems)
+	return ports.ConnectionDiscovery{Available: len(partitions) > 0, Metadata: metadata, Warnings: warnings, Nodes: discovered, LoginNode: login}
+}
+
+func discoveredLoginNode(metadata map[string]any, filesystems []map[string]any) *ports.DiscoveredLoginNode {
+	name, _ := metadata["hostname"].(string)
+	if strings.TrimSpace(name) == "" {
+		return nil
+	}
+	architecture, _ := metadata["architecture"].(string)
+	cores := int(integer(stringValue(metadata["loginCpuCores"])))
+	memoryBytes := integer(stringValue(metadata["loginMemoryKiB"])) * 1024
+	var storageBytes int64
+	for _, filesystem := range filesystems {
+		if available, ok := filesystem["availableKiB"].(int64); ok {
+			storageBytes += available * 1024
+		}
+	}
+	loginMetadata := map[string]any{"role": "login", "hostname": name, "architecture": architecture,
+		"os": metadata["os"], "kernel": metadata["kernel"], "homeDirectory": metadata["homeDirectory"],
+		"workingDirectory": metadata["workingDirectory"], "temporaryDirectory": metadata["temporaryDirectory"],
+		"slurmVersion": metadata["slurmVersion"], "containerRuntime": metadata["containerRuntime"], "filesystems": filesystems}
+	return &ports.DiscoveredLoginNode{Name: name, Architecture: architecture, CPUCores: cores,
+		MemoryBytes: memoryBytes, StorageBytes: storageBytes, Metadata: loginMetadata}
+}
+
+func stringValue(value any) string {
+	text, _ := value.(string)
+	return text
 }
 
 func cleanPartition(value string) string { return strings.TrimSuffix(strings.TrimSpace(value), "*") }

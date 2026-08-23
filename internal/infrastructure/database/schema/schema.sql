@@ -489,3 +489,57 @@ CREATE TABLE simulation_runs (
 	execution_run_id TEXT NOT NULL UNIQUE REFERENCES execution_runs(id),
 	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE audit_events (
+	id TEXT PRIMARY KEY,
+	event_type TEXT NOT NULL,
+	actor_id TEXT NOT NULL DEFAULT '',
+	actor_type TEXT NOT NULL DEFAULT '',
+	environment_id TEXT NOT NULL DEFAULT '',
+	resource_id TEXT NOT NULL DEFAULT '',
+	connection_id TEXT NOT NULL DEFAULT '',
+	runtime_id TEXT NOT NULL DEFAULT '',
+	session_id TEXT NOT NULL DEFAULT '',
+	execution_id TEXT NOT NULL DEFAULT '',
+	external_id TEXT NOT NULL DEFAULT '',
+	outcome TEXT NOT NULL CHECK(outcome IN ('started', 'succeeded', 'failed')),
+	summary TEXT NOT NULL,
+	metadata TEXT NOT NULL DEFAULT '{}',
+	occurred_at DATETIME NOT NULL
+);
+CREATE INDEX audit_events_time_idx ON audit_events(occurred_at DESC);
+CREATE INDEX audit_events_resource_idx ON audit_events(resource_id, occurred_at DESC);
+CREATE INDEX audit_events_environment_idx ON audit_events(environment_id, occurred_at DESC);
+CREATE INDEX audit_events_connection_idx ON audit_events(connection_id, occurred_at DESC);
+CREATE TABLE console_commands (
+	id TEXT PRIMARY KEY,
+	resource_id TEXT NOT NULL REFERENCES resources(id),
+	runtime_id TEXT NOT NULL,
+	connection_id TEXT NOT NULL,
+	actor_id TEXT NOT NULL DEFAULT '',
+	command_text TEXT NOT NULL,
+	working_directory TEXT NOT NULL DEFAULT '',
+	environment TEXT NOT NULL DEFAULT '{}',
+	cpu_cores INTEGER NOT NULL DEFAULT 0,
+	memory_bytes INTEGER NOT NULL DEFAULT 0,
+	timeout_seconds INTEGER NOT NULL,
+	status TEXT NOT NULL CHECK(status IN ('running','completed','failed')),
+	stdout TEXT NOT NULL DEFAULT '',
+	stderr TEXT NOT NULL DEFAULT '',
+	exit_code INTEGER,
+	external_id TEXT NOT NULL DEFAULT '',
+	failure TEXT NOT NULL DEFAULT '',
+	created_at DATETIME NOT NULL,
+	started_at DATETIME NOT NULL,
+	finished_at DATETIME
+);
+CREATE INDEX console_commands_created_idx ON console_commands(created_at DESC);
+CREATE INDEX console_commands_resource_idx ON console_commands(resource_id, created_at DESC);
+
+CREATE TABLE console_session_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    direction TEXT NOT NULL CHECK(direction IN ('input','output')),
+    payload BLOB NOT NULL,
+    occurred_at DATETIME NOT NULL
+);
+CREATE INDEX console_session_logs_session_idx ON console_session_logs(session_id, id);

@@ -8,16 +8,18 @@ import (
 
 	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/domain"
+	domainaudit "github.com/UFFeScience/akoflow/internal/domain/audit"
+	"github.com/UFFeScience/akoflow/internal/provider"
 )
 
 type ConnectionMonitor struct {
 	store   connectionCatalog
 	probers map[domain.ConnectionType]ports.ConnectionProber
-	mu      sync.Mutex
 
 	scheduleMu sync.Mutex
 	schedules  map[string]connectionSchedule
 	now        func() time.Time
+	audit      ports.AuditStore
 }
 
 type connectionSchedule struct {
@@ -37,13 +39,16 @@ var _ ports.ConnectionHealthMonitor = (*ConnectionMonitor)(nil)
 func NewConnectionMonitor(
 	store connectionCatalog,
 	probers map[domain.ConnectionType]ports.ConnectionProber,
+	audits ...ports.AuditStore,
 ) *ConnectionMonitor {
-	return &ConnectionMonitor{store: store, probers: probers, schedules: map[string]connectionSchedule{}, now: time.Now}
+	monitor := &ConnectionMonitor{store: store, probers: probers, schedules: map[string]connectionSchedule{}, now: time.Now}
+	if len(audits) > 0 {
+		monitor.audit = audits[0]
+	}
+	return monitor
 }
 
 func (m *ConnectionMonitor) Check(ctx context.Context, connectionID string) (domain.ConnectionCheck, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	connection, err := m.store.FindConnection(ctx, connectionID)
 	if err != nil {
 		return domain.ConnectionCheck{}, err
@@ -76,6 +81,15 @@ func (m *ConnectionMonitor) Check(ctx context.Context, connectionID string) (dom
 		return domain.ConnectionCheck{}, err
 	}
 	m.recordResult(connection.ID, status, checkedAt)
+	if m.audit != nil {
+		outcome := domainaudit.OutcomeFailed
+		if health.Healthy {
+			outcome = domainaudit.OutcomeSucceeded
+		}
+		_ = m.audit.RecordAuditEvent(ctx, domainaudit.Event{ID: provider.NewID("audit"), EventType: "connection.health.checked",
+			EnvironmentID: connection.EnvironmentID, ConnectionID: connection.ID, Outcome: outcome, Summary: health.Message,
+			Metadata: map[string]any{"latencyMs": check.LatencyMS, "status": status}, OccurredAt: checkedAt})
+	}
 	return check, nil
 }
 

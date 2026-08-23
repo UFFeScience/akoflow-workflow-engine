@@ -88,7 +88,9 @@ func TestDiscoveryMaterializesSlurmNodesAndPartitionRelations(t *testing.T) {
 	inventory := &discoveryInventory{}
 	coordinator := NewDiscoveryCoordinator(discoveryCatalog{definition: definition}, inventory,
 		map[domain.ConnectionType]ports.ConnectionDiscoverer{domain.ConnectionSSH: connectionDiscovererStub{observation: ports.ConnectionDiscovery{
-			Available: true, Metadata: map[string]any{"source": "test"}, Nodes: []ports.DiscoveredNode{{
+			Available: true, Metadata: map[string]any{"source": "test"}, LoginNode: &ports.DiscoveredLoginNode{
+				Name: "login.plafrim.fr", CPUCores: 8, MemoryBytes: 16 * 1024 * 1024 * 1024,
+			}, Nodes: []ports.DiscoveredNode{{
 				Name: "bora001", State: "idle", CPUCores: 48, MemoryBytes: 1024, Partitions: []string{"routage"},
 			}},
 		}}})
@@ -96,16 +98,32 @@ func TestDiscoveryMaterializesSlurmNodesAndPartitionRelations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(inventory.resources) != 1 || inventory.resources[0].Type != domain.ResourceHPCMachine || inventory.resources[0].ProviderID != "bora001" {
+	if len(inventory.resources) != 4 {
 		t.Fatalf("resources=%+v", inventory.resources)
 	}
-	if len(inventory.bindings) != 1 || inventory.bindings[0].RuntimeID != "slurm" {
+	var login, node *domain.Resource
+	for index := range inventory.resources {
+		resource := &inventory.resources[index]
+		if resource.Metadata["role"] == "login" {
+			login = resource
+		}
+		if resource.ProviderID == "bora001" {
+			node = resource
+		}
+	}
+	if login == nil || login.ExecutionTarget != domain.ExecutionTargetDirect || login.ParentResourceID == nil {
+		t.Fatalf("login=%+v", login)
+	}
+	if node == nil || node.Type != domain.ResourceHPCMachine {
+		t.Fatalf("node=%+v", node)
+	}
+	if len(inventory.bindings) != 3 {
 		t.Fatalf("bindings=%+v", inventory.bindings)
 	}
 	if len(inventory.relations) != 1 || inventory.relations[0].SourceResourceID != "routage" {
 		t.Fatalf("relations=%+v", inventory.relations)
 	}
-	if len(snapshots) != 2 || !snapshots[0].Available {
+	if len(snapshots) != 3 || !snapshots[0].Available {
 		t.Fatalf("snapshots=%+v", snapshots)
 	}
 }

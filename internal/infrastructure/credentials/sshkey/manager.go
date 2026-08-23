@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -60,6 +61,49 @@ func (m *Manager) Generate(id, comment string) (Key, error) {
 		return Key{}, err
 	}
 	return Key{ID: id, CredentialRef: "file:" + privatePath, PublicKey: publicKey, Fingerprint: fingerprint(public)}, nil
+}
+
+// List returns the public metadata for service keys managed by this Engine.
+// Private material never leaves the credential directory or this process.
+func (m *Manager) List() ([]Key, error) {
+	entries, err := os.ReadDir(m.directory)
+	if os.IsNotExist(err) {
+		return []Key{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]Key, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".pub") {
+			continue
+		}
+		id := strings.TrimSuffix(entry.Name(), ".pub")
+		if !validID.MatchString(id) {
+			continue
+		}
+		privatePath := filepath.Join(m.directory, id)
+		if info, statErr := os.Stat(privatePath); statErr != nil || info.IsDir() {
+			continue
+		}
+		publicBytes, readErr := os.ReadFile(filepath.Join(m.directory, entry.Name()))
+		if readErr != nil {
+			return nil, readErr
+		}
+		publicKey := strings.TrimSpace(string(publicBytes))
+		public, parseErr := publicMaterial(publicKey)
+		if parseErr != nil {
+			return nil, fmt.Errorf("read SSH key %q: %w", id, parseErr)
+		}
+		keys = append(keys, Key{
+			ID:            id,
+			CredentialRef: "file:" + privatePath,
+			PublicKey:     publicKey,
+			Fingerprint:   fingerprint(public),
+		})
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i].ID < keys[j].ID })
+	return keys, nil
 }
 
 func publicMaterial(value string) (ed25519.PublicKey, error) {

@@ -52,6 +52,16 @@ type ConnectionDiscovery struct {
 	Metadata  map[string]any
 	Warnings  []string
 	Nodes     []DiscoveredNode
+	LoginNode *DiscoveredLoginNode
+}
+
+type DiscoveredLoginNode struct {
+	Name         string
+	Architecture string
+	CPUCores     int
+	MemoryBytes  int64
+	StorageBytes int64
+	Metadata     map[string]any
 }
 
 // DiscoveredNode is the scheduler's current view of one physical compute node.

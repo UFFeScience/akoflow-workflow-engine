@@ -17,6 +17,7 @@ type Settings struct {
 	KubernetesCleanupInterval  time.Duration
 	KubernetesHistoryRetention time.Duration
 	ConnectionCheckInterval    time.Duration
+	ConsoleEnabled             bool
 	SlurmScriptDirectory       string
 	SSHKeyDirectory            string
 	SimulationBackend          string
@@ -33,6 +34,7 @@ func Load() Settings {
 		KubernetesCleanupEnabled: true, KubernetesCleanupInterval: 15 * time.Minute,
 		KubernetesHistoryRetention: 24 * time.Hour,
 		ConnectionCheckInterval:    time.Minute,
+		ConsoleEnabled:             false,
 		SlurmScriptDirectory:       "storage/slurm/scripts",
 		SSHKeyDirectory:            "storage/credentials/ssh",
 		SimulationBackend:          "simgrid",
@@ -88,6 +90,7 @@ func Load() Settings {
 	settings.ConnectionCheckInterval = durationOrDefault(
 		os.Getenv("AKOFLOW_CONNECTION_CHECK_INTERVAL"), settings.ConnectionCheckInterval,
 	)
+	settings.ConsoleEnabled = os.Getenv("AKOFLOW_CONSOLE_ENABLED") == "true"
 	return settings
 }
 
