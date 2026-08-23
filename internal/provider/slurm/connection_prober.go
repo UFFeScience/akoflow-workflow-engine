@@ -33,10 +33,11 @@ func (p *ConnectionProber) Probe(ctx context.Context, connection domain.Environm
 	if connection.Type == domain.ConnectionSSH {
 		executor = runtimecommon.SSHCommandExecutor{Executor: executor, Endpoint: connection.Endpoint,
 			Username: connection.Username, Port: configInt(connection.Configuration, "port"),
-			IdentityFile: credentialFile(connection.CredentialRef),
-			ProxyCommand: configString(connection.Configuration, "proxyCommand"),
-			HostKeyAlias: configString(connection.Configuration, "hostKeyAlias"),
-			ForwardAgent: configBool(connection.Configuration, "forwardAgent", false)}
+			IdentityFile:   credentialFile(connection.CredentialRef),
+			ProxyCommand:   configString(connection.Configuration, "proxyCommand"),
+			HostKeyAlias:   configString(connection.Configuration, "hostKeyAlias"),
+			KnownHostsFile: knownHostsFile(connection),
+			ForwardAgent:   configBool(connection.Configuration, "forwardAgent", false)}
 	}
 	probeContext, cancel := context.WithTimeout(ctx, defaultProbeTimeout)
 	defer cancel()

@@ -11,11 +11,20 @@ services:
       AKOFLOW_BUILDCTL: buildctl
       AKOFLOW_APPTAINER: apptainer
       BUILDKIT_HOST: tcp://buildkitd:1234
+      # Kubernetes connections resolve their token from this process, while
+      # the environment definition retains only env:K8S_API_SERVER_TOKEN.
+      K8S_API_SERVER_HOST: ${K8S_API_SERVER_HOST:?set K8S_API_SERVER_HOST in .env}
+      K8S_API_SERVER_TOKEN: ${K8S_API_SERVER_TOKEN:?set K8S_API_SERVER_TOKEN in .env}
+      K8S_API_SERVER_CA_FILE: ${K8S_API_SERVER_CA_FILE:-}
+      K8S_API_SERVER_INSECURE_SKIP_TLS_VERIFY: ${K8S_API_SERVER_INSECURE_SKIP_TLS_VERIFY:-true}
     volumes:
       - artifact-store:/var/lib/akoflow/artifacts
       # Plans, preparation state and execution history need to survive a
       # release container recreation. This starts as a clean database volume.
       - engine-data:/app/storage
+      # Private SSH keys are available to the engine only, read-only. They are
+      # referenced by connection YAML and are never stored in the database.
+      - ./storage/credentials/ssh:/app/storage/credentials/ssh:ro
     ports:
       - "8080:8080"
     depends_on:

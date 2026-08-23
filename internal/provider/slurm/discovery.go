@@ -2,6 +2,7 @@ package slurm
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strconv"
 	"strings"
@@ -32,8 +33,9 @@ func (d *Discovery) DiscoverConnection(ctx context.Context, connection domain.En
 		executor = runtimecommon.SSHCommandExecutor{Executor: d.executor, Endpoint: connection.Endpoint,
 			Username: connection.Username, Port: configInt(connection.Configuration, "port"),
 			IdentityFile: credentialFile(connection.CredentialRef), ProxyCommand: configString(connection.Configuration, "proxyCommand"),
-			HostKeyAlias: configString(connection.Configuration, "hostKeyAlias"),
-			ForwardAgent: configBool(connection.Configuration, "forwardAgent", false)}
+			HostKeyAlias:   configString(connection.Configuration, "hostKeyAlias"),
+			KnownHostsFile: knownHostsFile(connection),
+			ForwardAgent:   configBool(connection.Configuration, "forwardAgent", false)}
 	}
 	script := strings.Join([]string{
 		`printf 'FACT|architecture|'; uname -m`,
@@ -55,7 +57,12 @@ func (d *Discovery) DiscoverConnection(ctx context.Context, connection domain.En
 		`sinfo -h -N -o 'NODE|%P|%N|%T|%c|%m|%d|%w|%f|%G|%E'`,
 		`df -PkT "$HOME" "${TMPDIR:-/tmp}" "$(pwd -P)" 2>/dev/null | awk 'NR>1 {printf "FILESYSTEM|%s|%s|%s|%s|%s|%s\n", $1, $2, $3, $4, $5, $7}' | sort -u`,
 	}, "; ")
-	output, err := executor.Run(ctx, "/bin/sh", []string{"-c", script}, nil)
+	// Send the generated script as base64. The discovery probe deliberately
+	// contains awk programs, substitutions and parentheses; passing it through
+	// both the local SSH command line and the remote login shell otherwise
+	// makes those expressions susceptible to a second round of shell parsing.
+	encodedScript := base64.StdEncoding.EncodeToString([]byte(script))
+	output, err := executor.Run(ctx, "/bin/sh", []string{"-c", "printf %s " + encodedScript + " | base64 -d | /bin/sh"}, nil)
 	if err != nil {
 		return ports.ConnectionDiscovery{}, fmt.Errorf("SLURM discovery: %w", err)
 	}
