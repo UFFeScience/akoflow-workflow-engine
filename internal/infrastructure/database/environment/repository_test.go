@@ -143,3 +143,27 @@ func TestDeleteEnvironmentRemovesDiscoveredInventory(t *testing.T) {
 		t.Fatalf("missing environment error=%v", err)
 	}
 }
+
+func TestReplaceEnvironmentUsesCompleteDefinition(t *testing.T) {
+	repository := setupRepository(t)
+	initial := Definition{
+		Environment: domain.Environment{ID: "editable", Name: "Before"},
+		Version:     domain.EnvironmentVersion{ID: "editable-v1", Version: 1, Status: domain.EnvironmentVersionDraft, NetworkModel: "real", InterferenceModel: "none", CostModel: "free"},
+		Runtimes:    []domain.EnvironmentRuntime{{ID: "editable-local", Name: "Local", Driver: domain.RuntimeDriverLocal, Mode: domain.RuntimeModeExecution}},
+		Resources:   []domain.Resource{{ID: "editable-machine", Type: domain.ResourceLocalMachine, Name: "Before machine", ProviderID: "machine", Schedulable: true}},
+	}
+	if err := repository.Create(context.Background(), initial); err != nil {
+		t.Fatal(err)
+	}
+	replacement := initial
+	replacement.Environment.Name = "After"
+	replacement.Resources[0].Name = "After machine"
+	replacement.Connections = []domain.EnvironmentConnection{{ID: "editable-ssh", Name: "SSH", Type: domain.ConnectionSSH, Endpoint: "login.example"}}
+	if err := repository.Replace(context.Background(), replacement); err != nil {
+		t.Fatal(err)
+	}
+	found, err := repository.Find(context.Background(), "editable")
+	if err != nil || found == nil || found.Environment.Name != "After" || found.Resources[0].Name != "After machine" || len(found.Connections) != 1 {
+		t.Fatalf("replacement=%+v error=%v", found, err)
+	}
+}

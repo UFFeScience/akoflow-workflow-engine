@@ -3,6 +3,7 @@ package workflow_engine_api_handler
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -929,6 +930,26 @@ func (h *Handler) CreateEnvironment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, definition)
+}
+
+func (h *Handler) ReplaceEnvironment(w http.ResponseWriter, r *http.Request) {
+	var definition domain.EnvironmentDefinition
+	if !decode(w, r, &definition) {
+		return
+	}
+	if definition.Environment.ID != r.PathValue("environmentId") {
+		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("environment id must match the request path"))
+		return
+	}
+	if err := h.environments.Replace(r.Context(), definition); err != nil {
+		if err == sql.ErrNoRows {
+			writeError(w, http.StatusNotFound, fmt.Errorf("environment not found"))
+			return
+		}
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, definition)
 }
 
 func (h *Handler) DeleteEnvironment(w http.ResponseWriter, r *http.Request) {

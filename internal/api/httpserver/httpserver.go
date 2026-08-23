@@ -36,6 +36,7 @@ func NewMux(workflowEngine *workflow_engine_api_handler.Handler) *http.ServeMux 
 	mux.HandleFunc("POST /akoflow-api/environments/", http_config.KernelHandler(workflowEngine.CreateEnvironment))
 	mux.HandleFunc("GET /akoflow-api/environments/", http_config.KernelHandler(workflowEngine.ListEnvironments))
 	mux.HandleFunc("GET /akoflow-api/environments/{environmentId}/", http_config.KernelHandler(workflowEngine.GetEnvironment))
+	mux.HandleFunc("PUT /akoflow-api/environments/{environmentId}/", http_config.KernelHandler(workflowEngine.ReplaceEnvironment))
 	mux.HandleFunc("DELETE /akoflow-api/environments/{environmentId}/", http_config.KernelHandler(workflowEngine.DeleteEnvironment))
 	mux.HandleFunc("GET /akoflow-api/environments/{environmentId}/storages/", http_config.KernelHandler(workflowEngine.ListStorages))
 	mux.HandleFunc("GET /akoflow-api/storages/{storageId}/roots/", http_config.KernelHandler(workflowEngine.StorageRoots))

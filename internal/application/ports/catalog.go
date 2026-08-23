@@ -15,6 +15,7 @@ type WorkflowStore interface {
 
 type EnvironmentCatalog interface {
 	Create(context.Context, domain.EnvironmentDefinition) error
+	Replace(context.Context, domain.EnvironmentDefinition) error
 	Delete(context.Context, string) error
 	List(context.Context) ([]domain.EnvironmentDefinition, error)
 	Find(context.Context, string) (*domain.EnvironmentDefinition, error)

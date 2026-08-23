@@ -18,6 +18,67 @@ var _ ports.StorageCatalog = (*Repository)(nil)
 
 func New(db *sql.DB) *Repository { return &Repository{db: db} }
 
+// Replace updates an environment through the same complete definition used at
+// creation time. It is transactional: if the edited inventory cannot be
+// stored, the previous definition remains intact.
+func (r *Repository) Replace(ctx context.Context, definition Definition) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM environments WHERE id=?)`, definition.Environment.ID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return sql.ErrNoRows
+	}
+	for _, statement := range []string{
+		`DELETE FROM resource_snapshots WHERE resource_id IN (SELECT r.id FROM resources r JOIN environment_versions ev ON ev.id=r.environment_version_id WHERE ev.environment_id=?)`,
+		`DELETE FROM activity_resource_profiles WHERE resource_id IN (SELECT r.id FROM resources r JOIN environment_versions ev ON ev.id=r.environment_version_id WHERE ev.environment_id=?)`,
+		`DELETE FROM resource_relations WHERE environment_version_id IN (SELECT id FROM environment_versions WHERE environment_id=?)`,
+		`DELETE FROM discovery_runs WHERE environment_version_id IN (SELECT id FROM environment_versions WHERE environment_id=?)`,
+		`DELETE FROM storage_resources WHERE environment_version_id IN (SELECT id FROM environment_versions WHERE environment_id=?)`,
+		`DELETE FROM resources WHERE environment_version_id IN (SELECT id FROM environment_versions WHERE environment_id=?)`,
+		`DELETE FROM environment_runtimes WHERE environment_version_id IN (SELECT id FROM environment_versions WHERE environment_id=?)`,
+		`DELETE FROM environment_connections WHERE environment_id=?`,
+		`DELETE FROM environment_versions WHERE environment_id=?`,
+	} {
+		if _, err := tx.ExecContext(ctx, statement, definition.Environment.ID); err != nil {
+			return fmt.Errorf("environment %q cannot be replaced while it is in use: %w", definition.Environment.ID, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE environments SET name=?, description=?, status=? WHERE id=?`, definition.Environment.Name, definition.Environment.Description, definition.Environment.Status, definition.Environment.ID); err != nil {
+		return err
+	}
+	if err := insertConnections(tx, definition); err != nil {
+		return err
+	}
+	if err := insertEnvironmentVersion(tx, definition); err != nil {
+		return err
+	}
+	if err := insertRuntimes(tx, definition); err != nil {
+		return err
+	}
+	if err := insertResources(tx, definition); err != nil {
+		return err
+	}
+	if err := insertRuntimeBindings(tx, definition); err != nil {
+		return err
+	}
+	if err := insertResourceRelations(tx, definition); err != nil {
+		return err
+	}
+	if err := insertStorages(tx, definition); err != nil {
+		return err
+	}
+	if err := insertProfiles(tx, definition); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // Delete removes an environment and its discovered inventory. Environments that
 // are already part of a scope, a plan, or an execution must remain immutable so
 // existing plans keep their reproducible infrastructure snapshot.
