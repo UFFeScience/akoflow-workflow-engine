@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/UFFeScience/akoflow/internal/domain"
 )
@@ -30,10 +31,50 @@ func localPath(e domain.TransferEndpoint, name string) (string, error) {
 	if base == "" {
 		base = e.URI
 	}
+	base, err = filepath.Abs(base)
+	if err != nil {
+		return "", err
+	}
+	base = filepath.Clean(base)
 	if name == "" {
 		return base, nil
 	}
-	return filepath.Join(base, name), nil
+	// Endpoint names are logical relative keys; accepting an absolute path or
+	// traversal here would allow a transfer plan to write outside its endpoint.
+	key := filepath.Clean(filepath.FromSlash(name))
+	if filepath.IsAbs(key) || key == ".." || strings.HasPrefix(key, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("transfer path escapes endpoint")
+	}
+	full := filepath.Join(base, key)
+	parent := filepath.Dir(full)
+	// Resolve an existing parent so a symlink in a staging tree cannot redirect
+	// the transfer outside the configured endpoint.
+	for {
+		_, statErr := os.Lstat(parent)
+		if statErr == nil {
+			break
+		}
+		if !os.IsNotExist(statErr) {
+			return "", statErr
+		}
+		next := filepath.Dir(parent)
+		if next == parent {
+			return "", fmt.Errorf("endpoint has no existing parent")
+		}
+		parent = next
+	}
+	realParent, err := filepath.EvalSymlinks(parent)
+	if err != nil {
+		return "", err
+	}
+	realBase, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		return "", err
+	}
+	if realParent != realBase && !strings.HasPrefix(realParent, realBase+string(filepath.Separator)) {
+		return "", fmt.Errorf("transfer path escapes endpoint via symlink")
+	}
+	return full, nil
 }
 func (LocalFilesystem) Exists(_ context.Context, e domain.TransferEndpoint, name string) (bool, error) {
 	p, err := localPath(e, name)

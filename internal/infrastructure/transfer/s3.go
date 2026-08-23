@@ -64,13 +64,23 @@ func (s S3Compatible) s3Client(e domain.TransferEndpoint) (*minio.Client, string
 	c, err := minio.New(endpoint, &minio.Options{Creds: creds, Secure: secure, Region: e.Configuration["region"]})
 	return c, u.Host, strings.TrimPrefix(u.Path, "/"), err
 }
-func s3Object(prefix, name string) string { return path.Join(prefix, name) }
+func s3Object(prefix, name string) string {
+	key := path.Clean(strings.TrimPrefix(name, "/"))
+	if key == "." || key == ".." || strings.HasPrefix(key, "../") {
+		return ""
+	}
+	return path.Join(prefix, key)
+}
 func (s S3Compatible) Exists(ctx context.Context, e domain.TransferEndpoint, name string) (bool, error) {
 	c, b, p, err := s.s3Client(e)
 	if err != nil {
 		return false, err
 	}
-	_, err = c.StatObject(ctx, b, s3Object(p, name), minio.StatObjectOptions{})
+	object := s3Object(p, name)
+	if object == "" {
+		return false, fmt.Errorf("S3 transfer path escapes endpoint")
+	}
+	_, err = c.StatObject(ctx, b, object, minio.StatObjectOptions{})
 	if minio.ToErrorResponse(err).Code == "NoSuchKey" {
 		return false, nil
 	}
@@ -101,7 +111,9 @@ func (s S3Compatible) Put(ctx context.Context, e domain.TransferEndpoint, name s
 			return getErr
 		}
 		defer previous.Close()
-		input = io.MultiReader(previous, input)
+		// PutObject replaces an object. Reconstruct exactly the persisted prefix;
+		// streaming the whole existing object would duplicate bytes on resume.
+		input = io.MultiReader(io.LimitReader(previous, offset), input)
 	}
 	_, err = c.PutObject(ctx, b, s3Object(p, name), input, -1, minio.PutObjectOptions{})
 	return err

@@ -4,6 +4,8 @@
 package storage
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"fmt"
@@ -215,12 +217,32 @@ func (s *BrowserCoordinator) Roots(ctx context.Context, id string) ([]domain.Sto
 	}
 	return v.BrowseRoots, nil
 }
+
+func (s *BrowserCoordinator) usable(v *domain.StorageResource, write bool) (ports.StorageBrowser, error) {
+	if v == nil {
+		return nil, fmt.Errorf("storage resource not found")
+	}
+	if len(v.BrowseRoots) == 0 {
+		return nil, fmt.Errorf("storage has no configured browse roots")
+	}
+	if v.Health.Status == domain.StorageHealth("unavailable") {
+		return nil, fmt.Errorf("storage is unavailable: %s", v.Health.Message)
+	}
+	if write && v.ReadOnly {
+		return nil, fmt.Errorf("storage is read-only")
+	}
+	b, err := s.resolver.Browser(v.Type)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
+}
 func (s *BrowserCoordinator) Browse(ctx context.Context, id string, r domain.BrowseRequest) (domain.BrowsePage, error) {
 	v, e := s.catalog.FindStorage(ctx, id)
 	if e != nil || v == nil {
 		return domain.BrowsePage{}, notFound(e)
 	}
-	b, e := s.resolver.Browser(v.Type)
+	b, e := s.usable(v, false)
 	if e != nil {
 		return domain.BrowsePage{}, e
 	}
@@ -231,7 +253,7 @@ func (s *BrowserCoordinator) Stat(ctx context.Context, id, path string) (domain.
 	if e != nil || v == nil {
 		return domain.FileEntry{}, notFound(e)
 	}
-	b, e := s.resolver.Browser(v.Type)
+	b, e := s.usable(v, false)
 	if e != nil {
 		return domain.FileEntry{}, e
 	}
@@ -242,7 +264,7 @@ func (s *BrowserCoordinator) StartDownload(ctx context.Context, id, path, runID 
 	if e != nil || v == nil {
 		return domain.DownloadRun{}, notFound(e)
 	}
-	b, e := s.resolver.Browser(v.Type)
+	b, e := s.usable(v, false)
 	if e != nil {
 		return domain.DownloadRun{}, e
 	}
@@ -268,7 +290,7 @@ func (s *BrowserCoordinator) OpenDownload(ctx context.Context, id string) (io.Re
 	if e != nil || v == nil {
 		return nil, domain.FileEntry{}, notFound(e)
 	}
-	b, e := s.resolver.Browser(v.Type)
+	b, e := s.usable(v, false)
 	if e != nil {
 		return nil, domain.FileEntry{}, e
 	}
@@ -286,7 +308,7 @@ func (s *BrowserCoordinator) Checksum(ctx context.Context, id, path string) (str
 	if e != nil || v == nil {
 		return "", notFound(e)
 	}
-	b, e := s.resolver.Browser(v.Type)
+	b, e := s.usable(v, false)
 	if e != nil {
 		return "", e
 	}
@@ -307,7 +329,7 @@ func (s *BrowserCoordinator) Delete(ctx context.Context, id, path string) error 
 	if e != nil || v == nil {
 		return notFound(e)
 	}
-	b, e := s.resolver.Browser(v.Type)
+	b, e := s.usable(v, true)
 	if e != nil {
 		return e
 	}
@@ -321,7 +343,7 @@ func (s *BrowserCoordinator) QueueCopy(ctx context.Context, id, path, destinatio
 	now := time.Now().UTC()
 	run := domain.DownloadRun{
 		ID: runID, StorageID: id, Path: path,
-		Status: domain.DownloadStreaming, Strategy: "copy:" + destination,
+		Status: domain.DownloadQueued, Strategy: "copy:" + destination,
 		SizeBytes: entry.SizeBytes, CreatedAt: now, UpdatedAt: now,
 	}
 	if e = s.catalog.SaveDownload(ctx, run); e != nil {
@@ -338,29 +360,44 @@ func (s *BrowserCoordinator) QueueCopy(ctx context.Context, id, path, destinatio
 	if e != nil || src == nil {
 		return run, notFound(e)
 	}
-	sb, e := s.resolver.Browser(src.Type)
-	if e != nil {
+	if _, e = s.usable(src, false); e != nil {
 		return run, e
 	}
-	db, e := s.resolver.Browser(dst.Type)
-	if e != nil {
+	if _, e = s.usable(dst, true); e != nil {
 		return run, e
 	}
-	body, _, e := sb.Open(ctx, *src, path)
-	if e == nil {
-		e = db.Write(ctx, *dst, path, body, entry.SizeBytes)
-		body.Close()
+	// Copy is a real background job. Its lifecycle is persisted so callers can
+	// poll the existing download-run endpoint rather than receiving a completed
+	// response for work that has not happened yet.
+	go s.copy(context.Background(), run, *src, *dst, entry)
+	return run, nil
+}
+
+func (s *BrowserCoordinator) copy(ctx context.Context, run domain.DownloadRun, src, dst domain.StorageResource, entry domain.FileEntry) {
+	run.Status, run.UpdatedAt = domain.DownloadStreaming, time.Now().UTC()
+	if err := s.catalog.SaveDownload(ctx, run); err != nil {
+		return
 	}
-	if e != nil {
-		run.Status = domain.DownloadFailed
-		run.Error = e.Error()
+	sb, err := s.usable(&src, false)
+	if err == nil {
+		var db ports.StorageBrowser
+		db, err = s.usable(&dst, true)
+		if err == nil {
+			var body io.ReadCloser
+			body, _, err = sb.Open(ctx, src, run.Path)
+			if err == nil {
+				err = db.Write(ctx, dst, run.Path, body, entry.SizeBytes)
+				_ = body.Close()
+			}
+		}
+	}
+	if err != nil {
+		run.Status, run.Error = domain.DownloadFailed, err.Error()
 	} else {
-		run.Status = domain.DownloadCompleted
-		run.TransferredBytes = entry.SizeBytes
+		run.Status, run.TransferredBytes = domain.DownloadCompleted, entry.SizeBytes
 	}
 	run.UpdatedAt = time.Now().UTC()
 	_ = s.catalog.SaveDownload(ctx, run)
-	return run, e
 }
 func (s *BrowserCoordinator) QueueArchive(ctx context.Context, id, path, runID string) (domain.DownloadRun, error) {
 	entry, e := s.Stat(ctx, id, path)
@@ -373,12 +410,89 @@ func (s *BrowserCoordinator) QueueArchive(ctx context.Context, id, path, runID s
 	now := time.Now().UTC()
 	run := domain.DownloadRun{
 		ID: runID, StorageID: id, Path: path,
-		Status: domain.DownloadFailed, Strategy: "archive",
-		Error:     "archive worker is not configured; submit an archive worker for this storage",
+		Status: domain.DownloadQueued, Strategy: "archive",
 		CreatedAt: now, UpdatedAt: now,
 	}
-	e = s.catalog.SaveDownload(ctx, run)
-	return run, e
+	if e = s.catalog.SaveDownload(ctx, run); e != nil {
+		return run, e
+	}
+	v, e := s.catalog.FindStorage(ctx, id)
+	if e != nil || v == nil {
+		return run, notFound(e)
+	}
+	if _, e = s.usable(v, true); e != nil {
+		return run, e
+	}
+	go s.archive(context.Background(), run, *v)
+	return run, nil
+}
+
+func (s *BrowserCoordinator) archive(ctx context.Context, run domain.DownloadRun, storage domain.StorageResource) {
+	run.Status, run.UpdatedAt = domain.DownloadStreaming, time.Now().UTC()
+	if err := s.catalog.SaveDownload(ctx, run); err != nil {
+		return
+	}
+	b, err := s.usable(&storage, true)
+	if err == nil {
+		reader, writer := io.Pipe()
+		done := make(chan error, 1)
+		go func() { done <- s.writeArchive(ctx, b, storage, run.Path, writer); _ = writer.Close() }()
+		output := strings.TrimSuffix(run.Path, "/") + ".tar.gz"
+		err = b.Write(ctx, storage, output, reader, 0)
+		if archiveErr := <-done; err == nil {
+			err = archiveErr
+		}
+		_ = reader.Close()
+		if err == nil {
+			run.Path = output
+		}
+	}
+	if err != nil {
+		run.Status, run.Error = domain.DownloadFailed, err.Error()
+	} else {
+		run.Status = domain.DownloadReady
+	}
+	run.UpdatedAt = time.Now().UTC()
+	_ = s.catalog.SaveDownload(ctx, run)
+}
+
+func (s *BrowserCoordinator) writeArchive(ctx context.Context, b ports.StorageBrowser, storage domain.StorageResource, root string, sink io.Writer) error {
+	gzipWriter := gzip.NewWriter(sink)
+	defer gzipWriter.Close()
+	tarWriter := tar.NewWriter(gzipWriter)
+	defer tarWriter.Close()
+	var walk func(string) error
+	walk = func(directory string) error {
+		page, err := b.Browse(ctx, storage, domain.BrowseRequest{Path: directory, Limit: 500})
+		if err != nil {
+			return err
+		}
+		for _, entry := range page.Entries {
+			if entry.Type == domain.FileEntrySymlink {
+				continue
+			}
+			if entry.Type == domain.FileEntryDirectory {
+				if err = walk(entry.Path); err != nil {
+					return err
+				}
+				continue
+			}
+			body, _, err := b.Open(ctx, storage, entry.Path)
+			if err != nil {
+				return err
+			}
+			header := &tar.Header{Name: strings.TrimPrefix(entry.Path, "/"), Mode: 0o640, Size: entry.SizeBytes, ModTime: entry.ModifiedAt}
+			if err = tarWriter.WriteHeader(header); err == nil {
+				_, err = io.Copy(tarWriter, body)
+			}
+			_ = body.Close()
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return walk(root)
 }
 func notFound(e error) error {
 	if e != nil {

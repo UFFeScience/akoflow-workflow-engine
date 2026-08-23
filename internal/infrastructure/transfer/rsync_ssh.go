@@ -24,8 +24,19 @@ func sshTarget(e domain.TransferEndpoint, name string) (string, string, error) {
 	if slash < 0 {
 		return "", "", fmt.Errorf("ssh endpoint requires absolute path")
 	}
-	host, base := rest[:slash], rest[slash:]
-	return host, filepath.Join(base, name), nil
+	host, base := rest[:slash], filepath.Clean(rest[slash:])
+	if host == "" || !filepath.IsAbs(base) {
+		return "", "", fmt.Errorf("ssh endpoint requires host and absolute base path")
+	}
+	key := filepath.Clean(filepath.FromSlash(name))
+	if name != "" && (filepath.IsAbs(key) || key == ".." || strings.HasPrefix(key, ".."+string(filepath.Separator))) {
+		return "", "", fmt.Errorf("SSH transfer path escapes endpoint")
+	}
+	full := filepath.Join(base, key)
+	if full != base && !strings.HasPrefix(full, base+string(filepath.Separator)) {
+		return "", "", fmt.Errorf("SSH transfer path escapes endpoint")
+	}
+	return host, full, nil
 }
 func sshArgs(e domain.TransferEndpoint) []string {
 	args := []string{}
