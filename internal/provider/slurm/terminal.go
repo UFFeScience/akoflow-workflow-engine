@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/domain"
@@ -23,7 +24,7 @@ type TerminalRunner struct{}
 var _ ports.InteractiveConsoleRunner = TerminalRunner{}
 
 func (TerminalRunner) StartInteractive(_ context.Context, connection domain.EnvironmentConnection, resource domain.Resource) (ports.InteractiveTerminal, error) {
-	command, err := interactiveCommand(connection, resource)
+	command, cleanup, err := interactiveCommandForJob(connection, resource, fmt.Sprintf("akoflow-console-%d", time.Now().UnixNano()))
 	if err != nil {
 		return nil, err
 	}
@@ -31,22 +32,27 @@ func (TerminalRunner) StartInteractive(_ context.Context, connection domain.Envi
 	if err != nil {
 		return nil, fmt.Errorf("start interactive terminal: %w", err)
 	}
-	return &terminalHandle{file: terminal, command: command}, nil
+	return &terminalHandle{file: terminal, command: command, cleanup: cleanup}, nil
 }
 
 func interactiveCommand(connection domain.EnvironmentConnection, resource domain.Resource) (*exec.Cmd, error) {
+	command, _, err := interactiveCommandForJob(connection, resource, "")
+	return command, err
+}
+
+func interactiveCommandForJob(connection domain.EnvironmentConnection, resource domain.Resource, jobName string) (*exec.Cmd, func(), error) {
 	if connection.Type == domain.ConnectionLocal || connection.Type == domain.ConnectionAgent {
-		return exec.Command("/bin/sh", "-l"), nil
+		return exec.Command("/bin/sh", "-l"), nil, nil
 	}
 	if connection.Type == domain.ConnectionKubernetes {
 		container, _ := resource.Metadata["interactiveDockerContainer"].(string)
 		if container == "" {
-			return nil, fmt.Errorf("interactive Kubernetes terminals are currently available only for discovered Kind control-plane resources")
+			return nil, nil, fmt.Errorf("interactive Kubernetes terminals are currently available only for discovered Kind control-plane resources")
 		}
-		return exec.Command("docker", "exec", "-it", container, "/bin/sh", "-l"), nil
+		return exec.Command("docker", "exec", "-it", container, "/bin/sh", "-l"), nil, nil
 	}
 	if connection.Type != domain.ConnectionSSH {
-		return nil, fmt.Errorf("interactive terminals are not supported for connection type %q", connection.Type)
+		return nil, nil, fmt.Errorf("interactive terminals are not supported for connection type %q", connection.Type)
 	}
 	args := []string{"-tt", "-o", "BatchMode=yes", "-o", "ConnectionAttempts=1", "-o", "ConnectTimeout=10", "-o", "CheckHostIP=no"}
 	if port := configInt(connection.Configuration, "port"); port > 0 {
@@ -72,29 +78,44 @@ func interactiveCommand(connection domain.EnvironmentConnection, resource domain
 		target = username + "@" + target
 	}
 	if target == "" {
-		return nil, fmt.Errorf("SSH endpoint is required for an interactive terminal")
+		return nil, nil, fmt.Errorf("SSH endpoint is required for an interactive terminal")
 	}
 	args = append(args, target)
 	if resource.ExecutionTarget == domain.ExecutionTargetDirect {
 		args = append(args, "/bin/sh", "-l")
-		return exec.Command("ssh", args...), nil
+		return exec.Command("ssh", args...), nil, nil
 	}
 	if !safeSchedulerTarget.MatchString(resource.ProviderID) {
-		return nil, fmt.Errorf("invalid scheduler target %q", resource.ProviderID)
+		return nil, nil, fmt.Errorf("invalid scheduler target %q", resource.ProviderID)
+	}
+	jobArgs := []string{"srun"}
+	if jobName != "" {
+		jobArgs = append(jobArgs, "--job-name="+jobName)
 	}
 	if resource.Type == domain.ResourceHPCPartition {
-		args = append(args, "srun", "--partition="+resource.ProviderID, "--pty", "/bin/bash", "-l")
+		jobArgs = append(jobArgs, "--partition="+resource.ProviderID, "--pty", "/bin/bash", "-l")
 	} else if resource.Type == domain.ResourceHPCMachine {
-		args = append(args, "srun", "--nodelist="+resource.ProviderID, "--pty", "/bin/bash", "-l")
+		jobArgs = append(jobArgs, "--nodelist="+resource.ProviderID, "--pty", "/bin/bash", "-l")
 	} else {
-		return nil, fmt.Errorf("resource type %q cannot host an interactive terminal", resource.Type)
+		return nil, nil, fmt.Errorf("resource type %q cannot host an interactive terminal", resource.Type)
 	}
-	return exec.Command("ssh", args...), nil
+	command := exec.Command("ssh", append(args, jobArgs...)...)
+	cleanup := func() {
+		if jobName == "" {
+			return
+		}
+		cancelArgs := append(append([]string{}, args...), "scancel", "--name="+jobName)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		_ = exec.CommandContext(ctx, "ssh", cancelArgs...).Run()
+	}
+	return command, cleanup, nil
 }
 
 type terminalHandle struct {
 	file    *os.File
 	command *exec.Cmd
+	cleanup func()
 	once    sync.Once
 }
 
@@ -110,6 +131,9 @@ func (h *terminalHandle) Close() (err error) {
 			_ = h.command.Process.Kill()
 		}
 		err = h.command.Wait()
+		if h.cleanup != nil {
+			h.cleanup()
+		}
 	})
 	return err
 }
