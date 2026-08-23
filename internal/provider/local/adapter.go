@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"strconv"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/UFFeScience/akoflow/internal/domain"
@@ -74,18 +73,10 @@ func (a *Adapter) Inspect(_ context.Context, handle domain.ActivityHandle) (doma
 		}
 		return handle, nil
 	}
-	pid, err := strconv.Atoi(handle.ExternalID)
-	if err != nil {
-		return handle, fmt.Errorf("invalid local process id: %w", err)
-	}
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return handle, err
-	}
-	if err := process.Signal(syscall.Signal(0)); err != nil {
-		handle.Status = domain.HandleFailed
-		handle.Failure = "process is no longer available"
-	}
+	// A short-lived process can exit after the results lookup above but before
+	// its Wait goroutine persists the final result. Keep it running for this
+	// polling cycle; the next inspection reads the authoritative exit status.
+	// Probing the PID here is also unsafe because a PID can be reused.
 	return handle, nil
 }
 
