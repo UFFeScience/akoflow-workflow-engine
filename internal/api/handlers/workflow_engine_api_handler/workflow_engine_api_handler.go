@@ -36,6 +36,23 @@ type ExecutionQuery interface {
 	ListHandles(context.Context, string) ([]domain.ActivityHandle, error)
 	ListEvents(context.Context, string) ([]domainevents.Event, error)
 }
+type StorageNavigator interface {
+	List(context.Context, string) ([]domain.StorageResource, error)
+	Roots(context.Context, string) ([]domain.StorageBrowseRoot, error)
+	Browse(context.Context, string, domain.BrowseRequest) (domain.BrowsePage, error)
+	Stat(context.Context, string, string) (domain.FileEntry, error)
+	StartDownload(context.Context, string, string, string) (domain.DownloadRun, error)
+	OpenDownload(context.Context, string) (io.ReadCloser, domain.FileEntry, error)
+	Download(context.Context, string) (*domain.DownloadRun, error)
+	Checksum(context.Context, string, string) (string, error)
+	QueueCopy(context.Context, string, string, string, string) (domain.DownloadRun, error)
+	QueueArchive(context.Context, string, string, string) (domain.DownloadRun, error)
+	PromoteData(context.Context, string, string, string, string, string, string) error
+	PromoteArtifact(context.Context, string, string, string, string, string, string, string) error
+	IndexRuns(context.Context, string) ([]domain.IndexRun, error)
+	StartIndex(context.Context, string, string) (domain.IndexRun, error)
+	Delete(context.Context, string, string) error
+}
 
 type Dependencies struct {
 	Environments ports.EnvironmentCatalog
@@ -55,6 +72,7 @@ type Dependencies struct {
 	Audit        ports.AuditStore
 	Console      ports.ConsoleCommands
 	Terminal     ports.InteractiveConsole
+	Storage      StorageNavigator
 }
 
 type Handler struct {
@@ -75,6 +93,7 @@ type Handler struct {
 	audit        ports.AuditStore
 	console      ports.ConsoleCommands
 	terminal     ports.InteractiveConsole
+	storage      StorageNavigator
 }
 
 func New(dependencies Dependencies) (*Handler, error) {
@@ -96,7 +115,214 @@ func New(dependencies Dependencies) (*Handler, error) {
 		audit:       dependencies.Audit,
 		console:     dependencies.Console,
 		terminal:    dependencies.Terminal,
+		storage:     dependencies.Storage,
 	}, nil
+}
+
+func (h *Handler) ListStorages(w http.ResponseWriter, r *http.Request) {
+	if h.storage == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("storage browser is unavailable"))
+		return
+	}
+	items, e := h.storage.List(r.Context(), r.PathValue("environmentId"))
+	writeList(w, items, e)
+}
+func (h *Handler) StorageRoots(w http.ResponseWriter, r *http.Request) {
+	if h.storage == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("storage browser is unavailable"))
+		return
+	}
+	items, e := h.storage.Roots(r.Context(), r.PathValue("storageId"))
+	writeList(w, items, e)
+}
+func (h *Handler) BrowseStorage(w http.ResponseWriter, r *http.Request) {
+	if h.storage == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("storage browser is unavailable"))
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	v, e := h.storage.Browse(r.Context(), r.PathValue("storageId"), domain.BrowseRequest{Path: r.URL.Query().Get("path"), Cursor: r.URL.Query().Get("cursor"), Limit: limit})
+	if e != nil {
+		writeError(w, http.StatusUnprocessableEntity, e)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+func (h *Handler) StatStorageEntry(w http.ResponseWriter, r *http.Request) {
+	if h.storage == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("storage browser is unavailable"))
+		return
+	}
+	v, e := h.storage.Stat(r.Context(), r.PathValue("storageId"), r.URL.Query().Get("path"))
+	if e != nil {
+		writeError(w, http.StatusUnprocessableEntity, e)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+func (h *Handler) CreateDownload(w http.ResponseWriter, r *http.Request) {
+	if h.storage == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("storage browser is unavailable"))
+		return
+	}
+	var v struct {
+		Path string `json:"path"`
+		ID   string `json:"id"`
+	}
+	if !decode(w, r, &v) {
+		return
+	}
+	if v.ID == "" {
+		v.ID = fmt.Sprintf("download-%d", time.Now().UnixNano())
+	}
+	out, e := h.storage.StartDownload(r.Context(), r.PathValue("storageId"), v.Path, v.ID)
+	if e != nil {
+		writeError(w, http.StatusUnprocessableEntity, e)
+		return
+	}
+	writeJSON(w, http.StatusCreated, out)
+}
+func (h *Handler) StreamDownload(w http.ResponseWriter, r *http.Request) {
+	if h.storage == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("storage browser is unavailable"))
+		return
+	}
+	body, entry, e := h.storage.OpenDownload(r.Context(), r.PathValue("downloadId"))
+	if e != nil {
+		writeError(w, http.StatusNotFound, e)
+		return
+	}
+	defer body.Close()
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", entry.Name))
+	w.Header().Set("Content-Type", "application/octet-stream")
+	_, _ = io.Copy(w, body)
+}
+func (h *Handler) GetDownload(w http.ResponseWriter, r *http.Request) {
+	if h.storage == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("storage browser is unavailable"))
+		return
+	}
+	v, e := h.storage.Download(r.Context(), r.PathValue("downloadId"))
+	if e != nil {
+		writeError(w, http.StatusNotFound, e)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+func (h *Handler) ChecksumStorageEntry(w http.ResponseWriter, r *http.Request) {
+	if h.storage == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("storage browser is unavailable"))
+		return
+	}
+	var in struct {
+		Path string `json:"path"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	sum, e := h.storage.Checksum(r.Context(), r.PathValue("storageId"), in.Path)
+	if e != nil {
+		writeError(w, http.StatusUnprocessableEntity, e)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"checksum": sum})
+}
+func (h *Handler) DeleteStorageEntry(w http.ResponseWriter, r *http.Request) {
+	if h.storage == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("storage browser is unavailable"))
+		return
+	}
+	if e := h.storage.Delete(r.Context(), r.PathValue("storageId"), r.URL.Query().Get("path")); e != nil {
+		writeError(w, http.StatusUnprocessableEntity, e)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+func (h *Handler) CopyStorageEntry(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Path                 string `json:"path"`
+		DestinationStorageID string `json:"destinationStorageId"`
+		ID                   string `json:"id"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.ID == "" {
+		in.ID = fmt.Sprintf("copy-%d", time.Now().UnixNano())
+	}
+	v, e := h.storage.QueueCopy(r.Context(), r.PathValue("storageId"), in.Path, in.DestinationStorageID, in.ID)
+	if e != nil {
+		writeError(w, http.StatusUnprocessableEntity, e)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, v)
+}
+func (h *Handler) ArchiveStorageDirectory(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Path string `json:"path"`
+		ID   string `json:"id"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.ID == "" {
+		in.ID = fmt.Sprintf("archive-%d", time.Now().UnixNano())
+	}
+	v, e := h.storage.QueueArchive(r.Context(), r.PathValue("storageId"), in.Path, in.ID)
+	if e != nil {
+		writeError(w, http.StatusUnprocessableEntity, e)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, v)
+}
+func (h *Handler) PromoteStorageData(w http.ResponseWriter, r *http.Request) {
+	var in struct{ Path, WorkflowVersionID, RunID, ActivityID, ID string }
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.ID == "" {
+		in.ID = fmt.Sprintf("data-%d", time.Now().UnixNano())
+	}
+	if e := h.storage.PromoteData(r.Context(), r.PathValue("storageId"), in.Path, in.WorkflowVersionID, in.RunID, in.ActivityID, in.ID); e != nil {
+		writeError(w, http.StatusUnprocessableEntity, e)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"id": in.ID})
+}
+func (h *Handler) PromoteStorageArtifact(w http.ResponseWriter, r *http.Request) {
+	var in struct{ Path, ID, Name, Version, Scope, ScopeID string }
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.ID == "" {
+		in.ID = fmt.Sprintf("artifact-%d", time.Now().UnixNano())
+	}
+	if e := h.storage.PromoteArtifact(r.Context(), r.PathValue("storageId"), in.Path, in.ID, in.Name, in.Version, in.Scope, in.ScopeID); e != nil {
+		writeError(w, http.StatusUnprocessableEntity, e)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"id": in.ID})
+}
+func (h *Handler) ListStorageIndexRuns(w http.ResponseWriter, r *http.Request) {
+	v, e := h.storage.IndexRuns(r.Context(), r.PathValue("storageId"))
+	writeList(w, v, e)
+}
+func (h *Handler) StartStorageIndex(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ID string `json:"id"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.ID == "" {
+		in.ID = fmt.Sprintf("index-%d", time.Now().UnixNano())
+	}
+	v, e := h.storage.StartIndex(r.Context(), r.PathValue("storageId"), in.ID)
+	if e != nil {
+		writeError(w, http.StatusUnprocessableEntity, e)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, v)
 }
 
 func (h *Handler) OpenConsoleSession(w http.ResponseWriter, r *http.Request) {
@@ -126,7 +352,7 @@ func (h *Handler) StreamConsoleSession(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) ListConsoleSessions(w http.ResponseWriter, r *http.Request) {
 	if h.terminal == nil {
-		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("interactive console is unavailable"))
+		writeJSON(w, http.StatusOK, []domainconsole.Session{})
 		return
 	}
 	items, err := h.terminal.ListSessions(r.Context())
@@ -528,8 +754,39 @@ func (h *Handler) GetExecution(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		response["dataObjects"], response["dataLocations"] = instances, locations
+		materializations, materializationErr := h.data.ListArtifactMaterializations(r.Context(), run.ID)
+		if materializationErr != nil {
+			writeError(w, http.StatusInternalServerError, materializationErr)
+			return
+		}
+		response["artifactMaterializations"] = materializations
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) ListArtifactLocations(w http.ResponseWriter, r *http.Request) {
+	values, err := h.data.ListArtifactLocations(r.Context())
+	writeList(w, values, err)
+}
+
+func (h *Handler) ListArtifacts(w http.ResponseWriter, r *http.Request) {
+	values, err := h.data.ListArtifacts(r.Context())
+	writeList(w, values, err)
+}
+func (h *Handler) ListArtifactMaterializations(w http.ResponseWriter, r *http.Request) {
+	values, err := h.data.ListArtifactMaterializations(r.Context(), r.URL.Query().Get("runId"))
+	writeList(w, values, err)
+}
+func (h *Handler) SaveArtifactMaterialization(w http.ResponseWriter, r *http.Request) {
+	var value domain.ArtifactMaterialization
+	if !decode(w, r, &value) {
+		return
+	}
+	if err := h.data.SaveArtifactMaterialization(r.Context(), value); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, value)
 }
 
 func (h *Handler) CreateEnvironment(w http.ResponseWriter, r *http.Request) {

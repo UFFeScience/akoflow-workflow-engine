@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/UFFeScience/akoflow/internal/application/ports"
@@ -32,6 +34,224 @@ func New(typeName domain.StorageType, root string) (*Driver, error) {
 }
 
 func (d *Driver) Type() domain.StorageType { return d.typeName }
+
+// List deliberately reads one directory only. This makes browsing large HPC
+// filesystems predictable and prevents discovery from becoming a global scan.
+func (d *Driver) Browse(_ context.Context, storage domain.StorageResource, request domain.BrowseRequest) (domain.BrowsePage, error) {
+	directory, relative, err := d.browsePath(storage, request.Path)
+	if err != nil {
+		return domain.BrowsePage{}, err
+	}
+	items, err := os.ReadDir(directory)
+	if err != nil {
+		return domain.BrowsePage{}, err
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Name() < items[j].Name() })
+	start := 0
+	if request.Cursor != "" {
+		start, err = strconv.Atoi(request.Cursor)
+		if err != nil || start < 0 {
+			return domain.BrowsePage{}, fmt.Errorf("invalid browse cursor")
+		}
+	}
+	limit := request.Limit
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	end := start + limit
+	if end > len(items) {
+		end = len(items)
+	}
+	if start > len(items) {
+		start = len(items)
+	}
+	entries := make([]domain.FileEntry, 0, end-start)
+	for _, item := range items[start:end] {
+		full := filepath.Join(directory, item.Name())
+		info, infoErr := os.Lstat(full)
+		if infoErr != nil {
+			return domain.BrowsePage{}, infoErr
+		}
+		entry, err := d.infoEntry(storage.ID, filepath.ToSlash(filepath.Join(relative, item.Name())), info, full)
+		if err != nil {
+			return domain.BrowsePage{}, err
+		}
+		entries = append(entries, entry)
+	}
+	page := domain.BrowsePage{StorageID: storage.ID, Path: relative, Entries: entries}
+	if end < len(items) {
+		page.NextCursor = strconv.Itoa(end)
+	}
+	return page, nil
+}
+
+func (d *Driver) BrowseStat(_ context.Context, storage domain.StorageResource, value string) (domain.FileEntry, error) {
+	full, relative, err := d.browsePath(storage, value)
+	if err != nil {
+		return domain.FileEntry{}, err
+	}
+	info, err := os.Lstat(full)
+	if err != nil {
+		return domain.FileEntry{}, err
+	}
+	return d.infoEntry(storage.ID, relative, info, full)
+}
+
+func (d *Driver) Open(_ context.Context, storage domain.StorageResource, value string) (io.ReadCloser, domain.FileEntry, error) {
+	entry, err := d.BrowseStat(context.Background(), storage, value)
+	if err != nil {
+		return nil, domain.FileEntry{}, err
+	}
+	if entry.Type != domain.FileEntryFile {
+		return nil, domain.FileEntry{}, fmt.Errorf("only files can be downloaded")
+	}
+	full, _, err := d.browsePath(storage, value)
+	if err != nil {
+		return nil, domain.FileEntry{}, err
+	}
+	f, err := os.Open(full)
+	return f, entry, err
+}
+func (d *Driver) Remove(_ context.Context, storage domain.StorageResource, value string) error {
+	if storage.ReadOnly {
+		return fmt.Errorf("storage is read-only")
+	}
+	full, _, err := d.browsePath(storage, value)
+	if err != nil {
+		return err
+	}
+	info, err := os.Lstat(full)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return fmt.Errorf("directories require an explicit archive/cleanup job")
+	}
+	return os.Remove(full)
+}
+func (d *Driver) Write(
+	_ context.Context,
+	storage domain.StorageResource,
+	value string,
+	source io.Reader,
+	_ int64,
+) error {
+	if storage.ReadOnly {
+		return fmt.Errorf("storage is read-only")
+	}
+	root, err := d.storageRoot(storage)
+	if err != nil {
+		return err
+	}
+	if err = os.MkdirAll(root, 0o750); err != nil {
+		return err
+	}
+	full, _, err := d.browsePath(storage, value)
+	if err != nil {
+		return err
+	}
+	if err = os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
+		return err
+	}
+	tmp := full + ".akoflow-copy-part"
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(f, source)
+	closeErr := f.Close()
+	if copyErr != nil || closeErr != nil {
+		_ = os.Remove(tmp)
+		return firstError(copyErr, closeErr)
+	}
+	return os.Rename(tmp, full)
+}
+
+func (d *Driver) browsePath(storage domain.StorageResource, value string) (string, string, error) {
+	root, err := d.storageRoot(storage)
+	if err != nil {
+		return "", "", err
+	}
+	relative := filepath.Clean(filepath.FromSlash(strings.TrimPrefix(value, "/")))
+	if relative == "." {
+		relative = ""
+	}
+	if strings.HasPrefix(relative, "..") || filepath.IsAbs(relative) {
+		return "", "", fmt.Errorf("browse path escapes its root")
+	}
+	full := filepath.Join(root, relative)
+	// Evaluate the closest existing parent. This permits the first write into a
+	// new storage while still preventing an existing symlink from escaping.
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", "", err
+	}
+	existing := full
+	for {
+		if _, statErr := os.Lstat(existing); statErr == nil {
+			break
+		} else if !os.IsNotExist(statErr) {
+			return "", "", statErr
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return "", "", fmt.Errorf("no existing parent for browse path")
+		}
+		existing = parent
+	}
+	realPath, err := filepath.EvalSymlinks(existing)
+	if err != nil {
+		return "", "", err
+	}
+	if realPath != realRoot && !strings.HasPrefix(realPath, realRoot+string(filepath.Separator)) {
+		return "", "", fmt.Errorf("browse path escapes via symlink")
+	}
+	return full, filepath.ToSlash(relative), nil
+}
+
+func (d *Driver) storageRoot(storage domain.StorageResource) (string, error) {
+	root := d.root
+	if storage.Endpoint != "" {
+		candidate, err := filepath.Abs(storage.Endpoint)
+		if err != nil {
+			return "", err
+		}
+		root = filepath.Clean(candidate)
+	}
+	allowed := false
+	for _, configured := range storage.BrowseRoots {
+		candidate, err := filepath.Abs(configured.Path)
+		if err == nil && filepath.Clean(candidate) == root {
+			allowed = true
+			break
+		}
+	}
+	if len(storage.BrowseRoots) > 0 && !allowed {
+		return "", fmt.Errorf("storage endpoint is not an allowed browse root")
+	}
+	return root, nil
+}
+
+func (d *Driver) entry(storageID, parent string, item os.DirEntry) (domain.FileEntry, error) {
+	full := filepath.Join(d.root, parent, item.Name())
+	info, err := os.Lstat(full)
+	if err != nil {
+		return domain.FileEntry{}, err
+	}
+	return d.infoEntry(storageID, filepath.ToSlash(filepath.Join(parent, item.Name())), info, full)
+}
+func (d *Driver) infoEntry(storageID, relative string, info os.FileInfo, full string) (domain.FileEntry, error) {
+	typ := domain.FileEntryFile
+	if info.IsDir() {
+		typ = domain.FileEntryDirectory
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		typ = domain.FileEntrySymlink
+		target, _ := os.Readlink(full)
+		return domain.FileEntry{StorageID: storageID, Path: relative, Name: filepath.Base(relative), Type: typ, ModifiedAt: info.ModTime(), Readable: true, LinkTarget: target}, nil
+	}
+	return domain.FileEntry{StorageID: storageID, Path: relative, Name: filepath.Base(relative), Type: typ, SizeBytes: info.Size(), ModifiedAt: info.ModTime(), Readable: true}, nil
+}
 
 func (d *Driver) Put(_ context.Context, request ports.PutObjectRequest) (domain.DataLocation, error) {
 	destination, err := d.resolve(request.Key)

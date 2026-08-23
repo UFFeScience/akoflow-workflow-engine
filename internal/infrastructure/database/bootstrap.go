@@ -39,6 +39,12 @@ func migrateSchema(ctx context.Context, db *sql.DB) error {
 	if version == schema.Version {
 		return nil
 	}
+	if version == 8 && schema.Version == 9 {
+		return migrateV8ToV9(ctx, db)
+	}
+	if version == 7 && (schema.Version == 8 || schema.Version == 9) {
+		return migrateV7ToV8(ctx, db)
+	}
 	if version == 6 && schema.Version == 7 {
 		return migrateV6ToV7(ctx, db)
 	}
@@ -75,6 +81,89 @@ func migrateSchema(ctx context.Context, db *sql.DB) error {
 	if _, err := tx.ExecContext(ctx, `UPDATE schema_metadata SET version=?, applied_at=?, checksum=?`,
 		schema.Version, time.Now().UTC(), schemaChecksum()); err != nil {
 		return fmt.Errorf("update schema metadata: %w", err)
+	}
+	return tx.Commit()
+}
+
+func migrateV7ToV8(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `
+		CREATE TABLE artifact_versions (
+			id TEXT PRIMARY KEY, artifact_id TEXT NOT NULL, version TEXT NOT NULL,
+			scope TEXT NOT NULL, scope_id TEXT NOT NULL DEFAULT '',
+			UNIQUE(artifact_id, version, scope, scope_id));
+		CREATE TABLE artifact_variants (
+			id TEXT PRIMARY KEY, artifact_version_id TEXT NOT NULL REFERENCES artifact_versions(id),
+			digest TEXT NOT NULL, format TEXT NOT NULL, architecture TEXT NOT NULL DEFAULT '',
+			size_bytes INTEGER NOT NULL DEFAULT 0, UNIQUE(artifact_version_id, digest));
+		CREATE TABLE transfer_endpoints (
+			id TEXT PRIMARY KEY, kind TEXT NOT NULL, uri TEXT NOT NULL, resource_id TEXT,
+			environment_id TEXT, configuration TEXT NOT NULL DEFAULT '{}');
+		CREATE TABLE connector_bindings (
+			id TEXT PRIMARY KEY, endpoint_id TEXT NOT NULL REFERENCES transfer_endpoints(id) ON DELETE CASCADE,
+			connector TEXT NOT NULL, credential_ref TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 1);
+		CREATE TABLE artifact_locations (
+			id TEXT PRIMARY KEY, variant_id TEXT NOT NULL REFERENCES artifact_variants(id) ON DELETE CASCADE,
+			endpoint_id TEXT NOT NULL REFERENCES transfer_endpoints(id), uri TEXT NOT NULL, digest TEXT NOT NULL,
+			scope TEXT NOT NULL, scope_id TEXT NOT NULL DEFAULT '', available INTEGER NOT NULL DEFAULT 1);
+		CREATE TABLE artifact_materializations (
+			id TEXT PRIMARY KEY, run_id TEXT NOT NULL DEFAULT '', activity_id TEXT NOT NULL DEFAULT '',
+			variant_id TEXT NOT NULL, digest TEXT NOT NULL, resource_id TEXT NOT NULL,
+			environment_id TEXT NOT NULL DEFAULT '', destination_path TEXT NOT NULL, status TEXT NOT NULL,
+			verified_digest TEXT NOT NULL DEFAULT '', updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP);
+		CREATE TABLE transfer_runs_v2 (
+			id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, strategy TEXT NOT NULL, status TEXT NOT NULL,
+			verified_blobs TEXT NOT NULL DEFAULT '[]', completed_chunks TEXT NOT NULL DEFAULT '[]',
+			error TEXT NOT NULL DEFAULT '', created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP);
+		CREATE TABLE storage_download_runs (
+			id TEXT PRIMARY KEY,
+			storage_resource_id TEXT NOT NULL REFERENCES storage_resources(id) ON DELETE CASCADE,
+			path TEXT NOT NULL,
+			status TEXT NOT NULL CHECK(status IN ('queued','ready','streaming','completed','failed')),
+			strategy TEXT NOT NULL DEFAULT 'stream', url TEXT NOT NULL DEFAULT '',
+			size_bytes INTEGER NOT NULL DEFAULT 0, transferred_bytes INTEGER NOT NULL DEFAULT 0,
+			error TEXT NOT NULL DEFAULT '', created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL);
+		CREATE TABLE storage_index_runs (
+			id TEXT PRIMARY KEY,
+			storage_resource_id TEXT NOT NULL REFERENCES storage_resources(id) ON DELETE CASCADE,
+			status TEXT NOT NULL, indexed_entries INTEGER NOT NULL DEFAULT 0,
+			error TEXT NOT NULL DEFAULT '', created_at DATETIME NOT NULL, finished_at DATETIME);`); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE schema_metadata SET version=?, applied_at=?, checksum=?`, schema.Version, time.Now().UTC(), schemaChecksum()); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func migrateV8ToV9(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS storage_download_runs (
+		id TEXT PRIMARY KEY,
+		storage_resource_id TEXT NOT NULL REFERENCES storage_resources(id) ON DELETE CASCADE,
+		path TEXT NOT NULL,
+		status TEXT NOT NULL CHECK(status IN ('queued','ready','streaming','completed','failed')),
+		strategy TEXT NOT NULL DEFAULT 'stream', url TEXT NOT NULL DEFAULT '',
+		size_bytes INTEGER NOT NULL DEFAULT 0, transferred_bytes INTEGER NOT NULL DEFAULT 0,
+		error TEXT NOT NULL DEFAULT '', created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL);
+		CREATE TABLE IF NOT EXISTS storage_index_runs (
+		id TEXT PRIMARY KEY,
+		storage_resource_id TEXT NOT NULL REFERENCES storage_resources(id) ON DELETE CASCADE,
+		status TEXT NOT NULL, indexed_entries INTEGER NOT NULL DEFAULT 0,
+		error TEXT NOT NULL DEFAULT '', created_at DATETIME NOT NULL, finished_at DATETIME);`); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE schema_metadata SET version=?, applied_at=?, checksum=?`,
+		schema.Version, time.Now().UTC(), schemaChecksum()); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

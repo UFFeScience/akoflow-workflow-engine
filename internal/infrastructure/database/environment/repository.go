@@ -762,3 +762,31 @@ func (r *Repository) FindDefaultRuntimeStorage(ctx context.Context, versionID, r
 	}
 	return nil, sql.ErrNoRows
 }
+func (r *Repository) UpsertDiscoveredStorage(ctx context.Context, value domain.StorageResource) error {
+	configuration, err := json.Marshal(value.Configuration)
+	if err != nil {
+		return err
+	}
+	metadata := value.Metadata
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	metadata["discovered"] = true
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		return err
+	}
+	const statement = `INSERT INTO storage_resources(
+		id,environment_version_id,name,type,endpoint,capacity_bytes,shared,read_only,
+		configuration,credential_reference,metadata
+	) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+		capacity_bytes=excluded.capacity_bytes,
+		configuration=excluded.configuration,
+		metadata=excluded.metadata`
+	_, err = r.db.ExecContext(ctx, statement,
+		value.ID, value.EnvironmentVersionID, value.Name, value.Type,
+		value.Endpoint, value.CapacityBytes, value.Shared, value.ReadOnly,
+		string(configuration), value.CredentialReference, string(encoded),
+	)
+	return err
+}

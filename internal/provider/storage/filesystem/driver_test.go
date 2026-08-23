@@ -3,6 +3,8 @@ package filesystem
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/UFFeScience/akoflow/internal/application/ports"
@@ -33,5 +35,59 @@ func TestDriverRoundTripAndRootProtection(t *testing.T) {
 	}
 	if err := driver.Delete(context.Background(), location); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestBrowseIsPagedAndBlocksTraversalAndEscapingSymlink(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("a"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "b.txt"), []byte("b"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "secret"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "outside")); err != nil {
+		t.Fatal(err)
+	}
+	d, err := New(domain.StorageLocal, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := domain.StorageResource{ID: "local", Endpoint: root, BrowseRoots: []domain.StorageBrowseRoot{{Path: root}}}
+	page, err := d.Browse(context.Background(), s, domain.BrowseRequest{Limit: 1})
+	if err != nil || len(page.Entries) != 1 || page.NextCursor == "" {
+		t.Fatalf("page=%+v err=%v", page, err)
+	}
+	if _, err = d.Browse(context.Background(), s, domain.BrowseRequest{Path: "../"}); err == nil {
+		t.Fatal("traversal allowed")
+	}
+	if _, err = d.Browse(context.Background(), s, domain.BrowseRequest{Path: "outside"}); err == nil {
+		t.Fatal("symlink escape allowed")
+	}
+}
+
+func TestWriteCreatesAnExplicitlyConfiguredMissingRoot(t *testing.T) {
+	driver, err := New(domain.StorageLocal, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(t.TempDir(), "new-cache")
+	storage := domain.StorageResource{
+		ID: "cache", Endpoint: root,
+		BrowseRoots: []domain.StorageBrowseRoot{{Path: root}},
+	}
+	if err := driver.Write(
+		context.Background(), storage, "images/tool.sif",
+		bytes.NewBufferString("sif bytes"), 9,
+	); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(root, "images", "tool.sif"))
+	if err != nil || string(content) != "sif bytes" {
+		t.Fatalf("content=%q err=%v", content, err)
 	}
 }

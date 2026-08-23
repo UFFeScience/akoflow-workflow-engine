@@ -52,3 +52,24 @@ func TestDriverUsesObjectHTTPContract(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestBrowseUsesPrefixAndDelimiter(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("delimiter") != "/" || r.URL.Query().Get("prefix") != "datasets/" {
+			t.Errorf("query=%s", r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(
+			`<ListBucketResult>` +
+				`<CommonPrefixes><Prefix>datasets/raw/</Prefix></CommonPrefixes>` +
+				`<Contents><Key>datasets/input.csv</Key><Size>7</Size><ETag>etag</ETag></Contents>` +
+				`<IsTruncated>false</IsTruncated>` +
+				`</ListBucketResult>`,
+		))
+	}))
+	defer server.Close()
+	d := New(server.Client(), nil)
+	page, err := d.Browse(context.Background(), domain.StorageResource{ID: "s3", Endpoint: server.URL}, domain.BrowseRequest{Path: "datasets"})
+	if err != nil || len(page.Entries) != 2 || page.Entries[0].Type != domain.FileEntryDirectory {
+		t.Fatalf("page=%+v err=%v", page, err)
+	}
+}

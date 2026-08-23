@@ -327,8 +327,8 @@ CREATE TABLE activity_handles (
 		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
 CREATE TABLE data_objects (
-		id TEXT PRIMARY KEY,
-		workflow_version_id TEXT NOT NULL REFERENCES workflow_versions(id),
+	id TEXT PRIMARY KEY,
+	workflow_version_id TEXT REFERENCES workflow_versions(id),
 		producer_activity_id TEXT REFERENCES activity_definitions(id),
 		logical_name TEXT NOT NULL,
 		relative_path TEXT NOT NULL DEFAULT '',
@@ -338,8 +338,8 @@ CREATE TABLE data_objects (
 CREATE TABLE data_object_instances (
 		id TEXT PRIMARY KEY,
 		data_object_id TEXT NOT NULL REFERENCES data_objects(id),
-		execution_run_id TEXT NOT NULL REFERENCES execution_runs(id),
-		producer_activity_id TEXT NOT NULL REFERENCES activity_definitions(id),
+	execution_run_id TEXT REFERENCES execution_runs(id),
+	producer_activity_id TEXT REFERENCES activity_definitions(id),
 		attempt INTEGER NOT NULL DEFAULT 1,
 		relative_path TEXT NOT NULL,
 		size_bytes INTEGER NOT NULL DEFAULT 0 CHECK(size_bytes >= 0),
@@ -354,7 +354,7 @@ CREATE TABLE storage_resources (
 		id TEXT PRIMARY KEY,
 		environment_version_id TEXT NOT NULL REFERENCES environment_versions(id),
 		name TEXT NOT NULL,
-		type TEXT NOT NULL CHECK(type IN ('local', 'pvc', 'nfs', 's3', 'lustre')),
+	type TEXT NOT NULL CHECK(type IN ('local', 'pvc', 'nfs', 's3', 'lustre', 'gcs', 's3-compatible', 'ssh-filesystem')),
 		endpoint TEXT NOT NULL DEFAULT '',
 		capacity_bytes INTEGER NOT NULL DEFAULT 0 CHECK(capacity_bytes >= 0),
 		shared INTEGER NOT NULL DEFAULT 0,
@@ -384,7 +384,7 @@ CREATE TABLE data_locations (
 		data_object_instance_id TEXT NOT NULL REFERENCES data_object_instances(id),
 		storage_resource_id TEXT REFERENCES storage_resources(id),
 		resource_id TEXT REFERENCES resources(id),
-		execution_run_id TEXT NOT NULL REFERENCES execution_runs(id),
+	execution_run_id TEXT REFERENCES execution_runs(id),
 		uri TEXT NOT NULL,
 		available_at REAL NOT NULL DEFAULT 0,
 		verified_at REAL NOT NULL DEFAULT 0,
@@ -452,6 +452,21 @@ CREATE TABLE schema_metadata (
 	version INTEGER NOT NULL,
 	applied_at DATETIME NOT NULL,
 	checksum TEXT NOT NULL
+);
+CREATE TABLE storage_download_runs (
+	id TEXT PRIMARY KEY,
+	storage_resource_id TEXT NOT NULL REFERENCES storage_resources(id) ON DELETE CASCADE,
+	path TEXT NOT NULL,
+	status TEXT NOT NULL CHECK(status IN ('queued','ready','streaming','completed','failed')),
+	strategy TEXT NOT NULL DEFAULT 'stream',
+	url TEXT NOT NULL DEFAULT '', size_bytes INTEGER NOT NULL DEFAULT 0,
+	transferred_bytes INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '',
+	created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL
+);
+CREATE TABLE storage_index_runs (
+	id TEXT PRIMARY KEY, storage_resource_id TEXT NOT NULL REFERENCES storage_resources(id) ON DELETE CASCADE,
+	status TEXT NOT NULL, indexed_entries INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '',
+	created_at DATETIME NOT NULL, finished_at DATETIME
 );
 CREATE TABLE environment_connection_checks (
 		id TEXT PRIMARY KEY,
@@ -559,3 +574,40 @@ CREATE TABLE console_session_logs (
     occurred_at DATETIME NOT NULL
 );
 CREATE INDEX console_session_logs_session_idx ON console_session_logs(session_id, id);
+
+-- Content-addressed executable/data plane. URI credentials are kept in
+-- connector bindings, never in location records.
+CREATE TABLE artifact_versions (
+    id TEXT PRIMARY KEY, artifact_id TEXT NOT NULL, version TEXT NOT NULL,
+    scope TEXT NOT NULL, scope_id TEXT NOT NULL DEFAULT '',
+    UNIQUE(artifact_id, version, scope, scope_id)
+);
+CREATE TABLE artifact_variants (
+    id TEXT PRIMARY KEY, artifact_version_id TEXT NOT NULL REFERENCES artifact_versions(id),
+    digest TEXT NOT NULL, format TEXT NOT NULL, architecture TEXT NOT NULL DEFAULT '', size_bytes INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(artifact_version_id, digest)
+);
+CREATE TABLE transfer_endpoints (
+    id TEXT PRIMARY KEY, kind TEXT NOT NULL, uri TEXT NOT NULL, resource_id TEXT, environment_id TEXT,
+    configuration TEXT NOT NULL DEFAULT '{}'
+);
+CREATE TABLE connector_bindings (
+    id TEXT PRIMARY KEY, endpoint_id TEXT NOT NULL REFERENCES transfer_endpoints(id) ON DELETE CASCADE,
+    connector TEXT NOT NULL, credential_ref TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE artifact_locations (
+    id TEXT PRIMARY KEY, variant_id TEXT NOT NULL REFERENCES artifact_variants(id) ON DELETE CASCADE,
+    endpoint_id TEXT NOT NULL REFERENCES transfer_endpoints(id), uri TEXT NOT NULL, digest TEXT NOT NULL,
+    scope TEXT NOT NULL, scope_id TEXT NOT NULL DEFAULT '', available INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE artifact_materializations (
+    id TEXT PRIMARY KEY, run_id TEXT NOT NULL DEFAULT '', activity_id TEXT NOT NULL DEFAULT '',
+    variant_id TEXT NOT NULL, digest TEXT NOT NULL, resource_id TEXT NOT NULL,
+    environment_id TEXT NOT NULL DEFAULT '', destination_path TEXT NOT NULL, status TEXT NOT NULL,
+    verified_digest TEXT NOT NULL DEFAULT '', updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE transfer_runs_v2 (
+    id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, strategy TEXT NOT NULL, status TEXT NOT NULL,
+    verified_blobs TEXT NOT NULL DEFAULT '[]', completed_chunks TEXT NOT NULL DEFAULT '[]', error TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

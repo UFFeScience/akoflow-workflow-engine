@@ -38,3 +38,16 @@ type StorageCatalog interface {
 	ListRuntimeStorages(context.Context, string, string) ([]domain.StorageResource, error)
 	FindDefaultRuntimeStorage(context.Context, string, string) (*domain.StorageResource, error)
 }
+type DiscoveredStorageStore interface {
+	UpsertDiscoveredStorage(context.Context, domain.StorageResource) error
+}
+
+// StorageBrowser exposes a bounded, authorization-ready view of a storage.
+// Paths are always relative to an explicitly configured browse root.
+type StorageBrowser interface {
+	Browse(context.Context, domain.StorageResource, domain.BrowseRequest) (domain.BrowsePage, error)
+	BrowseStat(context.Context, domain.StorageResource, string) (domain.FileEntry, error)
+	Open(context.Context, domain.StorageResource, string) (io.ReadCloser, domain.FileEntry, error)
+	Remove(context.Context, domain.StorageResource, string) error
+	Write(context.Context, domain.StorageResource, string, io.Reader, int64) error
+}

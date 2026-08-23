@@ -15,6 +15,7 @@ import (
 	dbplanning "github.com/UFFeScience/akoflow/internal/infrastructure/database/planning"
 	dbqueue "github.com/UFFeScience/akoflow/internal/infrastructure/database/queue"
 	dbresource "github.com/UFFeScience/akoflow/internal/infrastructure/database/resource"
+	dbstorage "github.com/UFFeScience/akoflow/internal/infrastructure/database/storage"
 	dbworkflow "github.com/UFFeScience/akoflow/internal/infrastructure/database/workflow"
 )
 
@@ -31,6 +32,7 @@ type persistence struct {
 	instance     *dbinstance.Repository
 	audit        *dbaudit.Repository
 	console      *dbconsole.Repository
+	storage      *dbstorage.Repository
 }
 
 func openPersistence(ctx context.Context) (persistence, error) {
@@ -61,5 +63,6 @@ func openPersistence(ctx context.Context) (persistence, error) {
 		instance:  instanceRepository,
 		audit:     dbaudit.New(db),
 		console:   dbconsole.New(db),
+		storage:   dbstorage.New(db),
 	}, nil
 }
