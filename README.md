@@ -48,10 +48,10 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 # after editing Go code: Ctrl-C, then run the same command again
 ```
 
-The development overlay deliberately uses separate SQLite and artifact
-volumes, so local experimentation does not alter the production-style Compose
-state. Its image is built once to install Go and operational clients; source
-edits themselves are compiled by `go run`.
+The overlay reuses the Compose SQLite and artifact volumes, keeping the
+configured environments available while the source is run through `go run`.
+Its image is built once to install Go and operational clients; source edits
+themselves are compiled by `go run`.
 
 ## Executable and workspace delivery
 

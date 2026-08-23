@@ -8,15 +8,13 @@ services:
       - .:/app
       - go-module-cache:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
-      - engine-data-dev:/app/storage
-      - artifact-store-dev:/var/lib/akoflow/artifacts
+      - engine-data:/app/storage
+      - artifact-store:/var/lib/akoflow/artifacts
       - ./storage/credentials/ssh:/app/storage/credentials/ssh:ro
     environment:
       AKOFLOW_ARTIFACT_STORE_ROOT: /var/lib/akoflow/artifacts
       AKOFLOW_BUILDCTL: buildctl
       AKOFLOW_APPTAINER: apptainer
 volumes:
-  engine-data-dev:
-  artifact-store-dev:
   go-module-cache:
   go-build-cache:
