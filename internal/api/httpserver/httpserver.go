@@ -81,7 +81,7 @@ func NewMux(workflowEngine *workflow_engine_api_handler.Handler) *http.ServeMux 
 	mux.HandleFunc("GET /akoflow-api/workflow-definitions/", http_config.KernelHandler(workflowEngine.ListWorkflows))
 	mux.HandleFunc("GET /akoflow-api/workflow-definitions/{workflowId}/", http_config.KernelHandler(workflowEngine.GetWorkflow))
 	mux.HandleFunc("GET /akoflow-api/workflow-definitions/{workflowId}/export/", http_config.KernelHandler(workflowEngine.ExportWorkflow))
-	mux.HandleFunc("POST /akoflow-api/workflow-definitions/{workflowId}/duplicate/", http_config.KernelHandler(workflowEngine.DuplicateWorkflow))
+	mux.HandleFunc("POST /akoflow-api/workflow-definition-actions/duplicate/{workflowId}/", http_config.KernelHandler(workflowEngine.DuplicateWorkflow))
 	mux.HandleFunc("POST /akoflow-api/schedule-plans/", http_config.KernelHandler(workflowEngine.CreatePlan))
 	mux.HandleFunc("GET /akoflow-api/schedule-plans/", http_config.KernelHandler(workflowEngine.ListPlans))
 	mux.HandleFunc("GET /akoflow-api/schedule-plans/{planId}/", http_config.KernelHandler(workflowEngine.GetPlan))

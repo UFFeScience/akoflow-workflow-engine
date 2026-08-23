@@ -13,6 +13,9 @@ services:
       BUILDKIT_HOST: tcp://buildkitd:1234
     volumes:
       - artifact-store:/var/lib/akoflow/artifacts
+      # Plans, preparation state and execution history need to survive a
+      # release container recreation. This starts as a clean database volume.
+      - engine-data:/app/storage
     ports:
       - "8080:8080"
     depends_on:
@@ -27,11 +30,13 @@ services:
     security_opt:
       - apparmor:unconfined
   buildkitd:
-    image: moby/buildkit:rootless
-    command: ["buildkitd", "--addr", "tcp://0.0.0.0:1234", "--oci-worker-no-process-sandbox"]
+    image: moby/buildkit:latest
+    command: ["buildkitd", "--addr", "tcp://0.0.0.0:1234"]
     volumes:
       - buildkit-state:/var/lib/buildkit
       - artifact-store:/var/lib/akoflow/artifacts
+    privileged: true
 volumes:
   artifact-store:
   buildkit-state:
+  engine-data:
