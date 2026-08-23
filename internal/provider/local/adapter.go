@@ -19,6 +19,8 @@ type processResult struct {
 	err        error
 	finishedAt float64
 	log        string
+	artifacts  *domain.ArtifactManifest
+	observeErr error
 }
 
 type logBuffer struct {
@@ -39,13 +41,14 @@ func (b *logBuffer) String() string {
 }
 
 type Adapter struct {
-	mu      sync.RWMutex
-	results map[string]processResult
-	logs    map[string]*logBuffer
+	mu           sync.RWMutex
+	results      map[string]processResult
+	logs         map[string]*logBuffer
+	observations map[string]runtimecommon.ArtifactSnapshot
 }
 
 func New() *Adapter {
-	return &Adapter{results: make(map[string]processResult), logs: make(map[string]*logBuffer)}
+	return &Adapter{results: make(map[string]processResult), logs: make(map[string]*logBuffer), observations: make(map[string]runtimecommon.ArtifactSnapshot)}
 }
 func (*Adapter) Modes() []domain.ExecutionMode {
 	return []domain.ExecutionMode{domain.ExecutionModeReal, domain.ExecutionModeInteractive}
@@ -56,8 +59,16 @@ func (a *Adapter) Start(_ context.Context, execution domain.ActivityExecutionCon
 	if activity.Command.Entrypoint == "" {
 		return domain.ActivityHandle{}, fmt.Errorf("activity entrypoint is required")
 	}
+	root, err := runtimecommon.PrepareArtifactRoot(activity, execution.Run.ID)
+	if err != nil {
+		return domain.ActivityHandle{}, fmt.Errorf("prepare artifact workspace: %w", err)
+	}
+	before, err := runtimecommon.SnapshotArtifacts(root)
+	if err != nil {
+		return domain.ActivityHandle{}, fmt.Errorf("snapshot artifact workspace: %w", err)
+	}
 	command := exec.Command(activity.Command.Entrypoint, activity.Command.Arguments...)
-	command.Dir = activity.Command.WorkingDirectory
+	command.Dir = root
 	command.Env = os.Environ()
 	output := &logBuffer{}
 	command.Stdout, command.Stderr = output, output
@@ -71,15 +82,28 @@ func (a *Adapter) Start(_ context.Context, execution domain.ActivityExecutionCon
 		ActivityID: activity.ID, ResourceID: execution.Resource.ID,
 		RuntimeID: execution.RuntimeID, ExternalID: strconv.Itoa(command.Process.Pid),
 		Status: domain.HandleRunning, StartedAt: runtimecommon.UnixSeconds(time.Now()),
-		Endpoints: localEndpoints(activity)}
+		Endpoints: localEndpoints(activity), Metadata: map[string]any{
+			"artifactObservationDriver": "filesystem-diff",
+			"artifactObservationRoot":   root,
+		}}
 	a.mu.Lock()
 	a.logs[handle.ID] = output
+	a.observations[handle.ID] = before
 	a.mu.Unlock()
 	go func(id string) {
 		err := command.Wait()
 		exitCode := command.ProcessState.ExitCode()
+		finishedAt := runtimecommon.UnixSeconds(time.Now())
+		a.mu.RLock()
+		before := a.observations[id]
+		a.mu.RUnlock()
+		after, observeErr := runtimecommon.SnapshotArtifacts(root)
+		var artifacts *domain.ArtifactManifest
+		if observeErr == nil {
+			artifacts = runtimecommon.ArtifactManifestFor(execution.Run.ID, activity.ID, execution.RuntimeID, handle.StartedAt, finishedAt, exitCode, before, after)
+		}
 		a.mu.Lock()
-		a.results[id] = processResult{exitCode: exitCode, err: err, finishedAt: runtimecommon.UnixSeconds(time.Now()), log: output.String()}
+		a.results[id] = processResult{exitCode: exitCode, err: err, finishedAt: finishedAt, log: output.String(), artifacts: artifacts, observeErr: observeErr}
 		a.mu.Unlock()
 	}(handle.ID)
 	return handle, nil
@@ -93,6 +117,13 @@ func (a *Adapter) Inspect(_ context.Context, handle domain.ActivityHandle) (doma
 		handle.Log = result.log
 		handle.FinishedAt = result.finishedAt
 		handle.ExitCode = &result.exitCode
+		handle.Artifacts = result.artifacts
+		if result.observeErr != nil {
+			if handle.Metadata == nil {
+				handle.Metadata = make(map[string]any)
+			}
+			handle.Metadata["artifactObservationError"] = result.observeErr.Error()
+		}
 		if result.err != nil {
 			handle.Status = domain.HandleFailed
 			handle.Failure = result.err.Error()

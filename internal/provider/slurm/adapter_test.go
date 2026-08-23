@@ -108,9 +108,13 @@ func TestAdapterMapsSlurmStatus(t *testing.T) {
 }
 
 func TestSentinelAndScontrolStatusParsing(t *testing.T) {
-	values := sentinelValues("state=failed\nexit_code=17\n")
+	values := sentinelValues("state=failed\nexit_code=17\nartifact_root=/scratch/run\nartifact=b3V0cHV0LnR4dA==|42|abc123\n")
 	if values["state"] != "failed" || values["exit_code"] != "17" {
 		t.Fatalf("sentinel values=%+v", values)
+	}
+	manifest := slurmArtifacts(domain.ActivityHandle{RunID: "run", ActivityID: "activity", RuntimeID: "slurm"}, values)
+	if len(manifest.Files) != 1 || manifest.Files[0].Path != "output.txt" || manifest.Files[0].SizeBytes != 42 {
+		t.Fatalf("manifest=%+v", manifest)
 	}
 	if state := slurmControlState("JobId=123 JobState=RUNNING Reason=None"); state != "RUNNING" {
 		t.Fatalf("scontrol state=%q", state)

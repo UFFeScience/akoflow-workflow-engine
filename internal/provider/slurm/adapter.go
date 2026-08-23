@@ -2,6 +2,7 @@ package slurm
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -58,11 +59,15 @@ func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionC
 	if execution.Resource.Type == domain.ResourceHPCMachine && execution.Resource.ProviderID != "" {
 		node = execution.Resource.ProviderID
 	}
-	script, err := batchScript(execution.Run.ID, execution.Activity, partition, node)
+	activity := execution.Activity
+	if activity.Command.WorkingDirectory == "" {
+		activity.Command.WorkingDirectory = slurmArtifactRoot(execution.Run.ID, activity.ID)
+	}
+	script, err := batchScript(execution.Run.ID, activity, partition, node)
 	if err != nil {
 		return domain.ActivityHandle{}, err
 	}
-	scriptPath, err := a.saveScript(execution.Run.ID, execution.Activity.ID, ".sbatch", script)
+	scriptPath, err := a.saveScript(execution.Run.ID, activity.ID, ".sbatch", script)
 	if err != nil {
 		return domain.ActivityHandle{}, err
 	}
@@ -79,12 +84,13 @@ func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionC
 		return domain.ActivityHandle{}, err
 	}
 	return domain.ActivityHandle{ID: runtimecommon.NewID("activity"), RunID: execution.Run.ID,
-		ActivityID: execution.Activity.ID, ResourceID: execution.Resource.ID,
+		ActivityID: activity.ID, ResourceID: execution.Resource.ID,
 		RuntimeID: execution.RuntimeID, ExternalID: jobID,
 		Status: domain.HandleStarting, StartedAt: runtimecommon.UnixSeconds(time.Now()),
 		Metadata: map[string]any{"executionTarget": string(domain.ExecutionTargetBatch), "scriptPath": scriptPath,
-			"logPath": slurmLogPath(execution.Run.ID, execution.Activity.ID, jobID),
-			"sentinelPath": slurmSentinelPath(execution.Run.ID, execution.Activity.ID, jobID)}}, nil
+			"logPath":                   slurmLogPath(execution.Run.ID, activity.ID, jobID),
+			"sentinelPath":              slurmSentinelPath(execution.Run.ID, activity.ID, jobID),
+			"artifactObservationDriver": "filesystem-diff", "artifactObservationRoot": activity.Command.WorkingDirectory}}, nil
 }
 
 func parseJobID(output []byte) (string, error) {
@@ -148,7 +154,54 @@ func (a *Adapter) sentinelStatus(ctx context.Context, handle domain.ActivityHand
 	if code, err := strconv.Atoi(values["exit_code"]); err == nil {
 		handle.ExitCode = &code
 	}
+	if handle.Status == domain.HandleCompleted || handle.Status == domain.HandleFailed {
+		handle.Artifacts = slurmArtifacts(handle, values)
+	}
 	return handle, true
+}
+
+func slurmArtifacts(handle domain.ActivityHandle, values map[string]string) *domain.ArtifactManifest {
+	root := values["artifact_root"]
+	if root == "" {
+		root, _ = handle.Metadata["artifactObservationRoot"].(string)
+	}
+	manifest := &domain.ArtifactManifest{SchemaVersion: 1, RunID: handle.RunID, ActivityID: handle.ActivityID,
+		Attempt: 1, Runtime: handle.RuntimeID, Root: root, StartedAt: handle.StartedAt, FinishedAt: handle.FinishedAt,
+		Files: make([]domain.ArtifactObservation, 0)}
+	if handle.ExitCode != nil {
+		manifest.ExitCode = *handle.ExitCode
+	}
+	for key, value := range values {
+		if !strings.HasPrefix(key, "artifact.") {
+			continue
+		}
+		parts := strings.SplitN(value, "|", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		path, err := base64.StdEncoding.DecodeString(parts[0])
+		if err != nil {
+			continue
+		}
+		size, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil {
+			continue
+		}
+		manifest.Files = append(manifest.Files, domain.ArtifactObservation{Path: string(path), Change: domain.ArtifactCreated, SizeBytes: size, Checksum: "sha256:" + parts[2]})
+		manifest.Summary.CreatedFiles++
+		manifest.Summary.OutputBytes += size
+	}
+	manifest.Summary.FinalFiles = len(manifest.Files)
+	phase := "completed"
+	if manifest.ExitCode != 0 {
+		phase = "failed"
+	}
+	duration := handle.FinishedAt - handle.StartedAt
+	if duration < 0 {
+		duration = 0
+	}
+	manifest.Phases = []domain.LifecycleObservation{{Phase: "execution", Status: phase, StartedAt: handle.StartedAt, FinishedAt: handle.FinishedAt, DurationSeconds: duration}}
+	return manifest
 }
 
 func (a *Adapter) fallbackStatus(ctx context.Context, handle domain.ActivityHandle, sacctErr error) (domain.ActivityHandle, error) {
@@ -205,6 +258,9 @@ func sentinelValues(payload string) map[string]string {
 	for _, line := range strings.Split(payload, "\n") {
 		key, value, found := strings.Cut(line, "=")
 		if found {
+			if key == "artifact" {
+				key = "artifact." + strconv.Itoa(len(values))
+			}
 			values[strings.TrimSpace(key)] = strings.TrimSpace(value)
 		}
 	}
@@ -238,7 +294,7 @@ func (a *Adapter) startDirect(ctx context.Context, execution domain.ActivityExec
 	if err != nil {
 		return domain.ActivityHandle{}, err
 	}
-	execution.Activity.Command = domain.ActivityCommand{Entrypoint: "/bin/sh", Arguments: []string{scriptPath}}
+	execution.Activity.Command = domain.ActivityCommand{Entrypoint: "/bin/sh", Arguments: []string{scriptPath}, WorkingDirectory: activity.Command.WorkingDirectory}
 	handle, err := a.direct.Start(ctx, execution)
 	if err != nil {
 		return handle, err
@@ -314,8 +370,11 @@ func batchScript(runID string, activity domain.Activity, partition, node string)
 	script.WriteString(shellQuote(sentinelPrefix))
 	script.WriteString("\"${SLURM_JOB_ID}\"")
 	script.WriteString(".status\n")
-	script.WriteString("printf 'state=running\\n' > \"$sentinel\"\n")
-	script.WriteString("finish() { code=$?; state=completed; [ \"$code\" -eq 0 ] || state=failed; { printf 'state=%s\\nexit_code=%s\\n' \"$state\" \"$code\"; } > \"$sentinel\" || true; exit \"$code\"; }\n")
+	script.WriteString("artifact_root=")
+	script.WriteString(shellQuote(activity.Command.WorkingDirectory))
+	script.WriteString("\nmkdir -p \"$artifact_root\"\nartifact_before=$(mktemp)\nfind \"$artifact_root\" -type f -print 2>/dev/null | sort > \"$artifact_before\"\n")
+	script.WriteString("printf 'state=running\\nartifact_root=%s\\n' \"$artifact_root\" > \"$sentinel\"\n")
+	script.WriteString("finish() { code=$?; state=completed; [ \"$code\" -eq 0 ] || state=failed; { printf 'state=%s\\nexit_code=%s\\nartifact_root=%s\\n' \"$state\" \"$code\" \"$artifact_root\"; find \"$artifact_root\" -type f -print 2>/dev/null | sort | comm -13 \"$artifact_before\" - | while IFS= read -r file; do relative=${file#\"$artifact_root\"/}; size=$(wc -c < \"$file\" 2>/dev/null) || continue; checksum=$(sha256sum \"$file\" 2>/dev/null | awk '{print $1}') || continue; encoded=$(printf '%s' \"$relative\" | base64 | tr -d '\\n'); printf 'artifact=%s|%s|%s\\n' \"$encoded\" \"$size\" \"$checksum\"; done; } > \"$sentinel\" || true; rm -f \"$artifact_before\"; exit \"$code\"; }\n")
 	script.WriteString("trap finish EXIT\nset -eu\n")
 	writeActivityCommand(&script, activity)
 	return script.String(), nil
@@ -331,6 +390,10 @@ func slurmSentinelPath(runID, activityID, jobID string) string {
 
 func slurmSentinelPrefix(runID, activityID string) string {
 	return "akoflow-" + shellToken(runID) + "-" + shellToken(activityID) + "-"
+}
+
+func slurmArtifactRoot(runID, activityID string) string {
+	return "akoflow-workspaces/" + shellToken(runID) + "/" + shellToken(activityID)
 }
 
 func writeActivityCommand(script *strings.Builder, activity domain.Activity) {
