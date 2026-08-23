@@ -3,11 +3,13 @@ package httpserver
 import (
 	"context"
 	"errors"
-	"github.com/UFFeScience/akoflow/internal/api/handlers/workflow_engine_api_handler"
-	"github.com/UFFeScience/akoflow/internal/infrastructure/config/http_config"
-
+	"net"
 	"net/http"
 	"time"
+
+	"github.com/UFFeScience/akoflow/internal/api/handlers/workflow_engine_api_handler"
+	"github.com/UFFeScience/akoflow/internal/infrastructure/config"
+	"github.com/UFFeScience/akoflow/internal/infrastructure/config/http_config"
 )
 
 func HealthCheck(w http.ResponseWriter, r *http.Request) {
@@ -59,6 +61,12 @@ func NewMux(workflowEngine *workflow_engine_api_handler.Handler) *http.ServeMux 
 	mux.HandleFunc("GET /akoflow-api/artifacts/", http_config.KernelHandler(workflowEngine.ListArtifacts))
 	mux.HandleFunc("GET /akoflow-api/artifact-materializations/", http_config.KernelHandler(workflowEngine.ListArtifactMaterializations))
 	mux.HandleFunc("POST /akoflow-api/artifact-materializations/", http_config.KernelHandler(workflowEngine.SaveArtifactMaterialization))
+	mux.HandleFunc("POST /akoflow-api/build-contexts/", http_config.KernelHandler(workflowEngine.SaveBuildContext))
+	mux.HandleFunc("POST /akoflow-api/artifact-builds/", http_config.KernelHandler(workflowEngine.CreateArtifactBuild))
+	mux.HandleFunc("GET /akoflow-api/artifact-builds/{buildId}/", http_config.KernelHandler(workflowEngine.GetArtifactBuild))
+	mux.HandleFunc("GET /akoflow-api/artifact-builds/{buildId}/runs/", http_config.KernelHandler(workflowEngine.ListBuildRuns))
+	mux.HandleFunc("POST /akoflow-api/artifact-builds/{buildId}/runs/", http_config.KernelHandler(workflowEngine.StartArtifactBuildRun))
+	mux.HandleFunc("GET /akoflow-api/build-runs/{runId}/", http_config.KernelHandler(workflowEngine.GetBuildRun))
 	mux.HandleFunc("GET /akoflow-api/resources/{resourceId}/", http_config.KernelHandler(workflowEngine.GetResource))
 	mux.HandleFunc("GET /akoflow-api/resources/{resourceId}/snapshot/", http_config.KernelHandler(workflowEngine.GetResourceSnapshot))
 	mux.HandleFunc("POST /akoflow-api/resources/", http_config.KernelHandler(workflowEngine.CreateResource))
@@ -81,13 +89,30 @@ func NewMux(workflowEngine *workflow_engine_api_handler.Handler) *http.ServeMux 
 }
 
 func Serve(ctx context.Context, address string, workflowEngine *workflow_engine_api_handler.Handler) error {
-	server := &http.Server{Addr: address, Handler: AllowCORS(NewMux(workflowEngine))}
+	settings := config.Load()
+	return ServeSecure(ctx, address, workflowEngine, SecurityOptions{
+		BearerToken: settings.APIToken, AllowedOrigins: settings.APIAllowedOrigins,
+		LoopbackOnly: !isLoopbackAddress(address) && settings.APIToken == "",
+	})
+}
+
+func ServeSecure(ctx context.Context, address string, workflowEngine *workflow_engine_api_handler.Handler, security SecurityOptions) error {
+	handler := AllowCORSFor(SecureAPI(NewMux(workflowEngine), security), security.AllowedOrigins)
+	server := &http.Server{Addr: address, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 	go shutdownWhenCanceled(ctx, server)
 	err := server.ListenAndServe()
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
 	return err
+}
+
+func isLoopbackAddress(address string) bool {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return false
+	}
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 func shutdownWhenCanceled(ctx context.Context, server *http.Server) {

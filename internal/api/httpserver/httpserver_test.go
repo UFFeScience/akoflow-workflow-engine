@@ -16,14 +16,18 @@ func TestHealthCheck(t *testing.T) {
 
 func TestAllowCORS(t *testing.T) {
 	nextCalls := 0
-	handler := AllowCORS(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { nextCalls++; w.WriteHeader(http.StatusCreated) }))
+	handler := AllowCORSFor(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { nextCalls++; w.WriteHeader(http.StatusCreated) }), []string{"http://localhost:3000"})
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
-	if recorder.Code != http.StatusCreated || nextCalls != 1 || recorder.Header().Get("Access-Control-Allow-Origin") != "*" {
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.Header.Set("Origin", "http://localhost:3000")
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated || nextCalls != 1 || recorder.Header().Get("Access-Control-Allow-Origin") != "http://localhost:3000" {
 		t.Fatal("CORS GET failed")
 	}
 	recorder = httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodOptions, "/", nil))
+	request = httptest.NewRequest(http.MethodOptions, "/", nil)
+	request.Header.Set("Origin", "http://localhost:3000")
+	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || nextCalls != 1 {
 		t.Fatal("OPTIONS must short-circuit")
 	}
