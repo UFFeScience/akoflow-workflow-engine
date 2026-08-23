@@ -320,8 +320,9 @@ CREATE TABLE activity_handles (
 		started_at REAL NOT NULL DEFAULT 0,
 		finished_at REAL NOT NULL DEFAULT 0,
 		exit_code INTEGER,
-		failure TEXT NOT NULL DEFAULT '',
-		artifacts TEXT NOT NULL DEFAULT 'null',
+	failure TEXT NOT NULL DEFAULT '',
+	log TEXT NOT NULL DEFAULT '',
+	artifacts TEXT NOT NULL DEFAULT 'null',
 		metadata TEXT NOT NULL DEFAULT '{}',
 		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);

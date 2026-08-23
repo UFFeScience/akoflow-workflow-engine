@@ -39,6 +39,9 @@ func migrateSchema(ctx context.Context, db *sql.DB) error {
 	if version == schema.Version {
 		return nil
 	}
+	if version == 5 && schema.Version == 6 {
+		return migrateV5ToV6(ctx, db)
+	}
 	if version == 4 && schema.Version == 5 {
 		return migrateV4ToV5(ctx, db)
 	}
@@ -69,6 +72,21 @@ func migrateSchema(ctx context.Context, db *sql.DB) error {
 	if _, err := tx.ExecContext(ctx, `UPDATE schema_metadata SET version=?, applied_at=?, checksum=?`,
 		schema.Version, time.Now().UTC(), schemaChecksum()); err != nil {
 		return fmt.Errorf("update schema metadata: %w", err)
+	}
+	return tx.Commit()
+}
+
+func migrateV5ToV6(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `ALTER TABLE activity_handles ADD COLUMN log TEXT NOT NULL DEFAULT ''`); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE schema_metadata SET version=?, applied_at=?, checksum=?`, schema.Version, time.Now().UTC(), schemaChecksum()); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

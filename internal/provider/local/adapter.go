@@ -1,6 +1,7 @@
 package local
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -17,6 +18,7 @@ type processResult struct {
 	exitCode   int
 	err        error
 	finishedAt float64
+	log        string
 }
 
 type Adapter struct {
@@ -37,6 +39,8 @@ func (a *Adapter) Start(_ context.Context, execution domain.ActivityExecutionCon
 	command := exec.Command(activity.Command.Entrypoint, activity.Command.Arguments...)
 	command.Dir = activity.Command.WorkingDirectory
 	command.Env = os.Environ()
+	var output bytes.Buffer
+	command.Stdout, command.Stderr = &output, &output
 	for key, value := range activity.Command.Environment {
 		command.Env = append(command.Env, key+"="+value)
 	}
@@ -52,7 +56,7 @@ func (a *Adapter) Start(_ context.Context, execution domain.ActivityExecutionCon
 		err := command.Wait()
 		exitCode := command.ProcessState.ExitCode()
 		a.mu.Lock()
-		a.results[id] = processResult{exitCode: exitCode, err: err, finishedAt: runtimecommon.UnixSeconds(time.Now())}
+		a.results[id] = processResult{exitCode: exitCode, err: err, finishedAt: runtimecommon.UnixSeconds(time.Now()), log: output.String()}
 		a.mu.Unlock()
 	}(handle.ID)
 	return handle, nil
@@ -63,6 +67,7 @@ func (a *Adapter) Inspect(_ context.Context, handle domain.ActivityHandle) (doma
 	result, done := a.results[handle.ID]
 	a.mu.RUnlock()
 	if done {
+		handle.Log = result.log
 		handle.FinishedAt = result.finishedAt
 		handle.ExitCode = &result.exitCode
 		if result.err != nil {

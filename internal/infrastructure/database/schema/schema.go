@@ -2,7 +2,7 @@ package schema
 
 import _ "embed"
 
-const Version = 5
+const Version = 6
 
 // SQL is the single canonical database definition used by production and tests.
 //

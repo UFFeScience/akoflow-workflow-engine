@@ -203,23 +203,23 @@ func (r *Repository) Save(ctx context.Context, handle domain.ActivityHandle) err
 	}
 	_, err = r.db.ExecContext(ctx, `INSERT INTO activity_handles (
 		id, execution_run_id, activity_id, resource_id, runtime_id, external_id,
-		status, endpoints, started_at, finished_at, exit_code, failure, artifacts, metadata
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		status, endpoints, started_at, finished_at, exit_code, failure, log, artifacts, metadata
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET external_id=excluded.external_id,
 		status=excluded.status, endpoints=excluded.endpoints,
 		started_at=excluded.started_at, finished_at=excluded.finished_at,
-		exit_code=excluded.exit_code, failure=excluded.failure,
+		exit_code=excluded.exit_code, failure=excluded.failure, log=excluded.log,
 		artifacts=excluded.artifacts, metadata=excluded.metadata, updated_at=CURRENT_TIMESTAMP`,
 		handle.ID, handle.RunID, handle.ActivityID, handle.ResourceID, handle.RuntimeID,
 		handle.ExternalID, handle.Status, string(endpoints), handle.StartedAt,
-		handle.FinishedAt, handle.ExitCode, handle.Failure, string(artifacts), string(metadata))
+		handle.FinishedAt, handle.ExitCode, handle.Failure, handle.Log, string(artifacts), string(metadata))
 	return err
 }
 
 func (r *Repository) Find(ctx context.Context, id string) (*domain.ActivityHandle, error) {
 	handle, err := scanHandle(r.db.QueryRowContext(ctx, `SELECT id, execution_run_id, activity_id,
 		resource_id, runtime_id, external_id, status, endpoints, started_at,
-		finished_at, exit_code, failure, artifacts, metadata FROM activity_handles WHERE id=?`, id))
+		finished_at, exit_code, failure, log, artifacts, metadata FROM activity_handles WHERE id=?`, id))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -229,7 +229,7 @@ func (r *Repository) Find(ctx context.Context, id string) (*domain.ActivityHandl
 func (r *Repository) ListHandles(ctx context.Context, runID string) ([]domain.ActivityHandle, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT id, execution_run_id, activity_id,
 		resource_id, runtime_id, external_id, status, endpoints, started_at,
-		finished_at, exit_code, failure, artifacts, metadata FROM activity_handles
+		finished_at, exit_code, failure, log, artifacts, metadata FROM activity_handles
 		WHERE execution_run_id=? ORDER BY activity_id`, runID)
 	if err != nil {
 		return nil, err
@@ -251,7 +251,7 @@ func scanHandle(scanner interface{ Scan(...any) error }) (*domain.ActivityHandle
 	var endpoints, artifacts, metadata string
 	if err := scanner.Scan(&handle.ID, &handle.RunID, &handle.ActivityID, &handle.ResourceID,
 		&handle.RuntimeID, &handle.ExternalID, &handle.Status, &endpoints,
-		&handle.StartedAt, &handle.FinishedAt, &handle.ExitCode, &handle.Failure,
+		&handle.StartedAt, &handle.FinishedAt, &handle.ExitCode, &handle.Failure, &handle.Log,
 		&artifacts, &metadata); err != nil {
 		return nil, err
 	}

@@ -58,7 +58,7 @@ func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionC
 	if execution.Resource.Type == domain.ResourceHPCMachine && execution.Resource.ProviderID != "" {
 		node = execution.Resource.ProviderID
 	}
-	script, err := batchScript(execution.Activity, partition, node)
+	script, err := batchScript(execution.Run.ID, execution.Activity, partition, node)
 	if err != nil {
 		return domain.ActivityHandle{}, err
 	}
@@ -82,7 +82,8 @@ func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionC
 		ActivityID: execution.Activity.ID, ResourceID: execution.Resource.ID,
 		RuntimeID: execution.RuntimeID, ExternalID: jobID,
 		Status: domain.HandleStarting, StartedAt: runtimecommon.UnixSeconds(time.Now()),
-		Metadata: map[string]any{"executionTarget": string(domain.ExecutionTargetBatch), "scriptPath": scriptPath}}, nil
+		Metadata: map[string]any{"executionTarget": string(domain.ExecutionTargetBatch), "scriptPath": scriptPath,
+			"logPath": slurmLogPath(execution.Run.ID, execution.Activity.ID, jobID)}}, nil
 }
 
 func parseJobID(output []byte) (string, error) {
@@ -108,6 +109,11 @@ func (a *Adapter) Inspect(ctx context.Context, handle domain.ActivityHandle) (do
 		"--noheader", "--parsable2", "--format=State,ExitCode"}, nil)
 	if err != nil {
 		return handle, err
+	}
+	if logPath, ok := handle.Metadata["logPath"].(string); ok && logPath != "" {
+		if log, logErr := a.executor.Run(ctx, "cat", []string{logPath}, nil); logErr == nil {
+			handle.Log = string(log)
+		}
 	}
 	line := strings.TrimSpace(strings.Split(string(output), "\n")[0])
 	fields := strings.Split(line, "|")
@@ -201,7 +207,7 @@ func directScript(activity domain.Activity) (string, error) {
 	return script.String(), nil
 }
 
-func batchScript(activity domain.Activity, partition, node string) (string, error) {
+func batchScript(runID string, activity domain.Activity, partition, node string) (string, error) {
 	if activity.Command.Entrypoint == "" {
 		return "", fmt.Errorf("activity entrypoint is required")
 	}
@@ -209,6 +215,9 @@ func batchScript(activity domain.Activity, partition, node string) (string, erro
 	script.WriteString("#!/bin/sh\n")
 	script.WriteString("#SBATCH --job-name=")
 	script.WriteString(shellToken("akoflow-" + activity.ID))
+	script.WriteByte('\n')
+	script.WriteString("#SBATCH --output=")
+	script.WriteString(shellToken(slurmLogPath(runID, activity.ID, "%j")))
 	script.WriteByte('\n')
 	if partition != "" {
 		script.WriteString("#SBATCH --partition=")
@@ -229,6 +238,10 @@ func batchScript(activity domain.Activity, partition, node string) (string, erro
 	script.WriteString("set -eu\n")
 	writeActivityCommand(&script, activity)
 	return script.String(), nil
+}
+
+func slurmLogPath(runID, activityID, jobID string) string {
+	return "akoflow-" + shellToken(runID) + "-" + shellToken(activityID) + "-" + jobID + ".log"
 }
 
 func writeActivityCommand(script *strings.Builder, activity domain.Activity) {

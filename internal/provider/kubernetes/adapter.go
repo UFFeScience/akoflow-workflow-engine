@@ -110,6 +110,9 @@ func (a *Adapter) Inspect(ctx context.Context, handle domain.ActivityHandle) (do
 			handle.Failure = failure
 		}
 	}
+	if log, logErr := a.activityLog(ctx, handle.ExternalID); logErr == nil {
+		handle.Log = string(log)
+	}
 	if handle.Status == domain.HandleCompleted || handle.Status == domain.HandleFailed {
 		manifest, observationErr := a.collectArtifacts(ctx, handle.ExternalID)
 		if observationErr != nil {
@@ -122,6 +125,23 @@ func (a *Adapter) Inspect(ctx context.Context, handle domain.ActivityHandle) (do
 		}
 	}
 	return handle, nil
+}
+
+func (a *Adapter) activityLog(ctx context.Context, jobName string) ([]byte, error) {
+	payload, err := a.api.List(ctx, a.namespace, "pods", "job-name="+jobName)
+	if err != nil {
+		return nil, err
+	}
+	var pods struct {
+		Items []struct{ Metadata struct{ Name string } }
+	}
+	if err := json.Unmarshal(payload, &pods); err != nil {
+		return nil, err
+	}
+	if len(pods.Items) == 0 {
+		return nil, fmt.Errorf("activity pod not found")
+	}
+	return a.api.Logs(ctx, a.namespace, pods.Items[0].Metadata.Name, activityContainer)
 }
 
 func (a *Adapter) activityFailure(ctx context.Context, jobName string) string {

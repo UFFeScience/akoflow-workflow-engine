@@ -6,7 +6,7 @@ import (
 )
 
 func TestCanonicalSchemaIsEmbedded(t *testing.T) {
-	if Version != 5 {
+	if Version != 6 {
 		t.Fatalf("schema version = %d", Version)
 	}
 	for _, definition := range []string{
@@ -18,6 +18,7 @@ func TestCanonicalSchemaIsEmbedded(t *testing.T) {
 		"CREATE TABLE console_session_logs",
 		"CREATE TABLE workflow_definitions",
 		"CREATE TABLE execution_runs",
+		"log TEXT NOT NULL DEFAULT ''",
 		"CREATE TABLE queue_jobs",
 	} {
 		if !strings.Contains(SQL, definition) {
