@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/UFFeScience/akoflow/internal/application/ports"
@@ -53,22 +54,25 @@ func (r *Repository) FindRun(ctx context.Context, id string) (*domain.ExecutionR
 }
 
 func (r *Repository) ListRuns(ctx context.Context) ([]domain.ExecutionRun, error) {
-	page, err := r.ListRunsPage(ctx, 1, 500)
+	page, err := r.ListRunsPage(ctx, 1, 500, "", "", "")
 	return page.Items, err
 }
 
-func (r *Repository) ListRunsPage(ctx context.Context, page, pageSize int) (domain.ExecutionRunPage, error) {
+func (r *Repository) ListRunsPage(ctx context.Context, page, pageSize int, kind, mode, status string) (domain.ExecutionRunPage, error) {
 	if page < 1 {
 		page = 1
 	}
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
+	conditions, arguments := runFeedFilters(kind, mode, status)
+	filteredFeed := `SELECT * FROM (` + runFeedSelect + `)` + conditions
 	var total int
-	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (`+runFeedSelect+`)`).Scan(&total); err != nil {
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (`+filteredFeed+`)`, arguments...).Scan(&total); err != nil {
 		return domain.ExecutionRunPage{}, err
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT * FROM (`+runFeedSelect+`) ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?`, pageSize, (page-1)*pageSize)
+	pageArguments := append(append([]any{}, arguments...), pageSize, (page-1)*pageSize)
+	rows, err := r.db.QueryContext(ctx, filteredFeed+` ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?`, pageArguments...)
 	if err != nil {
 		return domain.ExecutionRunPage{}, err
 	}
@@ -87,6 +91,21 @@ func (r *Repository) ListRunsPage(ctx context.Context, page, pageSize int) (doma
 	return domain.ExecutionRunPage{Items: runs, Page: page, PageSize: pageSize, Total: total, HasNext: page*pageSize < total}, nil
 }
 
+func runFeedFilters(kind, mode, status string) (string, []any) {
+	conditions := []string{}
+	arguments := []any{}
+	for column, value := range map[string]string{"kind": kind, "mode": mode, "status": status} {
+		if value != "" && value != "all" {
+			conditions = append(conditions, column+"=?")
+			arguments = append(arguments, value)
+		}
+	}
+	if len(conditions) == 0 {
+		return "", arguments
+	}
+	return " WHERE " + strings.Join(conditions, " AND "), arguments
+}
+
 const runFeedSelect = `
 	SELECT e.id, e.schedule_plan_id, e.mode, e.seed, e.status, e.environment_snapshot_id,
 		e.makespan_seconds, e.cost, e.failure_reason,
@@ -98,7 +117,8 @@ const runFeedSelect = `
 		COALESCE((SELECT SUM(interference_seconds) FROM task_executions t WHERE t.execution_run_id=e.id), 0),
 		COALESCE((SELECT SUM(overhead_seconds) FROM task_executions t WHERE t.execution_run_id=e.id), 0),
 		COALESCE((SELECT SUM(bytes) FROM data_transfers d WHERE d.execution_run_id=e.id), 0),
-		'workflow', e.id, '', '', '', '', '', e.started_at, e.finished_at
+		'workflow' AS kind, e.id AS title, '' AS resource_id, '' AS runtime_id,
+		'' AS connection_id, '' AS actor_id, '' AS command, e.started_at, e.finished_at
 	FROM execution_runs e
 	UNION ALL
 	SELECT s.id, '', 'interactive', 0,

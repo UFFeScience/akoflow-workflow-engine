@@ -155,7 +155,7 @@ func TestListRunsPageCombinesWorkflowInteractiveAndStandaloneRuns(t *testing.T) 
 			t.Fatal(err)
 		}
 	}
-	first, err := repository.ListRunsPage(ctx, 1, 2)
+	first, err := repository.ListRunsPage(ctx, 1, 2, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,5 +168,9 @@ func TestListRunsPageCombinesWorkflowInteractiveAndStandaloneRuns(t *testing.T) 
 	if err != nil || interactive == nil || interactive.Status != domain.ExecutionRunRunning ||
 		interactive.ResourceID != "resource" {
 		t.Fatalf("interactive=%+v err=%v", interactive, err)
+	}
+	filtered, err := repository.ListRunsPage(ctx, 1, 20, "interactive", "", "running")
+	if err != nil || filtered.Total != 1 || filtered.Items[0].ID != "session" {
+		t.Fatalf("filtered=%+v err=%v", filtered, err)
 	}
 }

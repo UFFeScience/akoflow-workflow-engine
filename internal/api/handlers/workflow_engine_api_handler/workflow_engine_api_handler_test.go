@@ -124,7 +124,7 @@ func (s executionQueryStub) ListRuns(context.Context) ([]domain.ExecutionRun, er
 	}
 	return []domain.ExecutionRun{*s.run}, nil
 }
-func (s executionQueryStub) ListRunsPage(_ context.Context, page, pageSize int) (domain.ExecutionRunPage, error) {
+func (s executionQueryStub) ListRunsPage(_ context.Context, page, pageSize int, _, _, _ string) (domain.ExecutionRunPage, error) {
 	items, _ := s.ListRuns(context.Background())
 	return domain.ExecutionRunPage{Items: items, Page: page, PageSize: pageSize, Total: len(items)}, nil
 }
