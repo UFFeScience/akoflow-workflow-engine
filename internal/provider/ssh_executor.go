@@ -61,7 +61,21 @@ func (e SSHCommandExecutor) Run(ctx context.Context, name string, args []string,
 	if e.ForwardAgent {
 		sshArgs = append(sshArgs, "-A")
 	}
-	sshArgs = append(sshArgs, target, "--", name)
-	sshArgs = append(sshArgs, args...)
+	// ssh serializes the remote command as shell text. Quote every argument so
+	// a script passed to `sh -c` remains one argument on the login node (and so
+	// paths or values with spaces cannot change the remote command structure).
+	remote := make([]string, 0, len(args)+1)
+	remote = append(remote, shellQuote(name))
+	for _, arg := range args {
+		remote = append(remote, shellQuote(arg))
+	}
+	sshArgs = append(sshArgs, target, strings.Join(remote, " "))
 	return e.Executor.Run(ctx, "ssh", sshArgs, input)
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\\\"'\\\"'") + "'"
 }

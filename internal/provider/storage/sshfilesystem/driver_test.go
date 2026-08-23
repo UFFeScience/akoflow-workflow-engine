@@ -15,14 +15,14 @@ func (f connectionStoreFake) FindConnection(context.Context, string) (*domain.En
 }
 
 type commandFake struct {
-	name string
-	args []string
+	name  string
+	args  []string
+	calls int
 }
 
 func (f *commandFake) Run(_ context.Context, name string, args []string, _ []byte) ([]byte, error) {
-	f.name, f.args = name, args
-	command := strings.Join(args, " ")
-	if strings.Contains(command, "cat --") {
+	f.name, f.args, f.calls = name, args, f.calls+1
+	if f.calls > 1 {
 		return []byte("payload"), nil
 	}
 	return []byte("result.sif\tf\t7\t1700000000\t\n"), nil

@@ -6,7 +6,7 @@ import (
 )
 
 func TestCanonicalSchemaIsEmbedded(t *testing.T) {
-	if Version != 9 {
+	if Version != 11 {
 		t.Fatalf("schema version = %d", Version)
 	}
 	for _, definition := range []string{

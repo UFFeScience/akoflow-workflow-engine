@@ -39,6 +39,15 @@ func migrateSchema(ctx context.Context, db *sql.DB) error {
 	if version == schema.Version {
 		return nil
 	}
+	if version == 10 && schema.Version == 11 {
+		return migrateV10ToV11(ctx, db)
+	}
+	if version == 9 && schema.Version >= 10 {
+		if err := migrateV9ToV10(ctx, db); err != nil {
+			return err
+		}
+		return migrateSchema(ctx, db)
+	}
 	if version == 8 && schema.Version == 9 {
 		return migrateV8ToV9(ctx, db)
 	}
@@ -81,6 +90,102 @@ func migrateSchema(ctx context.Context, db *sql.DB) error {
 	if _, err := tx.ExecContext(ctx, `UPDATE schema_metadata SET version=?, applied_at=?, checksum=?`,
 		schema.Version, time.Now().UTC(), schemaChecksum()); err != nil {
 		return fmt.Errorf("update schema metadata: %w", err)
+	}
+	return tx.Commit()
+}
+
+// migrateV9ToV10 permits cataloging files discovered outside a workflow run.
+// SQLite cannot remove NOT NULL in place, so the three related tables are
+// rebuilt while foreign-key enforcement is temporarily disabled.
+func migrateV9ToV10(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
+		return fmt.Errorf("disable foreign keys for data catalog migration: %w", err)
+	}
+	defer db.ExecContext(context.Background(), `PRAGMA foreign_keys = ON`)
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	const statements = `
+		CREATE TABLE data_objects_v10 (
+			id TEXT PRIMARY KEY, workflow_version_id TEXT REFERENCES workflow_versions(id),
+			producer_activity_id TEXT REFERENCES activity_definitions(id), logical_name TEXT NOT NULL,
+			relative_path TEXT NOT NULL DEFAULT '', declared INTEGER NOT NULL DEFAULT 0,
+			metadata TEXT NOT NULL DEFAULT '{}');
+		INSERT INTO data_objects_v10 SELECT * FROM data_objects;
+		CREATE TABLE data_object_instances_v10 (
+			id TEXT PRIMARY KEY, data_object_id TEXT NOT NULL REFERENCES data_objects(id),
+			execution_run_id TEXT REFERENCES execution_runs(id),
+			producer_activity_id TEXT REFERENCES activity_definitions(id), attempt INTEGER NOT NULL DEFAULT 1,
+			relative_path TEXT NOT NULL, size_bytes INTEGER NOT NULL DEFAULT 0 CHECK(size_bytes >= 0),
+			checksum TEXT NOT NULL DEFAULT '', media_type TEXT NOT NULL DEFAULT '',
+			discovered INTEGER NOT NULL DEFAULT 1, metadata TEXT NOT NULL DEFAULT '{}',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(execution_run_id, producer_activity_id, attempt, relative_path));
+		INSERT INTO data_object_instances_v10 SELECT * FROM data_object_instances;
+		CREATE TABLE data_locations_v10 (
+			id TEXT PRIMARY KEY, data_object_instance_id TEXT NOT NULL REFERENCES data_object_instances(id),
+			storage_resource_id TEXT REFERENCES storage_resources(id), resource_id TEXT REFERENCES resources(id),
+			execution_run_id TEXT REFERENCES execution_runs(id), uri TEXT NOT NULL,
+			available_at REAL NOT NULL DEFAULT 0, verified_at REAL NOT NULL DEFAULT 0,
+			status TEXT NOT NULL DEFAULT 'ephemeral'
+				CHECK(status IN ('ephemeral', 'staging', 'available', 'failed', 'deleted')),
+			metadata TEXT NOT NULL DEFAULT '{}', UNIQUE(data_object_instance_id, uri));
+		INSERT INTO data_locations_v10 SELECT * FROM data_locations;
+		DROP TABLE data_locations;
+		DROP TABLE data_object_instances;
+		DROP TABLE data_objects;
+		ALTER TABLE data_objects_v10 RENAME TO data_objects;
+		ALTER TABLE data_object_instances_v10 RENAME TO data_object_instances;
+		ALTER TABLE data_locations_v10 RENAME TO data_locations;`
+	if _, err = tx.ExecContext(ctx, statements); err != nil {
+		return fmt.Errorf("rebuild standalone data catalog tables: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE schema_metadata SET version=?, applied_at=?, checksum=?`,
+		10, time.Now().UTC(), schemaChecksum()); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// migrateV10ToV11 allows SSH-backed filesystem stores. SQLite cannot change a
+// CHECK constraint in place, so the storage table is rebuilt while preserving
+// every resource and its runtime bindings.
+func migrateV10ToV11(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
+		return fmt.Errorf("disable foreign keys for SSH storage migration: %w", err)
+	}
+	defer db.ExecContext(context.Background(), `PRAGMA foreign_keys = ON`)
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	const statements = `
+		CREATE TABLE storage_resources_v11 (
+			id TEXT PRIMARY KEY,
+			environment_version_id TEXT NOT NULL REFERENCES environment_versions(id),
+			name TEXT NOT NULL,
+			type TEXT NOT NULL CHECK(type IN ('local', 'pvc', 'nfs', 's3', 'lustre', 'gcs', 's3-compatible', 'ssh-filesystem')),
+			endpoint TEXT NOT NULL DEFAULT '',
+			capacity_bytes INTEGER NOT NULL DEFAULT 0 CHECK(capacity_bytes >= 0),
+			shared INTEGER NOT NULL DEFAULT 0,
+			read_only INTEGER NOT NULL DEFAULT 0,
+			configuration TEXT NOT NULL DEFAULT '{}',
+			credential_reference TEXT NOT NULL DEFAULT '',
+			metadata TEXT NOT NULL DEFAULT '{}',
+			UNIQUE(environment_version_id, name)
+		);
+		INSERT INTO storage_resources_v11 SELECT * FROM storage_resources;
+		DROP TABLE storage_resources;
+		ALTER TABLE storage_resources_v11 RENAME TO storage_resources;`
+	if _, err = tx.ExecContext(ctx, statements); err != nil {
+		return fmt.Errorf("rebuild storage resources for SSH: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE schema_metadata SET version=?, applied_at=?, checksum=?`,
+		schema.Version, time.Now().UTC(), schemaChecksum()); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

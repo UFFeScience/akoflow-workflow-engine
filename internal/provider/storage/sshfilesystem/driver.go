@@ -150,9 +150,15 @@ func (d *Driver) runInput(ctx context.Context, storage domain.StorageResource, s
 	if err != nil {
 		return nil, err
 	}
-	// Values are base64-encoded and decoded by a constant remote script. This
-	// avoids shell interpolation even for spaces, quotes, and metacharacters.
-	return exec.Run(ctx, "sh", []string{"-c", script, "akoflow", encode(root), encode(relative)}, input)
+	// Values are base64-encoded and assigned inside the remote script. Keeping
+	// them out of `sh -c` positional arguments makes the command portable
+	// across SSH servers, which may reassemble remote arguments differently.
+	prefix := "set -- '" + encode(root) + "' '" + encode(relative) + "'\n"
+	// Transport the complete program as a base64 token. ssh servers invoke the
+	// remote command through a shell, so this avoids a second round of parsing
+	// for function declarations, quotes, and newlines in the fixed program.
+	program := base64.StdEncoding.EncodeToString([]byte(prefix + "\n" + script))
+	return exec.Run(ctx, "sh", []string{"-c", "printf %s " + program + " | base64 -d | sh"}, input)
 }
 
 func (d *Driver) connectionExecutor(ctx context.Context, storage domain.StorageResource) (provider.CommandExecutor, error) {
@@ -286,11 +292,11 @@ safe_existing(){
   resolved=$(realpath -e -- "$candidate") || return 1
   case "$resolved" in "$root"|"$root"/*) ;; *) return 1;; esac
 }`
-const listScript = commonScript + `safe_existing || exit 3; test -d "$resolved" || exit 4; find -P "$resolved" -mindepth 1 -maxdepth 1 -printf '%f\t%y\t%s\t%T@\t%l\n'`
-const statScript = commonScript + `safe_existing || exit 3; find -P "$resolved" -maxdepth 0 -printf '%f\t%y\t%s\t%T@\t%l\n'`
-const catScript = commonScript + `safe_existing || exit 3; test -f "$resolved" || exit 4; cat -- "$resolved"`
-const removeScript = commonScript + `safe_existing || exit 3; test ! -d "$resolved" || exit 4; rm -- "$resolved"`
-const writeScript = commonScript + `parent=$(dirname -- "$candidate")
+const listScript = commonScript + "\n" + `safe_existing || exit 3; test -d "$resolved" || exit 4; find -P "$resolved" -mindepth 1 -maxdepth 1 -printf '%f\t%y\t%s\t%T@\t%l\n'`
+const statScript = commonScript + "\n" + `safe_existing || exit 3; find -P "$resolved" -maxdepth 0 -printf '%f\t%y\t%s\t%T@\t%l\n'`
+const catScript = commonScript + "\n" + `safe_existing || exit 3; test -f "$resolved" || exit 4; cat -- "$resolved"`
+const removeScript = commonScript + "\n" + `safe_existing || exit 3; test ! -d "$resolved" || exit 4; rm -- "$resolved"`
+const writeScript = commonScript + "\n" + `parent=$(dirname -- "$candidate")
 parent=$(realpath -e -- "$parent") || exit 3
 case "$parent" in "$root"|"$root"/*) ;; *) exit 4;; esac
 target="$parent/$(basename -- "$candidate")"
