@@ -57,6 +57,17 @@ func TestAdapterExecutesDirectlyOnLoginResource(t *testing.T) {
 	t.Fatalf("direct activity did not complete: %+v", handle)
 }
 
+func TestSingularityImageConvertsPlainOCIReference(t *testing.T) {
+	if got := singularityImage("alpine:3.20"); got != "docker://alpine:3.20" {
+		t.Fatalf("plain image = %q", got)
+	}
+	for _, image := range []string{"docker://alpine:3.20", "library://alpine", "/shared/tool.sif"} {
+		if got := singularityImage(image); got != image {
+			t.Fatalf("explicit image %q became %q", image, got)
+		}
+	}
+}
+
 func TestAdapterSubmitsSafeBatchScript(t *testing.T) {
 	executor := &executorFake{output: []byte("123;cluster\n")}
 	adapter := NewWithConfig(executor, Config{Partition: "cpu", ScriptDirectory: t.TempDir()})

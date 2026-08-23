@@ -231,7 +231,7 @@ func writeActivityCommand(script *strings.Builder, activity domain.Activity) {
 	}
 	if activity.Command.Image != "" {
 		script.WriteString("singularity exec ")
-		script.WriteString(shellQuote(activity.Command.Image))
+		script.WriteString(shellQuote(singularityImage(activity.Command.Image)))
 		script.WriteByte(' ')
 	}
 	script.WriteString(shellQuote(activity.Command.Entrypoint))
@@ -240,6 +240,18 @@ func writeActivityCommand(script *strings.Builder, activity domain.Activity) {
 		script.WriteString(shellQuote(argument))
 	}
 	script.WriteByte('\n')
+}
+
+// singularityImage keeps native SIF files and explicit OCI/library URIs intact.
+// Plain OCI references are what Kubernetes accepts, so make them usable by
+// SingularityCE/Apptainer as docker:// references automatically.
+func singularityImage(image string) string {
+	image = strings.TrimSpace(image)
+	if image == "" || strings.Contains(image, "://") || strings.HasPrefix(image, "/") ||
+		strings.HasPrefix(image, "./") || strings.HasSuffix(image, ".sif") {
+		return image
+	}
+	return "docker://" + image
 }
 
 func shellToken(value string) string {
