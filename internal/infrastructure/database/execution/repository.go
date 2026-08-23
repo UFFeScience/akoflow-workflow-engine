@@ -109,17 +109,24 @@ func runFeedFilters(kind, mode, status string) (string, []any) {
 const runFeedSelect = `
 	SELECT e.id, e.schedule_plan_id, e.mode, e.seed, e.status, e.environment_snapshot_id,
 		e.makespan_seconds, e.cost, e.failure_reason,
-		COALESCE((SELECT COUNT(*) FROM task_executions t WHERE t.execution_run_id=e.id), 0),
-		COALESCE((SELECT COUNT(*) FROM task_executions t WHERE t.execution_run_id=e.id AND t.status='completed'), 0),
-		COALESCE((SELECT SUM(runtime_seconds) FROM task_executions t WHERE t.execution_run_id=e.id), 0),
-		COALESCE((SELECT SUM(duration_seconds) FROM data_transfers d WHERE d.execution_run_id=e.id), 0),
-		COALESCE((SELECT SUM(queue_seconds) FROM task_executions t WHERE t.execution_run_id=e.id), 0),
-		COALESCE((SELECT SUM(interference_seconds) FROM task_executions t WHERE t.execution_run_id=e.id), 0),
-		COALESCE((SELECT SUM(overhead_seconds) FROM task_executions t WHERE t.execution_run_id=e.id), 0),
-		COALESCE((SELECT SUM(bytes) FROM data_transfers d WHERE d.execution_run_id=e.id), 0),
+		COALESCE(t.activity_count, 0), COALESCE(t.completed_count, 0),
+		COALESCE(t.compute_seconds, 0), COALESCE(d.transfer_seconds, 0),
+		COALESCE(t.queue_seconds, 0), COALESCE(t.interference_seconds, 0),
+		COALESCE(t.overhead_seconds, 0), COALESCE(d.transferred_bytes, 0),
 		'workflow' AS kind, e.id AS title, '' AS resource_id, '' AS runtime_id,
 		'' AS connection_id, '' AS actor_id, '' AS command, e.started_at, e.finished_at
 	FROM execution_runs e
+	LEFT JOIN (
+		SELECT execution_run_id, COUNT(*) AS activity_count,
+			SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed_count,
+			SUM(runtime_seconds) AS compute_seconds, SUM(queue_seconds) AS queue_seconds,
+			SUM(interference_seconds) AS interference_seconds, SUM(overhead_seconds) AS overhead_seconds
+		FROM task_executions GROUP BY execution_run_id
+	) t ON t.execution_run_id=e.id
+	LEFT JOIN (
+		SELECT execution_run_id, SUM(duration_seconds) AS transfer_seconds, SUM(bytes) AS transferred_bytes
+		FROM data_transfers GROUP BY execution_run_id
+	) d ON d.execution_run_id=e.id
 	UNION ALL
 	SELECT s.id, '', 'interactive', 0,
 		CASE s.status WHEN 'connected' THEN 'running' WHEN 'closed' THEN 'completed' WHEN 'failed' THEN 'failed' ELSE 'created' END,
