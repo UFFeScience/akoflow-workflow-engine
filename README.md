@@ -37,6 +37,22 @@ browser requests. BuildKit produces OCI archives. The server image includes a na
 and can convert OCI to SIF; Compose grants `/dev/fuse` and `SYS_ADMIN` solely
 for that operation, not Docker host control.
 
+## Development server
+
+Use the development overlay while changing the backend. It mounts the source
+tree and starts the API with `go run ./cmd/server`; after a Go change, restart
+only the service—there is no production-image rebuild.
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# after editing Go code: Ctrl-C, then run the same command again
+```
+
+The development overlay deliberately uses separate SQLite and artifact
+volumes, so local experimentation does not alter the production-style Compose
+state. Its image is built once to install Go and operational clients; source
+edits themselves are compiled by `go run`.
+
 ## Executable and workspace delivery
 
 An activity declares how its executable is obtained. The planner resolves it
