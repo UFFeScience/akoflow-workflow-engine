@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -138,7 +139,11 @@ func (c *TerminalController) readTerminal(session *liveSession) {
 			c.publish(session, buffer[:count])
 		}
 		if err != nil {
-			c.closeSession(session)
+			if err == io.EOF {
+				c.closeSession(session)
+			} else {
+				c.failSession(session, fmt.Errorf("interactive terminal disconnected: %w", err))
+			}
 			return
 		}
 	}
@@ -235,17 +240,31 @@ func (c *TerminalController) resize(session *liveSession, payload []byte) bool {
 	return true
 }
 func (c *TerminalController) closeSession(session *liveSession) {
+	c.finishSession(session, domainconsole.SessionClosed, "", "console.session.closed", domainaudit.OutcomeSucceeded, "Interactive terminal closed")
+}
+
+func (c *TerminalController) failSession(session *liveSession, err error) {
+	c.finishSession(session, domainconsole.SessionFailed, err.Error(), "console.session.failed", domainaudit.OutcomeFailed, err.Error())
+}
+
+func (c *TerminalController) finishSession(
+	session *liveSession,
+	status domainconsole.SessionStatus,
+	failure, eventType string,
+	outcome domainaudit.Outcome,
+	summary string,
+) {
 	session.closeOnce.Do(func() {
 		_ = session.terminal.Close()
 		finished := time.Now().UTC()
-		session.value.Status, session.value.FinishedAt = domainconsole.SessionClosed, &finished
+		session.value.Status, session.value.Failure, session.value.FinishedAt = status, failure, &finished
 		if c.logs != nil {
 			_ = c.logs.SaveConsoleSession(context.Background(), session.value)
 		}
 		c.mu.Lock()
 		delete(c.sessions, session.value.ID)
 		c.mu.Unlock()
-		c.record(session.value, session.environment, "console.session.closed", domainaudit.OutcomeSucceeded, "Interactive terminal closed")
+		c.record(session.value, session.environment, eventType, outcome, summary)
 	})
 }
 func (c *TerminalController) record(value domainconsole.Session, environmentID, eventType string, outcome domainaudit.Outcome, summary string) {
