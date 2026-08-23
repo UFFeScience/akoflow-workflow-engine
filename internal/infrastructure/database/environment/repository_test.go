@@ -117,3 +117,29 @@ func TestEnvironmentRejectsTwoDefaultStoragesForRuntime(t *testing.T) {
 		t.Fatal("two default storages for the same runtime must fail")
 	}
 }
+
+func TestDeleteEnvironmentRemovesDiscoveredInventory(t *testing.T) {
+	repository := setupRepository(t)
+	definition := Definition{
+		Environment: domain.Environment{ID: "temporary", Name: "Temporary"},
+		Version: domain.EnvironmentVersion{ID: "temporary-v1", Version: 1,
+			Status: domain.EnvironmentVersionPublished, NetworkModel: "real", InterferenceModel: "none", CostModel: "free"},
+		Runtimes:        []domain.EnvironmentRuntime{{ID: "ssh", Name: "SSH", Driver: domain.RuntimeDriverSSH, Mode: domain.RuntimeModeExecution}},
+		Resources:       []domain.Resource{{ID: "node", Type: domain.ResourceHPCMachine, Name: "node", ProviderID: "node", Schedulable: true}},
+		RuntimeBindings: []domain.ResourceRuntimeBinding{{ResourceID: "node", RuntimeID: "ssh", Enabled: true}},
+		Connections:     []domain.EnvironmentConnection{{ID: "connection", Name: "login", Type: domain.ConnectionSSH}},
+	}
+	if err := repository.Create(context.Background(), definition); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.Delete(context.Background(), definition.Environment.ID); err != nil {
+		t.Fatal(err)
+	}
+	found, err := repository.Find(context.Background(), definition.Environment.ID)
+	if err != nil || found != nil {
+		t.Fatalf("environment was not deleted: %+v %v", found, err)
+	}
+	if err := repository.Delete(context.Background(), definition.Environment.ID); err != sql.ErrNoRows {
+		t.Fatalf("missing environment error=%v", err)
+	}
+}

@@ -11,6 +11,7 @@ import (
 type discoveryCatalog struct{ definition domain.EnvironmentDefinition }
 
 func (c discoveryCatalog) Create(context.Context, domain.EnvironmentDefinition) error { return nil }
+func (c discoveryCatalog) Delete(context.Context, string) error                       { return nil }
 func (c discoveryCatalog) List(context.Context) ([]domain.EnvironmentDefinition, error) {
 	return []domain.EnvironmentDefinition{c.definition}, nil
 }

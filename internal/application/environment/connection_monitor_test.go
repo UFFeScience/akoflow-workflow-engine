@@ -68,6 +68,7 @@ func TestOfflineResultResetsConnectionSchedule(t *testing.T) {
 }
 
 func (s *monitorStore) Create(context.Context, domain.EnvironmentDefinition) error { return nil }
+func (s *monitorStore) Delete(context.Context, string) error                       { return nil }
 func (s *monitorStore) List(context.Context) ([]domain.EnvironmentDefinition, error) {
 	return []domain.EnvironmentDefinition{{Connections: []domain.EnvironmentConnection{s.connection}}}, nil
 }

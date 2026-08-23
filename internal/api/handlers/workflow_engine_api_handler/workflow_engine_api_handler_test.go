@@ -20,6 +20,7 @@ type environmentRepositoryStub struct{ err error }
 func (s environmentRepositoryStub) Create(context.Context, domain.EnvironmentDefinition) error {
 	return s.err
 }
+func (s environmentRepositoryStub) Delete(context.Context, string) error { return s.err }
 func (s environmentRepositoryStub) List(context.Context) ([]domain.EnvironmentDefinition, error) {
 	return nil, s.err
 }

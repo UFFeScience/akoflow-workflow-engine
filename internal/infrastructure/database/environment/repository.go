@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 
 	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/domain"
@@ -16,6 +17,68 @@ var _ ports.EnvironmentCatalog = (*Repository)(nil)
 var _ ports.StorageCatalog = (*Repository)(nil)
 
 func New(db *sql.DB) *Repository { return &Repository{db: db} }
+
+// Delete removes an environment and its discovered inventory. Environments that
+// are already part of a scope, a plan, or an execution must remain immutable so
+// existing plans keep their reproducible infrastructure snapshot.
+func (r *Repository) Delete(ctx context.Context, environmentID string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM environments WHERE id=?)`, environmentID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return sql.ErrNoRows
+	}
+
+	for _, dependency := range []struct {
+		name  string
+		query string
+	}{
+		{"execution scope", `SELECT EXISTS(SELECT 1 FROM execution_scope_environments ese JOIN environment_versions ev ON ev.id=ese.environment_version_id WHERE ev.environment_id=?)`},
+		{"network topology", `SELECT EXISTS(SELECT 1 FROM network_links nl JOIN resources r ON r.id=nl.source_resource_id OR r.id=nl.target_resource_id JOIN environment_versions ev ON ev.id=r.environment_version_id WHERE ev.environment_id=?)`},
+		{"schedule plan", `SELECT EXISTS(SELECT 1 FROM schedule_plan_assignments spa JOIN resources r ON r.id=spa.resource_id JOIN environment_versions ev ON ev.id=r.environment_version_id WHERE ev.environment_id=?)`},
+		{"execution data", `SELECT EXISTS(SELECT 1 FROM data_locations dl LEFT JOIN resources r ON r.id=dl.resource_id LEFT JOIN storage_resources sr ON sr.id=dl.storage_resource_id LEFT JOIN environment_versions rv ON rv.id=r.environment_version_id LEFT JOIN environment_versions sv ON sv.id=sr.environment_version_id WHERE rv.environment_id=? OR sv.environment_id=?)`},
+		{"transfer observation", `SELECT EXISTS(SELECT 1 FROM data_transfer_observations dto JOIN resources r ON r.id=dto.source_resource_id OR r.id=dto.target_resource_id JOIN environment_versions ev ON ev.id=r.environment_version_id WHERE ev.environment_id=?)`},
+		{"console activity", `SELECT EXISTS(SELECT 1 FROM console_commands cc JOIN resources r ON r.id=cc.resource_id JOIN environment_versions ev ON ev.id=r.environment_version_id WHERE ev.environment_id=?) OR EXISTS(SELECT 1 FROM console_sessions cs JOIN resources r ON r.id=cs.resource_id JOIN environment_versions ev ON ev.id=r.environment_version_id WHERE ev.environment_id=?)`},
+		{"simulation scenario", `SELECT EXISTS(SELECT 1 FROM simulation_scenarios ss JOIN environment_versions ev ON ev.id=ss.environment_version_id WHERE ev.environment_id=?)`},
+	} {
+		args := []any{environmentID}
+		if dependency.name == "execution data" || dependency.name == "console activity" {
+			args = []any{environmentID, environmentID}
+		}
+		if err := tx.QueryRowContext(ctx, dependency.query, args...).Scan(&exists); err != nil {
+			return err
+		}
+		if exists {
+			return fmt.Errorf("environment %q cannot be deleted because it is used by a %s", environmentID, dependency.name)
+		}
+	}
+
+	statements := []string{
+		`DELETE FROM resource_snapshots WHERE resource_id IN (SELECT r.id FROM resources r JOIN environment_versions ev ON ev.id=r.environment_version_id WHERE ev.environment_id=?)`,
+		`DELETE FROM activity_resource_profiles WHERE resource_id IN (SELECT r.id FROM resources r JOIN environment_versions ev ON ev.id=r.environment_version_id WHERE ev.environment_id=?)`,
+		`DELETE FROM resource_relations WHERE environment_version_id IN (SELECT id FROM environment_versions WHERE environment_id=?)`,
+		`DELETE FROM discovery_runs WHERE environment_version_id IN (SELECT id FROM environment_versions WHERE environment_id=?)`,
+		`DELETE FROM storage_resources WHERE environment_version_id IN (SELECT id FROM environment_versions WHERE environment_id=?)`,
+		`DELETE FROM resources WHERE environment_version_id IN (SELECT id FROM environment_versions WHERE environment_id=?)`,
+		`DELETE FROM environment_runtimes WHERE environment_version_id IN (SELECT id FROM environment_versions WHERE environment_id=?)`,
+		`DELETE FROM environment_connections WHERE environment_id=?`,
+		`DELETE FROM environment_versions WHERE environment_id=?`,
+		`DELETE FROM environments WHERE id=?`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.ExecContext(ctx, statement, environmentID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
 
 func (r *Repository) List(ctx context.Context) ([]domain.EnvironmentDefinition, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT id FROM environments ORDER BY name`)

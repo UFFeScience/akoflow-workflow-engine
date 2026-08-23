@@ -931,6 +931,24 @@ func (h *Handler) CreateEnvironment(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, definition)
 }
 
+func (h *Handler) DeleteEnvironment(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("environmentId")
+	definition, err := h.environments.Find(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if definition == nil {
+		writeError(w, http.StatusNotFound, fmt.Errorf("environment not found"))
+		return
+	}
+	if err := h.environments.Delete(r.Context(), id); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
 	var request apirequests.Workflow
 	if !decode(w, r, &request) {

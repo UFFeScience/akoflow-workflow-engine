@@ -31,6 +31,7 @@ func (f connectionFactoryFake) Build(runtime domain.EnvironmentRuntime, connecti
 }
 
 func (c catalogStub) Create(context.Context, domain.EnvironmentDefinition) error { return nil }
+func (c catalogStub) Delete(context.Context, string) error                       { return nil }
 func (c catalogStub) List(context.Context) ([]domain.EnvironmentDefinition, error) {
 	return c.definitions, nil
 }
