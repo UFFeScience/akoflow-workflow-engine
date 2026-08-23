@@ -120,6 +120,9 @@ const (
 	ExecutionModeReal             = planning.ExecutionModeReal
 	ExecutionModeSimulation       = planning.ExecutionModeSimulation
 	ExecutionModeInteractive      = planning.ExecutionModeInteractive
+	ExecutionRunWorkflow          = execution.ExecutionRunWorkflow
+	ExecutionRunInteractive       = execution.ExecutionRunInteractive
+	ExecutionRunStandalone        = execution.ExecutionRunStandalone
 	ActivityKindTask              = workflow.ActivityKindTask
 	ActivityKindService           = workflow.ActivityKindService
 	ActivityKindInteractive       = workflow.ActivityKindInteractive
@@ -131,6 +134,8 @@ const (
 type ExecutionRunStatus = execution.ExecutionRunStatus
 type TaskExecutionStatus = execution.TaskExecutionStatus
 type ExecutionRun = execution.ExecutionRun
+type ExecutionRunPage = execution.ExecutionRunPage
+type ExecutionRunKind = execution.ExecutionRunKind
 type TaskExecution = execution.TaskExecution
 type ExecutionMetrics = execution.ExecutionMetrics
 type ExecutionTrace = execution.ExecutionTrace

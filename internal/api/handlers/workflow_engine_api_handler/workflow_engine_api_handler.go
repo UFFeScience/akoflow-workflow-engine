@@ -30,6 +30,7 @@ const maxRequestBodyBytes = 32 << 20
 type ExecutionQuery interface {
 	FindRun(context.Context, string) (*domain.ExecutionRun, error)
 	ListRuns(context.Context) ([]domain.ExecutionRun, error)
+	ListRunsPage(context.Context, int, int) (domain.ExecutionRunPage, error)
 	ListTasks(context.Context, string) ([]domain.TaskExecution, error)
 	ListTransfers(context.Context, string) ([]domain.DataTransfer, error)
 	ListHandles(context.Context, string) ([]domain.ActivityHandle, error)
@@ -391,6 +392,22 @@ func (h *Handler) ListPlans(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListExecutions(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Has("page") || r.URL.Query().Has("pageSize") {
+		page := positiveInteger(r.URL.Query().Get("page"), 1)
+		pageSize := positiveInteger(r.URL.Query().Get("pageSize"), 20)
+		result, err := h.executions.ListRunsPage(r.Context(), page, pageSize)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		items := make([]map[string]any, 0, len(result.Items))
+		for _, run := range result.Items {
+			items = append(items, map[string]any{"run": run})
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": items, "page": result.Page,
+			"pageSize": result.PageSize, "total": result.Total, "hasNext": result.HasNext})
+		return
+	}
 	runs, err := h.executions.ListRuns(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
@@ -401,6 +418,14 @@ func (h *Handler) ListExecutions(w http.ResponseWriter, r *http.Request) {
 		items = append(items, map[string]any{"run": run})
 	}
 	writeJSON(w, http.StatusOK, items)
+}
+
+func positiveInteger(value string, fallback int) int {
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 1 {
+		return fallback
+	}
+	return parsed
 }
 
 func writeList(w http.ResponseWriter, value any, err error) {

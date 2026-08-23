@@ -45,71 +45,95 @@ func (r *Repository) CreateRun(ctx context.Context, run domain.ExecutionRun) err
 }
 
 func (r *Repository) FindRun(ctx context.Context, id string) (*domain.ExecutionRun, error) {
-	var run domain.ExecutionRun
-	err := r.db.QueryRowContext(ctx, `SELECT id, schedule_plan_id, mode, seed,
-		status, environment_snapshot_id, makespan_seconds, cost, failure_reason,
-		COALESCE((SELECT SUM(runtime_seconds) FROM task_executions t WHERE t.execution_run_id=execution_runs.id), 0),
-		COALESCE((SELECT SUM(duration_seconds) FROM data_transfers d WHERE d.execution_run_id=execution_runs.id), 0),
-		COALESCE((SELECT SUM(queue_seconds) FROM task_executions t WHERE t.execution_run_id=execution_runs.id), 0),
-		COALESCE((SELECT SUM(interference_seconds) FROM task_executions t WHERE t.execution_run_id=execution_runs.id), 0),
-		COALESCE((SELECT SUM(overhead_seconds) FROM task_executions t WHERE t.execution_run_id=execution_runs.id), 0),
-		COALESCE((SELECT SUM(bytes) FROM data_transfers d WHERE d.execution_run_id=execution_runs.id), 0)
-		FROM execution_runs WHERE id=?`, id).
-		Scan(&run.ID, &run.SchedulePlanID, &run.Mode, &run.Seed, &run.Status,
-			&run.EnvironmentSnapshotID, &run.MakespanSeconds, &run.Cost, &run.FailureReason,
-			&run.Breakdown.ComputeSeconds, &run.Breakdown.TransferSeconds,
-			&run.Breakdown.QueueSeconds, &run.Breakdown.InterferenceSeconds,
-			&run.Breakdown.OverheadSeconds, &run.TransferredBytes)
+	run, err := scanRunFeed(r.db.QueryRowContext(ctx, `SELECT * FROM (`+runFeedSelect+`) WHERE id=?`, id))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
-	if err != nil {
-		return nil, err
-	}
-	return &run, nil
+	return run, err
 }
 
 func (r *Repository) ListRuns(ctx context.Context) ([]domain.ExecutionRun, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT e.id, e.schedule_plan_id, e.mode, e.seed,
-		e.status, e.environment_snapshot_id, e.makespan_seconds, e.cost, e.failure_reason,
-		COALESCE(t.activity_count, 0), COALESCE(t.completed_count, 0),
-		COALESCE(t.compute_seconds, 0), COALESCE(d.transfer_seconds, 0),
-		COALESCE(t.queue_seconds, 0), COALESCE(t.interference_seconds, 0),
-		COALESCE(t.overhead_seconds, 0), COALESCE(d.transferred_bytes, 0)
-		FROM execution_runs e
-		LEFT JOIN (
-			SELECT execution_run_id, COUNT(*) AS activity_count,
-				SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed_count,
-				SUM(runtime_seconds) AS compute_seconds,
-				SUM(queue_seconds) AS queue_seconds,
-				SUM(interference_seconds) AS interference_seconds,
-				SUM(overhead_seconds) AS overhead_seconds
-			FROM task_executions GROUP BY execution_run_id
-		) t ON t.execution_run_id=e.id
-		LEFT JOIN (
-			SELECT execution_run_id, SUM(duration_seconds) AS transfer_seconds,
-				SUM(bytes) AS transferred_bytes
-			FROM data_transfers GROUP BY execution_run_id
-		) d ON d.execution_run_id=e.id
-		ORDER BY e.started_at DESC, e.id`)
+	page, err := r.ListRunsPage(ctx, 1, 500)
+	return page.Items, err
+}
+
+func (r *Repository) ListRunsPage(ctx context.Context, page, pageSize int) (domain.ExecutionRunPage, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+	var total int
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (`+runFeedSelect+`)`).Scan(&total); err != nil {
+		return domain.ExecutionRunPage{}, err
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT * FROM (`+runFeedSelect+`) ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?`, pageSize, (page-1)*pageSize)
 	if err != nil {
-		return nil, err
+		return domain.ExecutionRunPage{}, err
 	}
 	defer rows.Close()
 	runs := make([]domain.ExecutionRun, 0)
 	for rows.Next() {
-		var run domain.ExecutionRun
-		if err := rows.Scan(&run.ID, &run.SchedulePlanID, &run.Mode, &run.Seed,
-			&run.Status, &run.EnvironmentSnapshotID, &run.MakespanSeconds, &run.Cost,
-			&run.FailureReason, &run.ActivityCount, &run.CompletedActivityCount,
-			&run.Breakdown.ComputeSeconds, &run.Breakdown.TransferSeconds,
-			&run.Breakdown.QueueSeconds, &run.Breakdown.InterferenceSeconds,
-			&run.Breakdown.OverheadSeconds, &run.TransferredBytes); err != nil {
-			return nil, err
+		run, err := scanRunFeed(rows)
+		if err != nil {
+			return domain.ExecutionRunPage{}, err
 		}
-		runs = append(runs, run)
+		runs = append(runs, *run)
 	}
-	return runs, rows.Err()
+	if err := rows.Err(); err != nil {
+		return domain.ExecutionRunPage{}, err
+	}
+	return domain.ExecutionRunPage{Items: runs, Page: page, PageSize: pageSize, Total: total, HasNext: page*pageSize < total}, nil
+}
+
+const runFeedSelect = `
+	SELECT e.id, e.schedule_plan_id, e.mode, e.seed, e.status, e.environment_snapshot_id,
+		e.makespan_seconds, e.cost, e.failure_reason,
+		COALESCE((SELECT COUNT(*) FROM task_executions t WHERE t.execution_run_id=e.id), 0),
+		COALESCE((SELECT COUNT(*) FROM task_executions t WHERE t.execution_run_id=e.id AND t.status='completed'), 0),
+		COALESCE((SELECT SUM(runtime_seconds) FROM task_executions t WHERE t.execution_run_id=e.id), 0),
+		COALESCE((SELECT SUM(duration_seconds) FROM data_transfers d WHERE d.execution_run_id=e.id), 0),
+		COALESCE((SELECT SUM(queue_seconds) FROM task_executions t WHERE t.execution_run_id=e.id), 0),
+		COALESCE((SELECT SUM(interference_seconds) FROM task_executions t WHERE t.execution_run_id=e.id), 0),
+		COALESCE((SELECT SUM(overhead_seconds) FROM task_executions t WHERE t.execution_run_id=e.id), 0),
+		COALESCE((SELECT SUM(bytes) FROM data_transfers d WHERE d.execution_run_id=e.id), 0),
+		'workflow', e.id, '', '', '', '', '', e.started_at, e.finished_at
+	FROM execution_runs e
+	UNION ALL
+	SELECT s.id, '', 'interactive', 0,
+		CASE s.status WHEN 'connected' THEN 'running' WHEN 'closed' THEN 'completed' WHEN 'failed' THEN 'failed' ELSE 'created' END,
+		'', 0, 0, s.failure, 0, 0, 0, 0, 0, 0, 0, 0,
+		'interactive', 'Interactive session', s.resource_id, s.runtime_id, s.connection_id, s.actor_id, '',
+		COALESCE(s.connected_at, s.created_at), s.finished_at
+	FROM console_sessions s
+	UNION ALL
+	SELECT c.id, '', 'real', 0, c.status, '', 0, 0, c.failure, 1,
+		CASE WHEN c.status='completed' THEN 1 ELSE 0 END, 0, 0, 0, 0, 0, 0,
+		'standalone', 'Standalone command', c.resource_id, c.runtime_id, c.connection_id, c.actor_id, c.command_text,
+		c.started_at, c.finished_at
+	FROM console_commands c`
+
+func scanRunFeed(scanner interface{ Scan(...any) error }) (*domain.ExecutionRun, error) {
+	var run domain.ExecutionRun
+	var startedAt, finishedAt sql.NullTime
+	err := scanner.Scan(&run.ID, &run.SchedulePlanID, &run.Mode, &run.Seed, &run.Status,
+		&run.EnvironmentSnapshotID, &run.MakespanSeconds, &run.Cost, &run.FailureReason,
+		&run.ActivityCount, &run.CompletedActivityCount, &run.Breakdown.ComputeSeconds,
+		&run.Breakdown.TransferSeconds, &run.Breakdown.QueueSeconds,
+		&run.Breakdown.InterferenceSeconds, &run.Breakdown.OverheadSeconds, &run.TransferredBytes,
+		&run.Kind, &run.Title, &run.ResourceID, &run.RuntimeID, &run.ConnectionID, &run.ActorID,
+		&run.Command, &startedAt, &finishedAt)
+	if err != nil {
+		return nil, err
+	}
+	if startedAt.Valid {
+		run.StartedAt = &startedAt.Time
+	}
+	if finishedAt.Valid {
+		run.FinishedAt = &finishedAt.Time
+	}
+	return &run, nil
 }
 
 func (r *Repository) ListTasks(ctx context.Context, runID string) ([]domain.TaskExecution, error) {

@@ -1,6 +1,8 @@
 package execution
 
 import (
+	"time"
+
 	"github.com/UFFeScience/akoflow/internal/domain/planning"
 	"github.com/UFFeScience/akoflow/internal/domain/resource"
 	"github.com/UFFeScience/akoflow/internal/domain/workflow"
@@ -9,6 +11,13 @@ import (
 type ExecutionRunStatus string
 type TaskExecutionStatus string
 type ActivityHandleStatus string
+type ExecutionRunKind string
+
+const (
+	ExecutionRunWorkflow    ExecutionRunKind = "workflow"
+	ExecutionRunInteractive ExecutionRunKind = "interactive"
+	ExecutionRunStandalone  ExecutionRunKind = "standalone"
+)
 
 const (
 	ExecutionRunCreated   ExecutionRunStatus = "created"
@@ -45,6 +54,23 @@ type ExecutionRun struct {
 	CompletedActivityCount int                    `json:"completedActivityCount,omitempty"`
 	Breakdown              ExecutionBreakdown     `json:"breakdown"`
 	TransferredBytes       int64                  `json:"transferredBytes"`
+	Kind                   ExecutionRunKind       `json:"kind"`
+	Title                  string                 `json:"title,omitempty"`
+	ResourceID             string                 `json:"resourceId,omitempty"`
+	RuntimeID              string                 `json:"runtimeId,omitempty"`
+	ConnectionID           string                 `json:"connectionId,omitempty"`
+	ActorID                string                 `json:"actorId,omitempty"`
+	Command                string                 `json:"command,omitempty"`
+	StartedAt              *time.Time             `json:"startedAt,omitempty"`
+	FinishedAt             *time.Time             `json:"finishedAt,omitempty"`
+}
+
+type ExecutionRunPage struct {
+	Items    []ExecutionRun `json:"items"`
+	Page     int            `json:"page"`
+	PageSize int            `json:"pageSize"`
+	Total    int            `json:"total"`
+	HasNext  bool           `json:"hasNext"`
 }
 
 type ExecutionBreakdown struct {

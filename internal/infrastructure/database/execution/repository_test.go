@@ -134,3 +134,39 @@ func TestRepositoryReturnsNilForMissingRecords(t *testing.T) {
 		t.Fatal("missing handle must be nil")
 	}
 }
+
+func TestListRunsPageCombinesWorkflowInteractiveAndStandaloneRuns(t *testing.T) {
+	repository := setup(t)
+	ctx := context.Background()
+	run := domain.ExecutionRun{ID: "workflow-run", SchedulePlanID: "plan",
+		Mode: domain.ExecutionModeReal, Status: domain.ExecutionRunRunning}
+	if err := repository.CreateRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	statements := []string{
+		`INSERT INTO console_sessions(id,resource_id,runtime_id,connection_id,status,created_at,connected_at)
+			VALUES ('session','resource','ssh','connection','connected','2026-08-23T12:01:00Z','2026-08-23T12:01:01Z')`,
+		`INSERT INTO console_commands(id,resource_id,runtime_id,connection_id,command_text,timeout_seconds,
+			status,created_at,started_at) VALUES
+			('command','resource','ssh','connection','hostname',30,'running','2026-08-23T12:02:00Z','2026-08-23T12:02:00Z')`,
+	}
+	for _, statement := range statements {
+		if _, err := repository.db.ExecContext(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, err := repository.ListRunsPage(ctx, 1, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Total != 3 || len(first.Items) != 2 || !first.HasNext ||
+		first.Items[0].Kind != domain.ExecutionRunStandalone ||
+		first.Items[1].Kind != domain.ExecutionRunInteractive {
+		t.Fatalf("page=%+v", first)
+	}
+	interactive, err := repository.FindRun(ctx, "session")
+	if err != nil || interactive == nil || interactive.Status != domain.ExecutionRunRunning ||
+		interactive.ResourceID != "resource" {
+		t.Fatalf("interactive=%+v err=%v", interactive, err)
+	}
+}
