@@ -105,15 +105,18 @@ func (a *Adapter) Inspect(ctx context.Context, handle domain.ActivityHandle) (do
 	if handle.Metadata["executionTarget"] == string(domain.ExecutionTargetDirect) {
 		return a.direct.Inspect(ctx, handle)
 	}
-	output, err := a.executor.Run(ctx, "sacct", []string{"-j", handle.ExternalID,
-		"--noheader", "--parsable2", "--format=State,ExitCode"}, nil)
-	if err != nil {
-		return handle, err
-	}
 	if logPath, ok := handle.Metadata["logPath"].(string); ok && logPath != "" {
 		if log, logErr := a.executor.Run(ctx, "cat", []string{logPath}, nil); logErr == nil {
 			handle.Log = string(log)
 		}
+	}
+	output, err := a.executor.Run(ctx, "sacct", []string{"-j", handle.ExternalID,
+		"--noheader", "--parsable2", "--format=State,ExitCode"}, nil)
+	if err != nil {
+		handle.Status = domain.HandleFailed
+		handle.Failure = err.Error()
+		handle.FinishedAt = runtimecommon.UnixSeconds(time.Now())
+		return handle, nil
 	}
 	line := strings.TrimSpace(strings.Split(string(output), "\n")[0])
 	fields := strings.Split(line, "|")
