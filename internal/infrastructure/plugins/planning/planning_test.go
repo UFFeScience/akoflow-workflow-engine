@@ -116,6 +116,17 @@ func TestValidatePlanAllowsResourcesAcrossEnvironmentsInScope(t *testing.T) {
 	))
 }
 
+func TestValidatePlanAllowsExplicitManualResourceSelectorOverride(t *testing.T) {
+	workflow, resources, plan := validPlanFixture()
+	workflow.Activities[0].Metadata = map[string]any{"resourceSelector": "r2"}
+	plan.Assignments[0].ResourceID = "r1"
+	plan.Assignments[0].Metadata = map[string]any{"resourceSelectorOverride": true}
+
+	require.NoError(t, NewValidator().Validate(
+		plan, workflow, resources, validScope(), domain.NetworkTopology{ExecutionScopeID: "scope"},
+	))
+}
+
 func validScope() domain.ExecutionScope {
 	return domain.ExecutionScope{ID: "scope", EnvironmentVersionIDs: []string{"env"}}
 }
