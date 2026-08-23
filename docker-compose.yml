@@ -10,6 +10,10 @@ services:
       AKOFLOW_ARTIFACT_STORE_ROOT: /var/lib/akoflow/artifacts
       AKOFLOW_BUILDCTL: buildctl
       AKOFLOW_APPTAINER: apptainer
+      # Interactive terminals are enabled only for the local control-plane
+      # deployment. The runner still uses each environment's SSH credentials
+      # and SLURM allocation rules.
+      AKOFLOW_CONSOLE_ENABLED: ${AKOFLOW_CONSOLE_ENABLED:-true}
       BUILDKIT_HOST: tcp://buildkitd:1234
       # Kubernetes connections resolve their token from this process, while
       # the environment definition retains only env:K8S_API_SERVER_TOKEN.
