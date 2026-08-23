@@ -1091,6 +1091,7 @@ func (h *Handler) CreateExecution(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return
 	}
+	resolveDirectOCIImages(&request.Workflow)
 	request.Run.SchedulePlanID = request.Plan.ID
 	payload, err := json.Marshal(request)
 	if err != nil {
@@ -1110,6 +1111,22 @@ func (h *Handler) CreateExecution(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, stored)
+}
+
+// Kubernetes accepts OCI references directly. Preserve the executable contract
+// in the workflow while also filling the runtime-facing image field used by
+// the Kubernetes adapter.
+func resolveDirectOCIImages(workflow *domain.WorkflowVersion) {
+	for index := range workflow.Activities {
+		command := &workflow.Activities[index].Command
+		if command.Image != "" || command.Executable == nil {
+			continue
+		}
+		source := command.Executable.Source
+		if source.Type == domain.ExecutableSourceOCI && source.Reference != "" {
+			command.Image = source.Reference
+		}
+	}
 }
 
 func (h *Handler) resolveBuildPreparations(ctx context.Context, request *ports.ExecutionRequest) error {
