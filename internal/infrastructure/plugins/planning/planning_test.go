@@ -65,6 +65,10 @@ func TestValidatePlanRejectsInvalidCases(t *testing.T) {
 		{"not schedulable", func(_ *domain.WorkflowVersion, r *[]domain.Resource, _ *domain.SchedulePlan) {
 			(*r)[0].Schedulable = false
 		}, "not schedulable"},
+		{"resource selector", func(w *domain.WorkflowVersion, _ *[]domain.Resource, p *domain.SchedulePlan) {
+			w.Activities[0].Metadata = map[string]any{"resourceSelector": "r2"}
+			p.Assignments[0].ResourceID = "r1"
+		}, "requires resource"},
 		{"insufficient cpu", func(w *domain.WorkflowVersion, _ *[]domain.Resource, _ *domain.SchedulePlan) {
 			w.Activities[0].Resources.CPU = 3
 		}, "lacks CPU"},

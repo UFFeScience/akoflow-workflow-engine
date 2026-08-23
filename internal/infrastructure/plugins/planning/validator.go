@@ -65,6 +65,9 @@ func (Validator) Validate(
 		if !resource.Schedulable {
 			return fmt.Errorf("resource %q is not schedulable", resource.ID)
 		}
+		if selector, _ := activity.Metadata["resourceSelector"].(string); selector != "" && selector != resource.ID {
+			return fmt.Errorf("activity %q requires resource %q, not %q", activity.ID, selector, resource.ID)
+		}
 		if resource.CPUCapacity < activity.Resources.CPU {
 			return fmt.Errorf("resource %q lacks CPU for activity %q", resource.ID, activity.ID)
 		}
