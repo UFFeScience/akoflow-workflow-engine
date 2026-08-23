@@ -24,6 +24,7 @@ func (r ConsoleRunner) RunConsoleCommand(ctx context.Context, connection domain.
 		executor = runtimecommon.SSHCommandExecutor{Executor: executor, Endpoint: connection.Endpoint,
 			Username: connection.Username, Port: configInt(connection.Configuration, "port"), IdentityFile: credentialFile(connection.CredentialRef),
 			ProxyCommand: configString(connection.Configuration, "proxyCommand"), HostKeyAlias: configString(connection.Configuration, "hostKeyAlias"),
+			KnownHostsFile: knownHostsFile(connection),
 			ForwardAgent: configBool(connection.Configuration, "forwardAgent", false)}
 	}
 	script := consoleScript(resource, command)

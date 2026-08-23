@@ -3,6 +3,8 @@ package provider
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -19,6 +21,7 @@ type SSHCommandExecutor struct {
 	IdentityFile string
 	ProxyCommand string
 	HostKeyAlias string
+	KnownHostsFile string
 	ForwardAgent bool
 }
 
@@ -37,6 +40,12 @@ func (e SSHCommandExecutor) Run(ctx context.Context, name string, args []string,
 	// login node or a ProxyCommand that keeps a pipe open after its parent dies.
 	sshArgs := make([]string, 0, len(args)+14)
 	sshArgs = append(sshArgs, "-o", "BatchMode=yes", "-o", "ConnectionAttempts=1", "-o", "ConnectTimeout=10", "-o", "CheckHostIP=no")
+	if e.KnownHostsFile != "" {
+		if err := os.MkdirAll(filepath.Dir(e.KnownHostsFile), 0o700); err != nil {
+			return nil, fmt.Errorf("create SSH known-hosts directory: %w", err)
+		}
+		sshArgs = append(sshArgs, "-o", "UserKnownHostsFile="+e.KnownHostsFile, "-o", "StrictHostKeyChecking=accept-new")
+	}
 	if e.Port > 0 {
 		sshArgs = append(sshArgs, "-p", strconv.Itoa(e.Port))
 	}

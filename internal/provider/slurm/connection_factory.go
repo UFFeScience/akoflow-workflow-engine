@@ -2,6 +2,7 @@ package slurm
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -36,6 +37,7 @@ func (f ConnectionFactory) Build(runtime domain.EnvironmentRuntime, connection d
 			IdentityFile: credentialFile(connection.CredentialRef),
 			ProxyCommand: configString(connection.Configuration, "proxyCommand"),
 			HostKeyAlias: configString(connection.Configuration, "hostKeyAlias"),
+			KnownHostsFile: knownHostsFile(connection),
 			ForwardAgent: configBool(connection.Configuration, "forwardAgent", false),
 		}
 	}
@@ -55,6 +57,13 @@ func (f ConnectionFactory) Build(runtime domain.EnvironmentRuntime, connection d
 	}
 	return NewWithConfig(executor, Config{Partition: partition, ScriptDirectory: scriptDirectory,
 		SubmitFromStdin: remote}), nil
+}
+
+func knownHostsFile(connection domain.EnvironmentConnection) string {
+	if value := configString(connection.Configuration, "knownHostsFile"); value != "" {
+		return value
+	}
+	return filepath.Join("storage", "credentials", "ssh", "known_hosts")
 }
 
 func configString(configuration map[string]any, key string) string {

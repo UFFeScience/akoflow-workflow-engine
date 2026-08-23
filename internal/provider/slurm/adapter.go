@@ -83,7 +83,8 @@ func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionC
 		RuntimeID: execution.RuntimeID, ExternalID: jobID,
 		Status: domain.HandleStarting, StartedAt: runtimecommon.UnixSeconds(time.Now()),
 		Metadata: map[string]any{"executionTarget": string(domain.ExecutionTargetBatch), "scriptPath": scriptPath,
-			"logPath": slurmLogPath(execution.Run.ID, execution.Activity.ID, jobID)}}, nil
+			"logPath": slurmLogPath(execution.Run.ID, execution.Activity.ID, jobID),
+			"sentinelPath": slurmSentinelPath(execution.Run.ID, execution.Activity.ID, jobID)}}, nil
 }
 
 func parseJobID(output []byte) (string, error) {
@@ -110,18 +111,68 @@ func (a *Adapter) Inspect(ctx context.Context, handle domain.ActivityHandle) (do
 			handle.Log = string(log)
 		}
 	}
+	if observed, found := a.sentinelStatus(ctx, handle); found {
+		return observed, nil
+	}
 	output, err := a.executor.Run(ctx, "sacct", []string{"-j", handle.ExternalID,
 		"--noheader", "--parsable2", "--format=State,ExitCode"}, nil)
 	if err != nil {
-		handle.Status = domain.HandleFailed
-		handle.Failure = err.Error()
-		handle.FinishedAt = runtimecommon.UnixSeconds(time.Now())
-		return handle, nil
+		return a.fallbackStatus(ctx, handle, err)
 	}
-	line := strings.TrimSpace(strings.Split(string(output), "\n")[0])
+	return applySlurmStatus(handle, string(output)), nil
+}
+
+func (a *Adapter) sentinelStatus(ctx context.Context, handle domain.ActivityHandle) (domain.ActivityHandle, bool) {
+	path, ok := handle.Metadata["sentinelPath"].(string)
+	if !ok || path == "" {
+		return handle, false
+	}
+	payload, err := a.executor.Run(ctx, "cat", []string{path}, nil)
+	if err != nil {
+		return handle, false
+	}
+	values := sentinelValues(string(payload))
+	switch values["state"] {
+	case "running":
+		handle.Status = domain.HandleRunning
+	case "completed":
+		handle.Status = domain.HandleCompleted
+		handle.FinishedAt = runtimecommon.UnixSeconds(time.Now())
+	case "failed":
+		handle.Status = domain.HandleFailed
+		handle.FinishedAt = runtimecommon.UnixSeconds(time.Now())
+		handle.Failure = "Slurm job exited with code " + values["exit_code"]
+	default:
+		return handle, false
+	}
+	if code, err := strconv.Atoi(values["exit_code"]); err == nil {
+		handle.ExitCode = &code
+	}
+	return handle, true
+}
+
+func (a *Adapter) fallbackStatus(ctx context.Context, handle domain.ActivityHandle, sacctErr error) (domain.ActivityHandle, error) {
+	if output, err := a.executor.Run(ctx, "squeue", []string{"--noheader", "--jobs", handle.ExternalID, "--format=%T|%i"}, nil); err == nil {
+		if strings.TrimSpace(string(output)) != "" {
+			return applySlurmStatus(handle, string(output)), nil
+		}
+	}
+	if output, err := a.executor.Run(ctx, "scontrol", []string{"show", "job", handle.ExternalID, "--oneliner"}, nil); err == nil {
+		if state := slurmControlState(string(output)); state != "" {
+			return applySlurmStatus(handle, state+"|"), nil
+		}
+	}
+	handle.Status = domain.HandleFailed
+	handle.Failure = "query Slurm job status: " + sacctErr.Error()
+	handle.FinishedAt = runtimecommon.UnixSeconds(time.Now())
+	return handle, nil
+}
+
+func applySlurmStatus(handle domain.ActivityHandle, output string) domain.ActivityHandle {
+	line := strings.TrimSpace(strings.Split(output, "\n")[0])
 	fields := strings.Split(line, "|")
 	if len(fields) == 0 || fields[0] == "" {
-		return handle, nil
+		return handle
 	}
 	state := strings.Split(fields[0], "+")[0]
 	switch state {
@@ -146,7 +197,27 @@ func (a *Adapter) Inspect(ctx context.Context, handle domain.ActivityHandle) (do
 	if handle.Status == domain.HandleCompleted || handle.Status == domain.HandleFailed || handle.Status == domain.HandleStopped {
 		handle.FinishedAt = runtimecommon.UnixSeconds(time.Now())
 	}
-	return handle, nil
+	return handle
+}
+
+func sentinelValues(payload string) map[string]string {
+	values := make(map[string]string)
+	for _, line := range strings.Split(payload, "\n") {
+		key, value, found := strings.Cut(line, "=")
+		if found {
+			values[strings.TrimSpace(key)] = strings.TrimSpace(value)
+		}
+	}
+	return values
+}
+
+func slurmControlState(payload string) string {
+	for _, field := range strings.Fields(payload) {
+		if value, found := strings.CutPrefix(field, "JobState="); found {
+			return value
+		}
+	}
+	return ""
 }
 
 func (a *Adapter) Stop(ctx context.Context, handle domain.ActivityHandle) error {
@@ -220,7 +291,7 @@ func batchScript(runID string, activity domain.Activity, partition, node string)
 	script.WriteString(shellToken("akoflow-" + activity.ID))
 	script.WriteByte('\n')
 	script.WriteString("#SBATCH --output=")
-	script.WriteString(shellToken(slurmLogPath(runID, activity.ID, "%j")))
+	script.WriteString(slurmLogPath(runID, activity.ID, "%j"))
 	script.WriteByte('\n')
 	if partition != "" {
 		script.WriteString("#SBATCH --partition=")
@@ -238,13 +309,28 @@ func batchScript(runID string, activity domain.Activity, partition, node string)
 	if activity.Resources.MemoryBytes > 0 {
 		script.WriteString(fmt.Sprintf("#SBATCH --mem=%dM\n", (activity.Resources.MemoryBytes+(1<<20)-1)/(1<<20)))
 	}
-	script.WriteString("set -eu\n")
+	sentinelPrefix := slurmSentinelPrefix(runID, activity.ID)
+	script.WriteString("sentinel=")
+	script.WriteString(shellQuote(sentinelPrefix))
+	script.WriteString("\"${SLURM_JOB_ID}\"")
+	script.WriteString(".status\n")
+	script.WriteString("printf 'state=running\\n' > \"$sentinel\"\n")
+	script.WriteString("finish() { code=$?; state=completed; [ \"$code\" -eq 0 ] || state=failed; { printf 'state=%s\\nexit_code=%s\\n' \"$state\" \"$code\"; } > \"$sentinel\" || true; exit \"$code\"; }\n")
+	script.WriteString("trap finish EXIT\nset -eu\n")
 	writeActivityCommand(&script, activity)
 	return script.String(), nil
 }
 
 func slurmLogPath(runID, activityID, jobID string) string {
-	return "akoflow-" + shellToken(runID) + "-" + shellToken(activityID) + "-" + jobID + ".log"
+	return slurmSentinelPrefix(runID, activityID) + jobID + ".log"
+}
+
+func slurmSentinelPath(runID, activityID, jobID string) string {
+	return slurmSentinelPrefix(runID, activityID) + jobID + ".status"
+}
+
+func slurmSentinelPrefix(runID, activityID string) string {
+	return "akoflow-" + shellToken(runID) + "-" + shellToken(activityID) + "-"
 }
 
 func writeActivityCommand(script *strings.Builder, activity domain.Activity) {

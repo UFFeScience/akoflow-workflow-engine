@@ -83,6 +83,9 @@ func TestAdapterSubmitsSafeBatchScript(t *testing.T) {
 	if err != nil || !strings.Contains(string(script), `'a'"'"'b'`) || strings.Index(string(script), "#SBATCH") > strings.Index(string(script), "set -eu") {
 		t.Fatalf("script=%s err=%v", script, err)
 	}
+	if !strings.Contains(string(script), "trap finish EXIT") || !strings.Contains(string(script), "state=running") || !strings.Contains(string(script), "akoflow-run-analysis-%j.log") || handle.Metadata["sentinelPath"] != "akoflow-run-analysis-123.status" {
+		t.Fatalf("missing execution sentinel: script=%s metadata=%+v", script, handle.Metadata)
+	}
 }
 
 func TestAdapterParsesJobIDAfterSSHWarning(t *testing.T) {
@@ -101,6 +104,16 @@ func TestAdapterMapsSlurmStatus(t *testing.T) {
 	handle, err := New(executor, "").Inspect(context.Background(), domain.ActivityHandle{ExternalID: "1"})
 	if err != nil || handle.Status != domain.HandleCompleted || handle.ExitCode == nil || *handle.ExitCode != 0 {
 		t.Fatalf("handle=%+v err=%v", handle, err)
+	}
+}
+
+func TestSentinelAndScontrolStatusParsing(t *testing.T) {
+	values := sentinelValues("state=failed\nexit_code=17\n")
+	if values["state"] != "failed" || values["exit_code"] != "17" {
+		t.Fatalf("sentinel values=%+v", values)
+	}
+	if state := slurmControlState("JobId=123 JobState=RUNNING Reason=None"); state != "RUNNING" {
+		t.Fatalf("scontrol state=%q", state)
 	}
 }
 
