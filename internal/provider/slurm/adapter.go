@@ -74,15 +74,30 @@ func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionC
 	if err != nil {
 		return domain.ActivityHandle{}, err
 	}
-	jobID := strings.Split(strings.TrimSpace(string(output)), ";")[0]
-	if _, err := strconv.ParseUint(jobID, 10, 64); err != nil {
-		return domain.ActivityHandle{}, fmt.Errorf("invalid Slurm job id %q", jobID)
+	jobID, err := parseJobID(output)
+	if err != nil {
+		return domain.ActivityHandle{}, err
 	}
 	return domain.ActivityHandle{ID: runtimecommon.NewID("activity"), RunID: execution.Run.ID,
 		ActivityID: execution.Activity.ID, ResourceID: execution.Resource.ID,
 		RuntimeID: execution.RuntimeID, ExternalID: jobID,
 		Status: domain.HandleStarting, StartedAt: runtimecommon.UnixSeconds(time.Now()),
 		Metadata: map[string]any{"executionTarget": string(domain.ExecutionTargetBatch), "scriptPath": scriptPath}}, nil
+}
+
+func parseJobID(output []byte) (string, error) {
+	lines := strings.Split(string(output), "\n")
+	for index := len(lines) - 1; index >= 0; index-- {
+		line := strings.TrimSpace(lines[index])
+		if line == "" {
+			continue
+		}
+		jobID := strings.Split(line, ";")[0]
+		if _, err := strconv.ParseUint(jobID, 10, 64); err == nil {
+			return jobID, nil
+		}
+	}
+	return "", fmt.Errorf("invalid Slurm job id in output %q", strings.TrimSpace(string(output)))
 }
 
 func (a *Adapter) Inspect(ctx context.Context, handle domain.ActivityHandle) (domain.ActivityHandle, error) {

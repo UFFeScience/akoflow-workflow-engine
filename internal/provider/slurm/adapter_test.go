@@ -85,6 +85,17 @@ func TestAdapterSubmitsSafeBatchScript(t *testing.T) {
 	}
 }
 
+func TestAdapterParsesJobIDAfterSSHWarning(t *testing.T) {
+	adapter := NewWithConfig(&executorFake{output: []byte("warning from ssh\n4847261;cluster\n")}, Config{ScriptDirectory: t.TempDir()})
+	handle, err := adapter.Start(context.Background(), domain.ActivityExecutionContext{
+		Run: domain.ExecutionRun{ID: "run"}, RuntimeID: "slurm", Resource: domain.Resource{ID: "node"},
+		Activity: domain.Activity{ID: "task", Command: domain.ActivityCommand{Entrypoint: "echo", Arguments: []string{"ok"}}},
+	})
+	if err != nil || handle.ExternalID != "4847261" {
+		t.Fatalf("handle=%+v err=%v", handle, err)
+	}
+}
+
 func TestAdapterMapsSlurmStatus(t *testing.T) {
 	executor := &executorFake{output: []byte("COMPLETED|0:0\n")}
 	handle, err := New(executor, "").Inspect(context.Background(), domain.ActivityHandle{ExternalID: "1"})
