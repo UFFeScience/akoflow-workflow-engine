@@ -3,6 +3,8 @@ package execution
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/domain"
@@ -56,6 +58,13 @@ func (s *Controller) Start(ctx context.Context, execution domain.ActivityExecuti
 		return domain.ActivityHandle{}, fmt.Errorf("runtime returned an invalid activity handle")
 	}
 	handle.ID = handleID
+	handle.Log = appendLog(handle.Log, "info", "Activity started on runtime "+handle.RuntimeID+".")
+	if handle.Status == domain.HandleCompleted {
+		handle.Log = appendLog(handle.Log, "success", "Activity completed successfully.")
+	}
+	if handle.Status == domain.HandleFailed {
+		handle.Log = appendLog(handle.Log, "error", failureMessage(handle.Failure))
+	}
 	if err := s.handles.Save(ctx, handle); err != nil {
 		_ = runtime.Stop(ctx, handle)
 		return domain.ActivityHandle{}, fmt.Errorf("persist activity handle: %w", err)
@@ -70,11 +79,20 @@ func (s *Controller) Inspect(ctx context.Context, handleID string, mode domain.E
 	}
 	runtime, err := s.runtimes.Resolve(mode, handle.RuntimeID)
 	if err != nil {
-		return nil, err
+		return s.persistInspectionFailure(ctx, handle, err)
 	}
 	updated, err := runtime.Inspect(ctx, *handle)
 	if err != nil {
-		return nil, err
+		return s.persistInspectionFailure(ctx, handle, err)
+	}
+	updated.Log = mergeLogs(handle.Log, updated.Log)
+	if updated.Status != handle.Status {
+		switch updated.Status {
+		case domain.HandleCompleted:
+			updated.Log = appendLog(updated.Log, "success", "Activity completed successfully.")
+		case domain.HandleFailed, domain.HandleStopped:
+			updated.Log = appendLog(updated.Log, "error", failureMessage(updated.Failure))
+		}
 	}
 	if s.data != nil && updated.Artifacts != nil &&
 		(updated.Status == domain.HandleCompleted || updated.Status == domain.HandleFailed) {
@@ -89,6 +107,71 @@ func (s *Controller) Inspect(ctx context.Context, handleID string, mode domain.E
 		return nil, err
 	}
 	return &updated, nil
+}
+
+func (s *Controller) persistInspectionFailure(ctx context.Context, handle *domain.ActivityHandle, err error) (*domain.ActivityHandle, error) {
+	handle.Status = domain.HandleFailed
+	handle.FinishedAt = float64(time.Now().UnixNano()) / float64(time.Second)
+	handle.Failure = "inspect activity: " + err.Error()
+	handle.Log = appendLog(handle.Log, "error", handle.Failure)
+	if saveErr := s.handles.Save(ctx, *handle); saveErr != nil {
+		return nil, fmt.Errorf("inspect activity: %w; save failed handle: %v", err, saveErr)
+	}
+	return handle, nil
+}
+
+func appendLog(log, level, message string) string {
+	if message == "" {
+		return log
+	}
+	entry := fmt.Sprintf("[AKOFLOW %s] %s", strings.ToUpper(level), message)
+	if strings.Contains(log, entry) {
+		return log
+	}
+	if log == "" {
+		return entry + "\n"
+	}
+	return strings.TrimRight(log, "\n") + "\n" + entry + "\n"
+}
+
+func mergeLogs(previous, observed string) string {
+	if observed == "" || observed == previous {
+		return previous
+	}
+	runtimeLog, lifecycleLog := splitLifecycleLog(previous)
+	if runtimeLog == "" || strings.HasPrefix(observed, runtimeLog) {
+		return strings.TrimRight(observed, "\n") + lifecycleLog
+	}
+	if strings.HasPrefix(runtimeLog, observed) {
+		return previous
+	}
+	return strings.TrimRight(observed, "\n") + lifecycleLog
+}
+
+func splitLifecycleLog(log string) (string, string) {
+	lines := strings.Split(strings.TrimRight(log, "\n"), "\n")
+	firstLifecycle := len(lines)
+	for index, line := range lines {
+		if strings.HasPrefix(line, "[AKOFLOW ") {
+			firstLifecycle = index
+			break
+		}
+	}
+	if firstLifecycle == len(lines) {
+		return strings.TrimRight(log, "\n"), ""
+	}
+	runtimeLog := strings.Join(lines[:firstLifecycle], "\n")
+	if runtimeLog != "" {
+		runtimeLog += "\n"
+	}
+	return runtimeLog, "\n" + strings.Join(lines[firstLifecycle:], "\n") + "\n"
+}
+
+func failureMessage(failure string) string {
+	if failure != "" {
+		return failure
+	}
+	return "Activity stopped without a reported failure reason."
 }
 
 func (s *Controller) Stop(ctx context.Context, handleID string, mode domain.ExecutionMode) error {

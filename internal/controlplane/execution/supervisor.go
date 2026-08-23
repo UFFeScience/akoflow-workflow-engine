@@ -163,6 +163,16 @@ func (s *Supervisor) startReadyActivities(
 		activity, assignment := activities[activityID], assignments[activityID]
 		resource, ok := resources[assignment.ResourceID]
 		if !ok {
+			failure := fmt.Errorf("resource %q not found", assignment.ResourceID)
+			_ = s.recordStartFailure(
+				ctx,
+				request.Run.ID,
+				activityID,
+				assignment,
+				domain.Resource{ID: assignment.ResourceID},
+				selectRuntime(request, assignment.ResourceID),
+				failure,
+			)
 			return fmt.Errorf("resource %q not found", assignment.ResourceID)
 		}
 		handle, err := s.activities.Start(ctx, domain.ActivityExecutionContext{
@@ -171,6 +181,15 @@ func (s *Supervisor) startReadyActivities(
 			RuntimeID: selectRuntime(request, resource.ID),
 		})
 		if err != nil {
+			_ = s.recordStartFailure(
+				ctx,
+				request.Run.ID,
+				activityID,
+				assignment,
+				resource,
+				selectRuntime(request, resource.ID),
+				err,
+			)
 			return fmt.Errorf("start activity %q: %w", activityID, err)
 		}
 		task := newRunningTask(request.Run.ID, activityID, assignment, resource, handle)
@@ -185,6 +204,35 @@ func (s *Supervisor) startReadyActivities(
 		}
 	}
 	return nil
+}
+
+func (s *Supervisor) recordStartFailure(
+	ctx context.Context,
+	runID, activityID string,
+	assignment domain.PlanAssignment,
+	resource domain.Resource,
+	runtimeID string,
+	err error,
+) error {
+	now := float64(time.Now().UnixNano()) / float64(time.Second)
+	message := "start activity: " + err.Error()
+	handle := domain.ActivityHandle{
+		ID:       runID + ":" + activityID,
+		RunID:    runID,
+		ActivityID: activityID,
+		ResourceID: resource.ID,
+		RuntimeID:  runtimeID,
+		Status:     domain.HandleFailed,
+		StartedAt:  now,
+		FinishedAt: now,
+		Failure: message, Log: "[AKOFLOW ERROR] " + message + "\n",
+	}
+	if saveErr := s.executions.Save(ctx, handle); saveErr != nil {
+		return saveErr
+	}
+	task := newRunningTask(runID, activityID, assignment, resource, handle)
+	task.Status, task.FinishedAt, task.FailureReason = domain.TaskFailed, now, message
+	return s.executions.SaveTask(ctx, task)
 }
 
 func selectRuntime(request ports.ExecutionRequest, resourceID string) string {
