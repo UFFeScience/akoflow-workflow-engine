@@ -1,17 +1,73 @@
 package requests
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 	"unicode"
 
 	"github.com/UFFeScience/akoflow/internal/domain"
+	"gopkg.in/yaml.v3"
 )
 
 type Workflow struct {
 	Name string       `json:"name"`
 	Spec WorkflowSpec `json:"spec"`
+}
+
+// FromDomain converts a persisted workflow back to the portable authoring
+// format accepted by Domain. It deliberately omits generated IDs and runtime
+// resolution state, so an exported file can be imported as a new definition.
+func FromDomain(definition domain.WorkflowDefinition) Workflow {
+	dependencies := make(map[string][]string)
+	for _, dependency := range definition.Version.Dependencies {
+		dependencies[dependency.ActivityID] = append(dependencies[dependency.ActivityID], dependency.DependsOnActivityID)
+	}
+	activityNames := make(map[string]string, len(definition.Version.Activities))
+	for _, activity := range definition.Version.Activities {
+		activityNames[activity.ID] = activity.Name
+	}
+	request := Workflow{Name: definition.Name, Spec: WorkflowSpec{Namespace: definition.Namespace}}
+	for _, activity := range definition.Version.Activities {
+		command := activity.Command
+		command.ResolvedExecutable = nil
+		predecessors := make([]string, 0, len(dependencies[activity.ID]))
+		for _, predecessorID := range dependencies[activity.ID] {
+			if name := activityNames[predecessorID]; name != "" {
+				predecessors = append(predecessors, name)
+			}
+		}
+		metadata := activity.Metadata
+		item := WorkflowActivity{
+			Name: activity.Name, Command: command,
+			CPULimit:    strconv.FormatFloat(activity.Resources.CPU, 'f', -1, 64),
+			MemoryLimit: strconv.FormatInt(activity.Resources.MemoryBytes, 10),
+			DependsOn:   predecessors,
+		}
+		if metadata != nil {
+			item.Runtime, _ = metadata["runtime"].(string)
+			item.ResourceSelector, _ = metadata["resourceSelector"].(string)
+			item.KeepDisk, _ = metadata["keepDisk"].(bool)
+			item.MountPath, _ = metadata["mountPath"].(string)
+		}
+		request.Spec.Activities = append(request.Spec.Activities, item)
+	}
+	return request
+}
+
+// YAML serializes through JSON keys first, which keeps the portable document
+// stable even for nested domain types that only declare json tags.
+func (request Workflow) YAML() ([]byte, error) {
+	encoded, err := json.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
+	var document any
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		return nil, err
+	}
+	return yaml.Marshal(document)
 }
 
 type WorkflowSpec struct {

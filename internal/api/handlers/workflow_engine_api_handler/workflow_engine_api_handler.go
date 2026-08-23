@@ -621,6 +621,29 @@ func (h *Handler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 	writeItem(w, item, err)
 }
 
+// ExportWorkflow returns the same portable YAML authoring contract accepted by
+// workflow import. Generated IDs and resolved runtime paths are not exported.
+func (h *Handler) ExportWorkflow(w http.ResponseWriter, r *http.Request) {
+	definition, err := h.workflows.Find(r.Context(), r.PathValue("workflowId"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if definition == nil {
+		writeError(w, http.StatusNotFound, nil)
+		return
+	}
+	payload, err := apirequests.FromDomain(*definition).YAML()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", definition.ID+".yaml"))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(payload)
+}
+
 func (h *Handler) ListPlans(w http.ResponseWriter, r *http.Request) {
 	items, err := h.plans.List(r.Context())
 	writeList(w, items, err)
@@ -914,6 +937,49 @@ func (h *Handler) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	definition, err := request.Domain()
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	if err := h.workflows.Create(r.Context(), definition); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, definition)
+}
+
+type DuplicateWorkflowRequest struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace,omitempty"`
+}
+
+// DuplicateWorkflow creates an independent definition from the latest
+// workflow version. A caller must provide a new name, which produces a new
+// stable workflow and activity ID namespace.
+func (h *Handler) DuplicateWorkflow(w http.ResponseWriter, r *http.Request) {
+	var request DuplicateWorkflowRequest
+	if !decode(w, r, &request) {
+		return
+	}
+	if strings.TrimSpace(request.Name) == "" {
+		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("duplicate workflow name is required"))
+		return
+	}
+	source, err := h.workflows.Find(r.Context(), r.PathValue("workflowId"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if source == nil {
+		writeError(w, http.StatusNotFound, nil)
+		return
+	}
+	copy := apirequests.FromDomain(*source)
+	copy.Name = request.Name
+	if request.Namespace != "" {
+		copy.Spec.Namespace = request.Namespace
+	}
+	definition, err := copy.Domain()
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return

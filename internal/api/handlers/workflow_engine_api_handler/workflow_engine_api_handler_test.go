@@ -36,18 +36,26 @@ func (s environmentRepositoryStub) ListConnections(context.Context, string) ([]d
 	return nil, s.err
 }
 
-type workflowRepositoryStub struct{ err error }
+type workflowRepositoryStub struct {
+	err        error
+	definition *domain.WorkflowDefinition
+	created    *domain.WorkflowDefinition
+}
 
-func (s workflowRepositoryStub) Create(context.Context, domain.WorkflowDefinition) error {
+func (s *workflowRepositoryStub) Create(_ context.Context, value domain.WorkflowDefinition) error {
+	s.created = &value
 	return s.err
 }
-func (s workflowRepositoryStub) List(context.Context) ([]domain.WorkflowDefinition, error) {
-	return nil, s.err
+func (s *workflowRepositoryStub) List(context.Context) ([]domain.WorkflowDefinition, error) {
+	if s.definition == nil {
+		return nil, s.err
+	}
+	return []domain.WorkflowDefinition{*s.definition}, s.err
 }
-func (s workflowRepositoryStub) Find(context.Context, string) (*domain.WorkflowDefinition, error) {
-	return nil, s.err
+func (s *workflowRepositoryStub) Find(context.Context, string) (*domain.WorkflowDefinition, error) {
+	return s.definition, s.err
 }
-func (s workflowRepositoryStub) FindVersion(context.Context, string) (*domain.WorkflowVersion, error) {
+func (s *workflowRepositoryStub) FindVersion(context.Context, string) (*domain.WorkflowVersion, error) {
 	return nil, nil
 }
 
@@ -185,7 +193,7 @@ func (resourceInventoryStub) LatestSnapshot(context.Context, string) (*domain.Re
 
 func newTestHandler() *Handler {
 	handler, err := New(Dependencies{
-		Environments: environmentRepositoryStub{}, Workflows: workflowRepositoryStub{},
+		Environments: environmentRepositoryStub{}, Workflows: &workflowRepositoryStub{},
 		Plans: planRepositoryStub{}, Events: &eventPublisherStub{}, Validator: validatorStub{},
 		Executions: executionQueryStub{},
 		Topologies: &topologyStoreStub{},
@@ -198,6 +206,72 @@ func newTestHandler() *Handler {
 	}
 	return handler
 }
+
+func workflowFixture() domain.WorkflowDefinition {
+	return domain.WorkflowDefinition{
+		ID: "source", ExternalID: "source", Name: "Source", Namespace: "science",
+		Types: []domain.ActivityType{{ID: "source-activity", Name: "Source activity"}},
+		Version: domain.WorkflowVersion{
+			ID: "source-v1", WorkflowID: "source", Version: 1,
+			Activities: []domain.Activity{{
+				ID: "prepare", Name: "Prepare", WorkflowVersionID: "source-v1", ActivityTypeID: "source-activity",
+				Command: domain.ActivityCommand{
+					Entrypoint: "sh", Arguments: []string{"-c", "echo ready"},
+					Executable: &domain.ExecutableReference{
+						Source:   domain.ExecutableSource{Type: domain.ExecutableSourceOCI, Reference: "alpine:3.20"},
+						Delivery: domain.ExecutableDelivery{Strategy: domain.DeliveryManaged},
+					},
+				},
+			}},
+		},
+	}
+}
+
+func TestExportWorkflowReturnsPortableYAML(t *testing.T) {
+	store := &workflowRepositoryStub{definition: ptr(workflowFixture())}
+	handler := newTestHandler()
+	handler.workflows = store
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/workflow-definitions/source/export/", nil)
+	request.SetPathValue("workflowId", "source")
+	handler.ExportWorkflow(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Contains(t, recorder.Header().Get("Content-Type"), "application/yaml")
+	require.Contains(t, recorder.Body.String(), "name: Source")
+	require.Contains(t, recorder.Body.String(), "activities:")
+}
+
+func TestDuplicateWorkflowCreatesIndependentDefinition(t *testing.T) {
+	store := &workflowRepositoryStub{definition: ptr(workflowFixture())}
+	handler := newTestHandler()
+	handler.workflows = store
+	recorder := httptest.NewRecorder()
+	request := yamlRequest("name: Copied workflow\nnamespace: copied\n")
+	request.SetPathValue("workflowId", "source")
+	handler.DuplicateWorkflow(recorder, request)
+	require.Equal(t, http.StatusCreated, recorder.Code)
+	require.NotNil(t, store.created)
+	require.Equal(t, "copied-workflow", store.created.ID)
+	require.Equal(t, "copied", store.created.Namespace)
+	require.Equal(t, "copied-workflow-v1", store.created.Version.ID)
+	require.Equal(t, "copied-workflow-activity", store.created.Version.Activities[0].ActivityTypeID)
+}
+
+func TestDuplicateWorkflowRejectsMissingNameAndUnknownWorkflow(t *testing.T) {
+	handler := newTestHandler()
+	recorder := httptest.NewRecorder()
+	request := yamlRequest("{}")
+	request.SetPathValue("workflowId", "source")
+	handler.DuplicateWorkflow(recorder, request)
+	require.Equal(t, http.StatusUnprocessableEntity, recorder.Code)
+	recorder = httptest.NewRecorder()
+	request = yamlRequest("name: Copy")
+	request.SetPathValue("workflowId", "missing")
+	handler.DuplicateWorkflow(recorder, request)
+	require.Equal(t, http.StatusNotFound, recorder.Code)
+}
+
+func ptr[T any](value T) *T { return &value }
 
 func TestNewRejectsIncompleteDependencies(t *testing.T) {
 	if _, err := New(Dependencies{}); err == nil {
