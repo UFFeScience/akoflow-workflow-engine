@@ -126,6 +126,21 @@ func requestFixture(mode domain.ExecutionMode) ports.ExecutionRequest {
 	}
 }
 
+func TestSelectRuntimeHonorsPlannedRuntime(t *testing.T) {
+	request := requestFixture(domain.ExecutionModeReal)
+	request.Runtimes = append(request.Runtimes, domain.EnvironmentRuntime{ID: "ssh", Name: "ssh", Driver: domain.RuntimeDriverSSH, Mode: domain.RuntimeModeExecution})
+	request.RuntimeBindings = append(request.RuntimeBindings, domain.ResourceRuntimeBinding{ResourceID: "r", RuntimeID: "ssh", Enabled: true})
+	assignment := request.Plan.Assignments[0]
+	assignment.Metadata = map[string]any{"runtimeId": "ssh", "partitionId": "short"}
+	if got := selectRuntime(request, assignment); got != "ssh" {
+		t.Fatalf("runtime=%q, want ssh", got)
+	}
+	assignment.Metadata["runtimeId"] = "missing"
+	if got := selectRuntime(request, assignment); got != "" {
+		t.Fatalf("runtime=%q, want empty for unavailable planned runtime", got)
+	}
+}
+
 func TestSupervisorExecutesDAGInDependencyOrder(t *testing.T) {
 	store := &executionStoreFake{}
 	activities := &activityControllerFake{}

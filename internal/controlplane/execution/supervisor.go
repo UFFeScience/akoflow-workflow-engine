@@ -171,7 +171,7 @@ func (s *Supervisor) startReadyActivities(
 				activityID,
 				assignment,
 				domain.Resource{ID: assignment.ResourceID},
-				selectRuntime(request, assignment.ResourceID),
+				selectRuntime(request, assignment),
 				failure,
 			)
 			return fmt.Errorf("resource %q not found", assignment.ResourceID)
@@ -200,7 +200,7 @@ func (s *Supervisor) startReadyActivities(
 		handle, err := s.activities.Start(ctx, domain.ActivityExecutionContext{
 			Run: request.Run, Workflow: request.Workflow, Activity: activity,
 			Assignment: assignment, Resource: resource,
-			RuntimeID: selectRuntime(request, resource.ID), Preparation: preparation,
+			RuntimeID: selectRuntime(request, assignment), Preparation: preparation,
 		})
 		if err != nil {
 			_ = s.recordStartFailure(
@@ -209,7 +209,7 @@ func (s *Supervisor) startReadyActivities(
 				activityID,
 				assignment,
 				resource,
-				selectRuntime(request, resource.ID),
+				selectRuntime(request, assignment),
 				err,
 			)
 			return fmt.Errorf("start activity %q: %w", activityID, err)
@@ -257,7 +257,10 @@ func (s *Supervisor) recordStartFailure(
 	return s.executions.SaveTask(ctx, task)
 }
 
-func selectRuntime(request ports.ExecutionRequest, resourceID string) string {
+// selectRuntime honors the explicit runtime selected while planning when it is
+// still enabled for the assigned resource and compatible with the run mode.
+// Plans created before runtime selection keep the deterministic first binding.
+func selectRuntime(request ports.ExecutionRequest, assignment domain.PlanAssignment) string {
 	runtimeMode := domain.RuntimeModeExecution
 	if request.Run.Mode == domain.ExecutionModeSimulation {
 		runtimeMode = domain.RuntimeModeSimulation
@@ -266,11 +269,15 @@ func selectRuntime(request ports.ExecutionRequest, resourceID string) string {
 	for _, runtime := range request.Runtimes {
 		runtimes[runtime.ID] = runtime
 	}
+	selected, _ := assignment.Metadata["runtimeId"].(string)
 	for _, binding := range request.RuntimeBindings {
-		if binding.ResourceID != resourceID || !binding.Enabled {
+		if binding.ResourceID != assignment.ResourceID || !binding.Enabled {
 			continue
 		}
 		if runtime, found := runtimes[binding.RuntimeID]; found && runtime.Mode == runtimeMode {
+			if selected != "" && runtime.ID != selected {
+				continue
+			}
 			return runtime.ID
 		}
 	}
@@ -308,7 +315,7 @@ func validateRequest(request ports.ExecutionRequest) error {
 		return fmt.Errorf("plan must assign every activity exactly once")
 	}
 	for _, assignment := range request.Plan.Assignments {
-		if selectRuntime(request, assignment.ResourceID) == "" {
+		if selectRuntime(request, assignment) == "" {
 			return fmt.Errorf("resource %q has no enabled runtime for %q mode",
 				assignment.ResourceID, request.Run.Mode)
 		}
