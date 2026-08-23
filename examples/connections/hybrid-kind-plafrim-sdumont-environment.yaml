@@ -1,0 +1,49 @@
+environment:
+  id: hybrid-kind-plafrim-sdumont
+  name: Kind + PlaFRIM + SDumont
+  description: Unified execution environment spanning local Kubernetes and both SLURM systems.
+  status: defined
+version:
+  id: hybrid-kind-plafrim-sdumont-v1
+  environmentId: hybrid-kind-plafrim-sdumont
+  version: 1
+  status: published
+  networkModel: pending-measurement
+  interferenceModel: observed
+  costModel: mixed-academic
+  configurationHash: hybrid-kind-plafrim-sdumont-v1
+connections:
+  - id: hybrid-kind-api
+    environmentId: hybrid-kind-plafrim-sdumont
+    name: Kind Kubernetes API
+    type: kubernetes
+    endpoint: https://host.docker.internal:61640
+    credentialRef: env:K8S_API_SERVER_TOKEN
+    configuration: { context: kind-akoflow-cluster, namespace: akoflow, insecureSkipTlsVerify: true }
+  - id: hybrid-plafrim-ssh
+    environmentId: hybrid-kind-plafrim-sdumont
+    name: PlaFRIM login node
+    type: ssh
+    endpoint: plafrim
+    username: wferreir
+    credentialRef: file:/app/storage/credentials/ssh/plafrim-engine
+    configuration:
+      port: 22
+      scheduler: slurm
+      hostKeyAlias: plafrim
+      knownHostsFile: /app/storage/credentials/ssh/known_hosts
+      proxyCommand: ssh -i /app/storage/credentials/ssh/plafrim-engine -o UserKnownHostsFile=/app/storage/credentials/ssh/known_hosts -o StrictHostKeyChecking=yes -A -l wferreir ssh.plafrim.fr -W plafrim:22
+      scriptDirectory: /home/wferreir/.akoflow/slurm/scripts
+  - id: hybrid-sdumont-ssh
+    environmentId: hybrid-kind-plafrim-sdumont
+    name: SDumont login node
+    type: ssh
+    endpoint: login.sdumont.lncc.br
+    username: wesley.ferreira
+    credentialRef: file:/app/storage/credentials/ssh/sdumont-engine
+    configuration: { port: 22, scheduler: slurm, hostKeyAlias: login.sdumont.lncc.br, knownHostsFile: /app/storage/ssh-known-hosts/sdumont, scriptDirectory: /prj/aidexl/wesley.ferreira/akoflow/slurm/scripts }
+runtimes:
+  - { id: hybrid-kind-runtime, environmentVersionId: hybrid-kind-plafrim-sdumont-v1, name: Kind Kubernetes, driver: kubernetes, mode: execution, role: compute, configuration: { connectionId: hybrid-kind-api, namespace: akoflow }, capabilities: { batch: true, interactive: true, container: true, dataStaging: true, cancellation: true, logStreaming: true } }
+  - { id: hybrid-plafrim-runtime, environmentVersionId: hybrid-kind-plafrim-sdumont-v1, name: PlaFRIM SLURM, driver: slurm, mode: execution, role: compute, configuration: { connectionId: hybrid-plafrim-ssh, scriptDirectory: /home/wferreir/.akoflow/slurm/scripts }, capabilities: { batch: true, container: true, sharedStorage: true, dataStaging: true, cancellation: true, logStreaming: true } }
+  - { id: hybrid-sdumont-runtime, environmentVersionId: hybrid-kind-plafrim-sdumont-v1, name: SDumont SLURM, driver: slurm, mode: execution, role: compute, configuration: { connectionId: hybrid-sdumont-ssh, scriptDirectory: /prj/aidexl/wesley.ferreira/akoflow/slurm/scripts }, capabilities: { batch: true, container: true, sharedStorage: true, dataStaging: true, cancellation: true, logStreaming: true } }
+resources: []
