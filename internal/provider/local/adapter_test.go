@@ -23,6 +23,9 @@ func TestAdapterRunsLocalActivity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if handle.ID != "run:activity" {
+		t.Fatalf("handle id = %q, want run:activity", handle.ID)
+	}
 	deadline := time.Now().Add(time.Second)
 	for handle.Status == domain.HandleRunning && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
