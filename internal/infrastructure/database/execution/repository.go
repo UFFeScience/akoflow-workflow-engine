@@ -164,12 +164,18 @@ func scanRunFeed(scanner interface{ Scan(...any) error }) (*domain.ExecutionRun,
 }
 
 func (r *Repository) ListTasks(ctx context.Context, runID string) ([]domain.TaskExecution, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, execution_run_id, plan_assignment_id,
-		activity_id, planned_resource_id, COALESCE(allocated_resource_id, ''), attempt,
-		status, ready_at, data_ready_at, queued_at, started_at, finished_at,
-		runtime_seconds, queue_seconds, transfer_seconds, interference_seconds,
-		overhead_seconds, cost, failure_reason FROM task_executions
-		WHERE execution_run_id=? ORDER BY started_at, activity_id`, runID)
+	rows, err := r.db.QueryContext(ctx, `SELECT t.id, t.execution_run_id, t.plan_assignment_id,
+		t.activity_id, t.planned_resource_id, COALESCE(t.allocated_resource_id, ''), t.attempt,
+		CASE WHEN t.status='running' AND h.id IS NOT NULL THEN 'failed' ELSE t.status END,
+		t.ready_at, t.data_ready_at, t.queued_at, t.started_at,
+		CASE WHEN t.status='running' AND h.id IS NOT NULL THEN h.finished_at ELSE t.finished_at END,
+		t.runtime_seconds, t.queue_seconds, t.transfer_seconds, t.interference_seconds,
+		t.overhead_seconds, t.cost,
+		CASE WHEN t.status='running' AND h.id IS NOT NULL THEN h.failure ELSE t.failure_reason END
+		FROM task_executions t
+		LEFT JOIN activity_handles h ON h.execution_run_id=t.execution_run_id
+			AND h.activity_id=t.activity_id AND h.status IN ('failed', 'stopped')
+		WHERE t.execution_run_id=? ORDER BY t.started_at, t.activity_id`, runID)
 	if err != nil {
 		return nil, err
 	}

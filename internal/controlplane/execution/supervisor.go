@@ -179,7 +179,9 @@ func (s *Supervisor) startReadyActivities(
 		var preparation *domain.PreparationGate
 		if requirement, required := request.PreparationRequirementsByActivity[activityID]; required {
 			if s.config.Preparer == nil {
-				return fmt.Errorf("activity %q requires materialization but no preparation coordinator is configured", activityID)
+				failure := fmt.Errorf("activity %q requires materialization but no preparation coordinator is configured", activityID)
+				_ = s.recordStartFailure(ctx, request.Run.ID, activityID, assignment, resource, selectRuntime(request, assignment), failure)
+				return failure
 			}
 			if requirement.Artifact != nil {
 				requirement.Artifact.RunID = request.Run.ID
@@ -188,14 +190,18 @@ func (s *Supervisor) startReadyActivities(
 			var prepareErr error
 			preparation, prepareErr = s.config.Preparer.Prepare(ctx, activityID, requirement)
 			if prepareErr != nil {
-				return fmt.Errorf("prepare activity %q: %w", activityID, prepareErr)
+				failure := fmt.Errorf("prepare activity %q: %w", activityID, prepareErr)
+				_ = s.recordStartFailure(ctx, request.Run.ID, activityID, assignment, resource, selectRuntime(request, assignment), failure)
+				return failure
 			}
 		} else if activity.Command.Executable != nil && activity.Command.Executable.Source.Type == domain.ExecutableSourceType("build") {
 			// Authored executable references are location-independent contracts.
 			// Running them without a generated preparation requirement would let a
 			// provider fall back to a caller supplied path/image and bypass the
 			// materialization gate.
-			return fmt.Errorf("activity %q has an executable reference but no preparation requirement", activityID)
+			failure := fmt.Errorf("activity %q has an executable reference but no preparation requirement", activityID)
+			_ = s.recordStartFailure(ctx, request.Run.ID, activityID, assignment, resource, selectRuntime(request, assignment), failure)
+			return failure
 		}
 		handle, err := s.activities.Start(ctx, domain.ActivityExecutionContext{
 			Run: request.Run, Workflow: request.Workflow, Activity: activity,

@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -63,10 +64,14 @@ func (f *executionStoreFake) ListHandles(_ context.Context, runID string) ([]dom
 type activityControllerFake struct {
 	started     []string
 	inspections map[string]int
+	startErr    error
 }
 
 func (f *activityControllerFake) Start(_ context.Context, execution domain.ActivityExecutionContext) (domain.ActivityHandle, error) {
 	f.started = append(f.started, execution.Activity.ID)
+	if f.startErr != nil {
+		return domain.ActivityHandle{}, f.startErr
+	}
 	return domain.ActivityHandle{
 		ID: "h-" + execution.Activity.ID, RunID: execution.Run.ID,
 		ActivityID: execution.Activity.ID, ResourceID: execution.Resource.ID,
@@ -180,5 +185,28 @@ func TestSupervisorRejectsIncompletePlan(t *testing.T) {
 	request.Plan.Assignments = nil
 	if _, err := service.Execute(context.Background(), request); err == nil {
 		t.Fatal("incomplete plan must fail")
+	}
+}
+
+func TestSupervisorMarksActivityFailedWhenStartIsRejected(t *testing.T) {
+	store := &executionStoreFake{}
+	activities := &activityControllerFake{startErr: fmt.Errorf("activity image is required for Kubernetes")}
+	service, _ := New(store, activities, &planExecutorFake{}, Config{})
+
+	if _, err := service.Execute(context.Background(), requestFixture(domain.ExecutionModeReal)); err == nil {
+		t.Fatal("execution must fail when the activity cannot start")
+	}
+	if store.failed == "" {
+		t.Fatal("run was not marked failed")
+	}
+	if len(store.tasks) != 1 || store.tasks[0].Status != domain.TaskFailed {
+		t.Fatalf("tasks=%+v, want one failed task", store.tasks)
+	}
+	if store.tasks[0].FailureReason != "start activity: activity image is required for Kubernetes" {
+		t.Fatalf("failure=%q", store.tasks[0].FailureReason)
+	}
+	handle := store.handles["run:a"]
+	if handle.Status != domain.HandleFailed {
+		t.Fatalf("handle status=%q, want failed", handle.Status)
 	}
 }
