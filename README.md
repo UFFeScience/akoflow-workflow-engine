@@ -29,9 +29,11 @@ docker compose up --build
 ```
 
 `AKOFLOW_API_TOKEN` is mandatory when the container listens on `0.0.0.0`; send
-it as `Authorization: Bearer <token>`. Set `AKOFLOW_API_ALLOWED_ORIGINS` to the
-specific Admin UI origins allowed to make browser requests. BuildKit produces
-OCI archives. The server image includes a native-architecture Apptainer build
+it as `Authorization: Bearer <token>`. `GET /akoflow-api/instance/` is the
+sole public bootstrap endpoint, exposing only the control-plane identity so an
+environment can discover it before credential exchange. Set
+`AKOFLOW_API_ALLOWED_ORIGINS` to the specific Admin UI origins allowed to make
+browser requests. BuildKit produces OCI archives. The server image includes a native-architecture Apptainer build
 and can convert OCI to SIF; Compose grants `/dev/fuse` and `SYS_ADMIN` solely
 for that operation, not Docker host control.
 

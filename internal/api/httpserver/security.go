@@ -21,13 +21,21 @@ func SecureAPI(next http.Handler, options SecurityOptions) http.Handler {
 			http.Error(w, "API is restricted to loopback", http.StatusForbidden)
 			return
 		}
-		if options.BearerToken != "" && !validBearer(r, options.BearerToken) {
+		if options.BearerToken != "" && !isPublicBootstrapRequest(r) && !validBearer(r, options.BearerToken) {
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			http.Error(w, "authentication required", http.StatusUnauthorized)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isPublicBootstrapRequest keeps remote environment discovery possible before
+// credentials for this control plane have been exchanged. The instance record
+// contains only the installation identity; every mutable or operational API
+// remains protected by the bearer token.
+func isPublicBootstrapRequest(r *http.Request) bool {
+	return r.Method == http.MethodGet && r.URL.Path == "/akoflow-api/instance/"
 }
 
 func validBearer(r *http.Request, expected string) bool {
