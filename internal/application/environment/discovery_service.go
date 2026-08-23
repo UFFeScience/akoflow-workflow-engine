@@ -52,6 +52,11 @@ func (s *DiscoveryCoordinator) DiscoverConnection(ctx context.Context, connectio
 	if err != nil {
 		return nil, err
 	}
+	if stores, ok := s.catalog.(ports.DiscoveredStorageStore); ok {
+		if err := materializeDiscoveredStorages(ctx, stores, *definition, connection, observation); err != nil {
+			return nil, err
+		}
+	}
 	resourceIDs := boundResourceIDs(*definition, connection.ID)
 	if len(resourceIDs) == 0 {
 		return nil, fmt.Errorf("connection %q has no bound resources", connection.ID)
@@ -92,6 +97,52 @@ func (s *DiscoveryCoordinator) recordAudit(ctx context.Context, event domainaudi
 	}
 	event.ID, event.OccurredAt = provider.NewID("audit"), time.Now().UTC()
 	_ = s.audit.RecordAuditEvent(ctx, event)
+}
+
+// materializeDiscoveredStorages records only the bounded filesystem/transfer
+// paths reported by the login-node probe. It never scans their contents.
+func materializeDiscoveredStorages(ctx context.Context, store ports.DiscoveredStorageStore, definition domain.EnvironmentDefinition, connection domain.EnvironmentConnection, observation ports.ConnectionDiscovery) error {
+	seen := map[string]bool{}
+	for _, p := range observation.Transfer.Paths {
+		path := strings.TrimSpace(p.Path)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		kind := domain.StorageSSH
+		if strings.Contains(strings.ToLower(p.Kind), "scratch") || strings.Contains(strings.ToLower(path), "scratch") {
+			kind = domain.StorageLustre
+		}
+		id := "discovered-storage-" + connection.ID + "-" + strings.NewReplacer("/", "-", " ", "-").Replace(strings.Trim(path, "/"))
+		if strings.HasSuffix(id, "-") {
+			id += "root"
+		}
+		computeVisible := p.ComputeNodeVisible != nil && *p.ComputeNodeVisible
+		value := domain.StorageResource{
+			ID: id, EnvironmentVersionID: definition.Version.ID,
+			Name: "Discovered " + p.Kind + " " + path, Type: kind,
+			Endpoint: path, CapacityBytes: p.AvailableBytes,
+			Shared: computeVisible, ReadOnly: !p.Writable,
+			BrowseRoots: []domain.StorageBrowseRoot{{
+				Path: path, Label: p.Kind, ReadOnly: !p.Writable,
+			}},
+			Capabilities: domain.StorageCapabilities{
+				Browse: true, Read: true, Write: p.Writable, Download: true,
+				Upload: p.Writable, Checksum: observation.Transfer.Checksum.Available,
+				ComputeNodeVisible: computeVisible,
+			},
+			Configuration: map[string]any{"browseRoots": []any{map[string]any{
+				"path": path, "label": p.Kind, "readOnly": !p.Writable,
+			}}},
+			Metadata: map[string]any{
+				"connectionId": connection.ID, "discoverySource": "transfer-path",
+			},
+		}
+		if err := store.UpsertDiscoveredStorage(ctx, value); err != nil {
+			return fmt.Errorf("upsert discovered storage %s: %w", path, err)
+		}
+	}
+	return nil
 }
 
 func (s *DiscoveryCoordinator) materializeHPCStructure(ctx context.Context, definition domain.EnvironmentDefinition, connection domain.EnvironmentConnection, observation ports.ConnectionDiscovery) ([]domain.ResourceSnapshot, error) {

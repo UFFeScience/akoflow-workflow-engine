@@ -1,6 +1,10 @@
 package slurm
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/UFFeScience/akoflow/internal/domain"
+)
 
 func TestParseDiscoveryBuildsUniqueNodesWithPartitionMembership(t *testing.T) {
 	result := parseDiscovery([]byte(`FACT|architecture|x86_64
@@ -38,5 +42,31 @@ func TestParseDiscoveryWarnsAboutMalformedRecords(t *testing.T) {
 	result := parseDiscovery([]byte("PARTITION|broken\nNODE|broken\n"))
 	if result.Available || len(result.Warnings) != 2 {
 		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestParseDiscoveryIncludesTransferCapabilitiesAndPaths(t *testing.T) {
+	result := parseDiscovery([]byte(`PARTITION|short*|up|1|4|16000|1:00:00
+TRANSFER_TOOL|rsync|available
+TRANSFER_TOOL|scp|available
+TRANSFER_TOOL|sftp|unavailable
+TRANSFER_TOOL|curl|available
+TRANSFER_TOOL|apptainer|available
+TRANSFER_TOOL|sha256sum|available
+TRANSFER_HTTPS|unavailable
+TRANSFER_PATH|home|/home/test|true|1000
+`))
+	if !result.Transfer.Connectors[domain.TransferConnectorRsync].Available || result.Transfer.Connectors[domain.TransferConnectorSFTP].Available {
+		t.Fatalf("unexpected connector capabilities: %+v", result.Transfer.Connectors)
+	}
+	if result.Transfer.OutboundHTTPS.Available || result.Transfer.OutboundHTTPS.Reason == "" {
+		t.Fatalf("expected unavailable HTTPS reason: %+v", result.Transfer.OutboundHTTPS)
+	}
+	if !result.Transfer.ContainerRuntime.Available || !result.Transfer.Checksum.Available || len(result.Transfer.Paths) != 1 {
+		t.Fatalf("unexpected transfer observation: %+v", result.Transfer)
+	}
+	path := result.Transfer.Paths[0]
+	if !path.Writable || !path.LoginNodeVisible || path.AvailableBytes != 1000 || path.ComputeNodeVisible != nil {
+		t.Fatalf("unexpected transfer path: %+v", path)
 	}
 }

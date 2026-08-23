@@ -14,15 +14,15 @@ import (
 // to SSH configuration, an agent, or a configured identity file; no secret is
 // stored in the environment definition.
 type SSHCommandExecutor struct {
-	Executor     CommandExecutor
-	Endpoint     string
-	Username     string
-	Port         int
-	IdentityFile string
-	ProxyCommand string
-	HostKeyAlias string
+	Executor       CommandExecutor
+	Endpoint       string
+	Username       string
+	Port           int
+	IdentityFile   string
+	ProxyCommand   string
+	HostKeyAlias   string
 	KnownHostsFile string
-	ForwardAgent bool
+	ForwardAgent   bool
 }
 
 func (e SSHCommandExecutor) Run(ctx context.Context, name string, args []string, input []byte) ([]byte, error) {

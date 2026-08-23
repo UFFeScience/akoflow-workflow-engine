@@ -53,6 +53,13 @@ type ConnectionDiscovery struct {
 	Warnings  []string
 	Nodes     []DiscoveredNode
 	LoginNode *DiscoveredLoginNode
+	Transfer  domain.TransferCapabilities
+}
+
+// ConnectorBindingHealthChecker executes an explicit, credential-scoped
+// health check. Discovery must never iterate bindings automatically.
+type ConnectorBindingHealthChecker interface {
+	CheckConnectorBinding(context.Context, domain.ConnectorBinding) (domain.ConnectorHealth, error)
 }
 
 type DiscoveredLoginNode struct {

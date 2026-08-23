@@ -142,14 +142,15 @@ type ExecutionScope struct {
 }
 
 type Definition struct {
-	Environment      Environment                        `json:"environment"`
-	Version          EnvironmentVersion                 `json:"version"`
-	Runtimes         []EnvironmentRuntime               `json:"runtimes"`
-	Resources        []resource.Resource                `json:"resources"`
-	RuntimeBindings  []resource.ResourceRuntimeBinding  `json:"resourceRuntimeBindings,omitempty"`
-	Relations        []resource.ResourceRelation        `json:"resourceRelations,omitempty"`
-	Storages         []resource.StorageResource         `json:"storages,omitempty"`
-	Profiles         []workflow.ActivityResourceProfile `json:"activityResourceProfiles,omitempty"`
-	Connections      []EnvironmentConnection            `json:"connections,omitempty"`
-	ConnectionChecks []ConnectionCheck                  `json:"connectionChecks,omitempty"`
+	Environment       Environment                        `json:"environment"`
+	Version           EnvironmentVersion                 `json:"version"`
+	Runtimes          []EnvironmentRuntime               `json:"runtimes"`
+	Resources         []resource.Resource                `json:"resources"`
+	RuntimeBindings   []resource.ResourceRuntimeBinding  `json:"resourceRuntimeBindings,omitempty"`
+	Relations         []resource.ResourceRelation        `json:"resourceRelations,omitempty"`
+	Storages          []resource.StorageResource         `json:"storages,omitempty"`
+	Profiles          []workflow.ActivityResourceProfile `json:"activityResourceProfiles,omitempty"`
+	Connections       []EnvironmentConnection            `json:"connections,omitempty"`
+	ConnectionChecks  []ConnectionCheck                  `json:"connectionChecks,omitempty"`
+	ConnectorBindings []ConnectorBinding                 `json:"connectorBindings,omitempty"`
 }
