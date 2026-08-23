@@ -36,6 +36,28 @@ func (r *Repository) CreateScope(ctx context.Context, scope domain.ExecutionScop
 	return tx.Commit()
 }
 
+func (r *Repository) DeleteScope(ctx context.Context, id string) error {
+	var used bool
+	if err := r.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM schedule_plans WHERE execution_scope_id=?)`, id).Scan(&used); err != nil {
+		return err
+	}
+	if used {
+		return fmt.Errorf("execution scope %q cannot be deleted because it is used by a schedule plan", id)
+	}
+	result, err := r.db.ExecContext(ctx, `DELETE FROM execution_scopes WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (r *Repository) FindScope(ctx context.Context, id string) (*domain.ExecutionScope, error) {
 	var scope domain.ExecutionScope
 	var metadata string

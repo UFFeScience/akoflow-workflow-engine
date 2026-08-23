@@ -116,6 +116,7 @@ type NetworkTopologyStore interface {
 
 type ExecutionScopeStore interface {
 	CreateScope(context.Context, domain.ExecutionScope) error
+	DeleteScope(context.Context, string) error
 	ListScopes(context.Context) ([]domain.ExecutionScope, error)
 	FindScope(context.Context, string) (*domain.ExecutionScope, error)
 }

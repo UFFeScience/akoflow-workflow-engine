@@ -538,6 +538,18 @@ func (h *Handler) CreateExecutionScope(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, scope)
 }
 
+func (h *Handler) DeleteExecutionScope(w http.ResponseWriter, r *http.Request) {
+	if err := h.scopes.DeleteScope(r.Context(), r.PathValue("scopeId")); err != nil {
+		if err == sql.ErrNoRows {
+			writeError(w, http.StatusNotFound, fmt.Errorf("execution scope not found"))
+			return
+		}
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) ListExecutionScopes(w http.ResponseWriter, r *http.Request) {
 	items, err := h.scopes.ListScopes(r.Context())
 	writeList(w, items, err)

@@ -120,6 +120,7 @@ func (s *topologyStoreStub) List(context.Context) ([]domain.NetworkTopology, err
 	return []domain.NetworkTopology{*s.topology}, s.err
 }
 func (s *topologyStoreStub) CreateScope(context.Context, domain.ExecutionScope) error { return s.err }
+func (s *topologyStoreStub) DeleteScope(context.Context, string) error                { return s.err }
 func (s *topologyStoreStub) FindScope(context.Context, string) (*domain.ExecutionScope, error) {
 	return nil, s.err
 }
