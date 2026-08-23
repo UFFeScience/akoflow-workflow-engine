@@ -119,7 +119,7 @@ func TestDiscoveryMaterializesSlurmNodesAndPartitionRelations(t *testing.T) {
 	if node == nil || node.Type != domain.ResourceHPCMachine {
 		t.Fatalf("node=%+v", node)
 	}
-	if len(inventory.bindings) != 3 {
+	if len(inventory.bindings) != 4 {
 		t.Fatalf("bindings=%+v", inventory.bindings)
 	}
 	if len(inventory.relations) != 1 || inventory.relations[0].SourceResourceID != "routage" {
@@ -127,5 +127,27 @@ func TestDiscoveryMaterializesSlurmNodesAndPartitionRelations(t *testing.T) {
 	}
 	if len(snapshots) != 3 || !snapshots[0].Available {
 		t.Fatalf("snapshots=%+v", snapshots)
+	}
+}
+
+func TestDiscoveryMaterializesPartitionsReportedBySlurm(t *testing.T) {
+	definition := domain.EnvironmentDefinition{Version: domain.EnvironmentVersion{ID: "env-v1"}, Connections: []domain.EnvironmentConnection{{ID: "hpc", Type: domain.ConnectionSSH}}, Runtimes: []domain.EnvironmentRuntime{{ID: "slurm", Configuration: map[string]any{"connectionId": "hpc"}}}, Resources: []domain.Resource{{ID: "cluster", Type: domain.ResourceCluster, ProviderID: "cluster"}}, RuntimeBindings: []domain.ResourceRuntimeBinding{{ResourceID: "cluster", RuntimeID: "slurm", Enabled: true}}}
+	inventory := &discoveryInventory{}
+	coordinator := NewDiscoveryCoordinator(discoveryCatalog{definition: definition}, inventory, map[domain.ConnectionType]ports.ConnectionDiscoverer{domain.ConnectionSSH: connectionDiscovererStub{observation: ports.ConnectionDiscovery{Available: true, LoginNode: &ports.DiscoveredLoginNode{Name: "login"}, Metadata: map[string]any{"partitions": []map[string]any{{"name": "cpu", "cpuCoresPerNode": int64(64), "memoryMiBPerNode": int64(256)}}}}}})
+	if _, err := coordinator.DiscoverConnection(context.Background(), "hpc"); err != nil {
+		t.Fatal(err)
+	}
+	var partition *domain.Resource
+	for index := range inventory.resources {
+		if inventory.resources[index].Type == domain.ResourceHPCPartition {
+			partition = &inventory.resources[index]
+			break
+		}
+	}
+	if partition == nil || partition.ProviderID != "cpu" || !partition.Schedulable {
+		t.Fatalf("partition=%+v", partition)
+	}
+	if len(inventory.bindings) == 0 {
+		t.Fatal("discovered partition must be bound to the SLURM runtime")
 	}
 }

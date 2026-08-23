@@ -168,6 +168,10 @@ func (s *DiscoveryCoordinator) materializeHPCStructure(ctx context.Context, defi
 			return nil, fmt.Errorf("bind discovered HPC cluster: %w", err)
 		}
 	}
+	// SLURM partitions are discovered inventory, not static configuration. A
+	// newly connected HPC environment therefore becomes schedulable without
+	// requiring users to predeclare every queue in its YAML.
+	definition.Resources = append(definition.Resources, discoveredPartitions(definition, connection, observation)...)
 	for _, partition := range definition.Resources {
 		if partition.Type != domain.ResourceHPCPartition {
 			continue
@@ -175,6 +179,11 @@ func (s *DiscoveryCoordinator) materializeHPCStructure(ctx context.Context, defi
 		partition.ParentResourceID = &clusterID
 		if err := s.resources.Upsert(ctx, partition); err != nil {
 			return nil, fmt.Errorf("attach partition %q to discovered cluster: %w", partition.ProviderID, err)
+		}
+		for _, runtimeID := range runtimeIDs {
+			if err := s.resources.UpsertRuntimeBinding(ctx, domain.ResourceRuntimeBinding{ResourceID: partition.ID, RuntimeID: runtimeID, Enabled: true, Configuration: map[string]any{"executionTarget": "batch", "scheduler": "slurm"}}); err != nil {
+				return nil, fmt.Errorf("bind discovered partition %q: %w", partition.ProviderID, err)
+			}
 		}
 	}
 	snapshots := []domain.ResourceSnapshot{}
@@ -190,6 +199,59 @@ func (s *DiscoveryCoordinator) materializeHPCStructure(ctx context.Context, defi
 		return nil, err
 	}
 	return append(snapshots, nodeSnapshots...), nil
+}
+
+func discoveredPartitions(definition domain.EnvironmentDefinition, connection domain.EnvironmentConnection, observation ports.ConnectionDiscovery) []domain.Resource {
+	configured := map[string]bool{}
+	for _, resource := range definition.Resources {
+		if resource.Type == domain.ResourceHPCPartition {
+			configured[resource.ProviderID] = true
+		}
+	}
+	values, _ := observation.Metadata["partitions"].([]map[string]any)
+	partitions := make([]domain.Resource, 0, len(values))
+	for _, value := range values {
+		name, _ := value["name"].(string)
+		name = strings.TrimSpace(name)
+		if name == "" || configured[name] {
+			continue
+		}
+		metadata := cloneMetadata(value)
+		metadata["connectionId"], metadata["discovered"], metadata["interactive"] = connection.ID, true, true
+		partitions = append(partitions, domain.Resource{
+			ID: connection.ID + "-partition-" + resourceIdentifier(name), EnvironmentVersionID: definition.Version.ID,
+			ExecutionTarget: domain.ExecutionTargetBatch, Type: domain.ResourceHPCPartition, Name: name, ProviderID: name,
+			CPUCores: intValue(value["cpuCoresPerNode"]), CPUCapacity: float64(intValue(value["cpuCoresPerNode"])),
+			MemoryBytes: int64(intValue(value["memoryMiBPerNode"])) * 1024 * 1024, ComputeSpeedup: 1, Schedulable: true, Metadata: metadata,
+		})
+	}
+	return partitions
+}
+
+func resourceIdentifier(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var builder strings.Builder
+	for _, character := range value {
+		if (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '-' || character == '_' {
+			builder.WriteRune(character)
+		} else {
+			builder.WriteByte('-')
+		}
+	}
+	return strings.Trim(builder.String(), "-")
+}
+
+func intValue(value any) int {
+	switch value := value.(type) {
+	case int64:
+		return int(value)
+	case int:
+		return value
+	case float64:
+		return int(value)
+	default:
+		return 0
+	}
 }
 
 func (s *DiscoveryCoordinator) materializeLoginNode(
