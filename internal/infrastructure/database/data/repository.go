@@ -152,6 +152,83 @@ func (r *Repository) ListLocations(ctx context.Context, runID string) ([]domain.
 	return result, rows.Err()
 }
 
+func (r *Repository) ListArtifactLocations(ctx context.Context) ([]domain.ArtifactLocation, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id, variant_id, endpoint_id, uri, digest, scope, scope_id, available FROM artifact_locations ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var values []domain.ArtifactLocation
+	for rows.Next() {
+		var v domain.ArtifactLocation
+		var available bool
+		if err := rows.Scan(&v.ID, &v.VariantID, &v.EndpointID, &v.URI, &v.Digest, &v.Scope, &v.ScopeID, &available); err != nil {
+			return nil, err
+		}
+		v.Available = available
+		values = append(values, v)
+	}
+	return values, rows.Err()
+}
+
+func (r *Repository) ListArtifacts(ctx context.Context) ([]domain.ExecutableArtifact, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT artifact_id, version FROM artifact_versions ORDER BY artifact_id, version`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var values []domain.ExecutableArtifact
+	for rows.Next() {
+		var value domain.ExecutableArtifact
+		if err := rows.Scan(&value.ID, &value.Version); err != nil {
+			return nil, err
+		}
+		value.Name = value.ID
+		values = append(values, value)
+	}
+	return values, rows.Err()
+}
+
+func (r *Repository) ListArtifactMaterializations(ctx context.Context, runID string) ([]domain.ArtifactMaterialization, error) {
+	query := `SELECT id, run_id, activity_id, variant_id, digest, resource_id, environment_id, destination_path, status, verified_digest FROM artifact_materializations`
+	args := []any{}
+	if runID != "" {
+		query += ` WHERE run_id=?`
+		args = append(args, runID)
+	}
+	query += ` ORDER BY updated_at DESC`
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var values []domain.ArtifactMaterialization
+	for rows.Next() {
+		var v domain.ArtifactMaterialization
+		if err := rows.Scan(&v.ID, &v.RunID, &v.ActivityID, &v.VariantID, &v.Digest, &v.ResourceID, &v.EnvironmentID, &v.DestinationPath, &v.Status, &v.VerifiedDigest); err != nil {
+			return nil, err
+		}
+		values = append(values, v)
+	}
+	return values, rows.Err()
+}
+func (r *Repository) SaveArtifactMaterialization(ctx context.Context, value domain.ArtifactMaterialization) error {
+	const query = `INSERT INTO artifact_materializations (
+		id,run_id,activity_id,variant_id,digest,resource_id,environment_id,destination_path,status,verified_digest
+	) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+		run_id=excluded.run_id,
+		activity_id=excluded.activity_id,
+		status=excluded.status,
+		verified_digest=excluded.verified_digest,
+		destination_path=excluded.destination_path,
+		updated_at=CURRENT_TIMESTAMP`
+	_, err := r.db.ExecContext(ctx, query,
+		value.ID, value.RunID, value.ActivityID, value.VariantID, value.Digest,
+		value.ResourceID, value.EnvironmentID, value.DestinationPath, value.Status, value.VerifiedDigest,
+	)
+	return err
+}
+
 func stableID(parts ...string) string {
 	hash := sha256.New()
 	for _, part := range parts {

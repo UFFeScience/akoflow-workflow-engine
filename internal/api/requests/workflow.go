@@ -29,16 +29,17 @@ type StoragePolicy struct {
 }
 
 type WorkflowActivity struct {
-	Name             string   `json:"name"`
-	Image            string   `json:"image,omitempty"`
-	Runtime          string   `json:"runtime,omitempty"`
-	Run              string   `json:"run"`
-	MemoryLimit      string   `json:"memoryLimit,omitempty"`
-	CPULimit         string   `json:"cpuLimit,omitempty"`
-	DependsOn        []string `json:"dependsOn,omitempty"`
-	ResourceSelector string   `json:"resourceSelector,omitempty"`
-	KeepDisk         bool     `json:"keepDisk,omitempty"`
-	MountPath        string   `json:"mountPath,omitempty"`
+	Name             string                 `json:"name"`
+	Command          domain.ActivityCommand `json:"command"`
+	Image            string                 `json:"image,omitempty"`
+	Runtime          string                 `json:"runtime,omitempty"`
+	Run              string                 `json:"run,omitempty"`
+	MemoryLimit      string                 `json:"memoryLimit,omitempty"`
+	CPULimit         string                 `json:"cpuLimit,omitempty"`
+	DependsOn        []string               `json:"dependsOn,omitempty"`
+	ResourceSelector string                 `json:"resourceSelector,omitempty"`
+	KeepDisk         bool                   `json:"keepDisk,omitempty"`
+	MountPath        string                 `json:"mountPath,omitempty"`
 }
 
 func (request Workflow) Domain() (domain.WorkflowDefinition, error) {
@@ -92,18 +93,34 @@ func activityDomain(value WorkflowActivity, defaultImage, versionID, typeID stri
 	if err != nil {
 		return domain.Activity{}, fmt.Errorf("activity %q memoryLimit: %w", value.Name, err)
 	}
-	image := value.Image
-	if image == "" {
-		image = defaultImage
+	command := value.Command
+	if command.Entrypoint == "" && value.Run != "" {
+		command.Entrypoint = "sh"
+		command.Arguments = []string{"-c", value.Run}
 	}
-	if image == "" || value.Run == "" {
-		return domain.Activity{}, fmt.Errorf("activity %q image and run are required", value.Name)
+	if command.Executable == nil {
+		image := value.Image
+		if image == "" {
+			image = defaultImage
+		}
+		if image != "" {
+			command.Executable = &domain.ExecutableReference{
+				Source:   domain.ExecutableSource{Type: domain.ExecutableSourceOCI, Reference: image},
+				Delivery: domain.ExecutableDelivery{Strategy: domain.DeliveryAuto},
+			}
+		}
+	}
+	if command.Entrypoint == "" || command.Executable == nil {
+		return domain.Activity{}, fmt.Errorf("activity %q command.entrypoint and command.executable are required", value.Name)
+	}
+	if err := command.Executable.Validate(); err != nil {
+		return domain.Activity{}, fmt.Errorf("activity %q: %w", value.Name, err)
 	}
 	return domain.Activity{
 		ID: identifier(value.Name), WorkflowVersionID: versionID, ActivityTypeID: typeID,
 		ExternalID: identifier(value.Name), Name: value.Name, Kind: domain.ActivityKindTask,
 		Capabilities: []domain.ActivityCapability{domain.ActivityCapabilityReal},
-		Command:      domain.ActivityCommand{Image: image, Entrypoint: "sh", Arguments: []string{"-c", value.Run}},
+		Command:      command,
 		Resources:    domain.ActivityResources{CPU: cpu, MemoryBytes: memory},
 		Policy:       domain.ActivityPolicy{TimeoutSeconds: 3600, MaxAttempts: 1}, Priority: len(value.DependsOn) + index,
 		Metadata: map[string]any{"runtime": value.Runtime, "resourceSelector": value.ResourceSelector,

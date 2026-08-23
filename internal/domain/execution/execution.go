@@ -146,6 +146,10 @@ type ActivityExecutionContext struct {
 	Assignment planning.PlanAssignment  `json:"assignment"`
 	Resource   resource.Resource        `json:"resource"`
 	RuntimeID  string                   `json:"runtimeId"`
+	// Preparation is supplied by the orchestration/data plane when the
+	// activity has executable or workspace requirements. Providers must not
+	// start work until it is committed.
+	Preparation *PreparationGate `json:"preparation,omitempty"`
 }
 
 // ActivityHandle is the runtime-independent identity of a started activity.

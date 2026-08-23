@@ -20,9 +20,9 @@ func (f resolverFake) Resolve(domain.ExecutionMode, string) (ports.RuntimeAdapte
 }
 
 type runtimeFake struct {
-	handle  domain.ActivityHandle
-	stopped bool
-	starts  int
+	handle     domain.ActivityHandle
+	stopped    bool
+	starts     int
 	inspectErr error
 }
 

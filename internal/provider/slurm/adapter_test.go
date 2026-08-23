@@ -57,14 +57,37 @@ func TestAdapterExecutesDirectlyOnLoginResource(t *testing.T) {
 	t.Fatalf("direct activity did not complete: %+v", handle)
 }
 
-func TestSingularityImageConvertsPlainOCIReference(t *testing.T) {
-	if got := singularityImage("alpine:3.20"); got != "docker://alpine:3.20" {
-		t.Fatalf("plain image = %q", got)
+func TestSlurmRejectsUnmaterializedOCIInsteadOfAddingDockerURI(t *testing.T) {
+	_, err := slurmExecutable(domain.ActivityCommand{Image: "alpine:3.20"})
+	if err == nil || strings.Contains(err.Error(), "docker://") {
+		t.Fatalf("err=%v", err)
 	}
-	for _, image := range []string{"docker://alpine:3.20", "library://alpine", "/shared/tool.sif"} {
-		if got := singularityImage(image); got != image {
-			t.Fatalf("explicit image %q became %q", image, got)
-		}
+}
+
+func TestSlurmUsesRemoteSIFAndExplicitDestinationPull(t *testing.T) {
+	image, err := slurmExecutable(domain.ActivityCommand{Executable: &domain.ExecutableReference{
+		Source: domain.ExecutableSource{Type: domain.ExecutableSourceRemoteFile, Path: "/apps/tool.sif", ResourceRef: "plafrim"}, Delivery: domain.ExecutableDelivery{Strategy: domain.DeliveryUseInPlace},
+	}})
+	if err != nil || image != "/apps/tool.sif" {
+		t.Fatalf("image=%q err=%v", image, err)
+	}
+	image, err = slurmExecutable(domain.ActivityCommand{Executable: &domain.ExecutableReference{
+		Source: domain.ExecutableSource{Type: domain.ExecutableSourceOCI, Reference: "docker://alpine:3.20"}, Delivery: domain.ExecutableDelivery{Strategy: domain.DeliveryDestinationPull},
+	}})
+	if err != nil || image != "docker://alpine:3.20" {
+		t.Fatalf("image=%q err=%v", image, err)
+	}
+}
+
+func TestSlurmBlocksUncommittedWorkspace(t *testing.T) {
+	adapter := NewWithConfig(&executorFake{}, Config{ScriptDirectory: t.TempDir()})
+	_, err := adapter.Start(context.Background(), domain.ActivityExecutionContext{
+		Run: domain.ExecutionRun{ID: "run"}, RuntimeID: "slurm", Resource: domain.Resource{ID: "node"},
+		Activity:    domain.Activity{ID: "task", Command: domain.ActivityCommand{Entrypoint: "echo"}},
+		Preparation: &domain.PreparationGate{Workspace: &domain.WorkspaceMaterialization{Status: domain.MaterializationTransferring}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "workspace materialization") {
+		t.Fatalf("err=%v", err)
 	}
 }
 
@@ -83,7 +106,11 @@ func TestAdapterSubmitsSafeBatchScript(t *testing.T) {
 	if err != nil || !strings.Contains(string(script), `'a'"'"'b'`) || strings.Index(string(script), "#SBATCH") > strings.Index(string(script), "set -eu") {
 		t.Fatalf("script=%s err=%v", script, err)
 	}
-	if !strings.Contains(string(script), "trap finish EXIT") || !strings.Contains(string(script), "state=running") || !strings.Contains(string(script), "akoflow-run-analysis-%j.log") || handle.Metadata["sentinelPath"] != "akoflow-run-analysis-123.status" {
+	hasTrap := strings.Contains(string(script), "trap finish EXIT")
+	hasRunningState := strings.Contains(string(script), "state=running")
+	hasLogPath := strings.Contains(string(script), "akoflow-run-analysis-%j.log")
+	hasSentinelPath := handle.Metadata["sentinelPath"] == "akoflow-run-analysis-123.status"
+	if !hasTrap || !hasRunningState || !hasLogPath || !hasSentinelPath {
 		t.Fatalf("missing execution sentinel: script=%s metadata=%+v", script, handle.Metadata)
 	}
 }

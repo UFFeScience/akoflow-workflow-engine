@@ -54,7 +54,7 @@ func newApplication(ctx context.Context, settings config.Settings, log *logger.L
 	if err != nil {
 		return fail(err)
 	}
-	loop, err := buildEventLoop(storage.events, storage.executions, activities, simulator)
+	loop, err := buildEventLoop(storage.events, storage.executions, storage.data, activities, simulator)
 	if err != nil {
 		return fail(err)
 	}

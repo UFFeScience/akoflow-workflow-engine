@@ -1,0 +1,69 @@
+package transfer
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/UFFeScience/akoflow/internal/domain"
+)
+
+type MaterializationCatalog interface {
+	SaveArtifactMaterialization(context.Context, domain.ArtifactMaterialization) error
+}
+
+// Coordinator is the orchestration boundary: it returns only verified,
+// committed materializations to providers.
+type Coordinator struct {
+	Materializer Materializer
+	Catalog      MaterializationCatalog
+}
+
+func (c Coordinator) Prepare(ctx context.Context, _ string, requirement domain.PreparationRequirement) (*domain.PreparationGate, error) {
+	if requirement.Artifact != nil {
+		if requirement.ArtifactTransfer == nil {
+			return nil, fmt.Errorf("artifact materialization lacks transfer plan")
+		}
+		initial := *requirement.Artifact
+		initial.Status = domain.MaterializationTransferring
+		if err := c.save(ctx, initial); err != nil {
+			return nil, fmt.Errorf("save artifact materialization: %w", err)
+		}
+		result, _, err := c.Materializer.Materialize(ctx, *requirement.ArtifactTransfer, initial)
+		if saveErr := c.save(ctx, result); saveErr != nil {
+			return nil, fmt.Errorf("save artifact materialization: %w", saveErr)
+		}
+		if err != nil {
+			return nil, err
+		}
+		requirement.Artifact = &result
+	}
+	if requirement.Workspace != nil {
+		if requirement.WorkspaceTransfer == nil {
+			return nil, fmt.Errorf("workspace materialization lacks transfer plan")
+		}
+		// Workspace uses the same verified content transport. Artifact fields are
+		// a small adapter around the common materializer.
+		result, run, err := c.Materializer.Materialize(ctx, *requirement.WorkspaceTransfer, domain.ArtifactMaterialization{ID: requirement.Workspace.ID, Digest: "workspace"})
+		if err != nil {
+			return nil, err
+		}
+		if result.Status != domain.MaterializationCommitted {
+			return nil, fmt.Errorf("workspace materialization is not committed")
+		}
+		if err := requirement.Workspace.Commit(run.VerifiedBlobs); err != nil {
+			return nil, err
+		}
+	}
+	gate := &domain.PreparationGate{Executable: requirement.Artifact, Workspace: requirement.Workspace}
+	if err := gate.Ready(); err != nil {
+		return nil, err
+	}
+	return gate, nil
+}
+
+func (c Coordinator) save(ctx context.Context, value domain.ArtifactMaterialization) error {
+	if c.Catalog == nil {
+		return nil
+	}
+	return c.Catalog.SaveArtifactMaterialization(ctx, value)
+}

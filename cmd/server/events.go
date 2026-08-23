@@ -7,19 +7,22 @@ import (
 
 	applicationexecution "github.com/UFFeScience/akoflow/internal/application/execution"
 	"github.com/UFFeScience/akoflow/internal/application/ports"
+	applicationtransfer "github.com/UFFeScience/akoflow/internal/application/transfer"
 	"github.com/UFFeScience/akoflow/internal/controlplane/eventloop"
 	controlexecution "github.com/UFFeScience/akoflow/internal/controlplane/execution"
 	domainevents "github.com/UFFeScience/akoflow/internal/domain/events"
+	infratransfer "github.com/UFFeScience/akoflow/internal/infrastructure/transfer"
 )
 
 func buildEventLoop(
 	events ports.QueueStore,
 	executions ports.ExecutionStore,
+	data ports.DataCatalog,
 	activities *applicationexecution.Controller,
 	simulator ports.PlanExecutor,
 ) (*eventloop.Loop, error) {
 	dispatcher := eventloop.NewDispatcher()
-	if err := registerExecutionHandlers(dispatcher, executions, activities, simulator); err != nil {
+	if err := registerExecutionHandlers(dispatcher, executions, data, activities, simulator); err != nil {
 		return nil, err
 	}
 	for _, eventType := range domainEventTypes() {
@@ -36,6 +39,7 @@ func buildEventLoop(
 func registerExecutionHandlers(
 	dispatcher *eventloop.Dispatcher,
 	executions ports.ExecutionStore,
+	data ports.DataCatalog,
 	activities *applicationexecution.Controller,
 	simulator ports.PlanExecutor,
 ) error {
@@ -43,8 +47,11 @@ func registerExecutionHandlers(
 		eventloop.NewActivityExecutionHandler(activities)); err != nil {
 		return err
 	}
+	preparer := applicationtransfer.Coordinator{Catalog: data, Materializer: applicationtransfer.Materializer{Connectors: []ports.TransferConnector{
+		infratransfer.LocalFilesystem{}, infratransfer.RsyncSSH{}, infratransfer.HTTPDownload{}, infratransfer.S3Compatible{}, infratransfer.GCS{},
+	}}}
 	supervisor, err := controlexecution.New(executions, activities,
-		simulator, controlexecution.Config{PollInterval: time.Second, MaxParallel: 8})
+		simulator, controlexecution.Config{PollInterval: time.Second, MaxParallel: 8, Preparer: preparer})
 	if err != nil {
 		return err
 	}

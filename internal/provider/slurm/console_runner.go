@@ -25,7 +25,7 @@ func (r ConsoleRunner) RunConsoleCommand(ctx context.Context, connection domain.
 			Username: connection.Username, Port: configInt(connection.Configuration, "port"), IdentityFile: credentialFile(connection.CredentialRef),
 			ProxyCommand: configString(connection.Configuration, "proxyCommand"), HostKeyAlias: configString(connection.Configuration, "hostKeyAlias"),
 			KnownHostsFile: knownHostsFile(connection),
-			ForwardAgent: configBool(connection.Configuration, "forwardAgent", false)}
+			ForwardAgent:   configBool(connection.Configuration, "forwardAgent", false)}
 	}
 	script := consoleScript(resource, command)
 	output, err := executor.Run(ctx, "/bin/sh", []string{"-s"}, []byte(script))

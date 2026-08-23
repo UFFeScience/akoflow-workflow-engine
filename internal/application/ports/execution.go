@@ -7,15 +7,20 @@ import (
 )
 
 type ExecutionRequest struct {
-	Run              domain.ExecutionRun
-	Plan             domain.SchedulePlan
-	Workflow         domain.WorkflowVersion
-	Resources        []domain.Resource
-	ExecutionScope   domain.ExecutionScope
-	Runtimes         []domain.EnvironmentRuntime
-	RuntimeBindings  []domain.ResourceRuntimeBinding
-	NetworkTopology  domain.NetworkTopology
-	ActivityProfiles []domain.ActivityResourceProfile
+	Run                               domain.ExecutionRun
+	Plan                              domain.SchedulePlan
+	Workflow                          domain.WorkflowVersion
+	Resources                         []domain.Resource
+	ExecutionScope                    domain.ExecutionScope
+	Runtimes                          []domain.EnvironmentRuntime
+	RuntimeBindings                   []domain.ResourceRuntimeBinding
+	NetworkTopology                   domain.NetworkTopology
+	ActivityProfiles                  []domain.ActivityResourceProfile
+	PreparationRequirementsByActivity map[string]domain.PreparationRequirement
+}
+
+type PreparationCoordinator interface {
+	Prepare(context.Context, string, domain.PreparationRequirement) (*domain.PreparationGate, error)
 }
 
 type PlanExecutor interface {

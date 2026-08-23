@@ -18,11 +18,16 @@ const (
 )
 
 type ActivityCommand struct {
-	Image            string            `json:"image,omitempty"`
-	Entrypoint       string            `json:"entrypoint"`
-	Arguments        []string          `json:"arguments,omitempty"`
-	Environment      map[string]string `json:"environment,omitempty"`
-	WorkingDirectory string            `json:"workingDirectory,omitempty"`
+	// Image is the legacy shorthand for an OCI reference or a destination path.
+	// New definitions should use Executable. It is kept so existing workflow
+	// definitions remain valid while the planner resolves them.
+	Image              string               `json:"image,omitempty"`
+	Executable         *ExecutableReference `json:"executable,omitempty"`
+	ResolvedExecutable *ResolvedExecutable  `json:"resolvedExecutable,omitempty"`
+	Entrypoint         string               `json:"entrypoint"`
+	Arguments          []string             `json:"arguments,omitempty"`
+	Environment        map[string]string    `json:"environment,omitempty"`
+	WorkingDirectory   string               `json:"workingDirectory,omitempty"`
 }
 
 type ActivityResources struct {

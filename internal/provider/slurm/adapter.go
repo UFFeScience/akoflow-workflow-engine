@@ -46,6 +46,14 @@ func (*Adapter) Modes() []domain.ExecutionMode {
 }
 
 func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionContext) (domain.ActivityHandle, error) {
+	if execution.Preparation != nil {
+		if err := execution.Preparation.Ready(); err != nil {
+			return domain.ActivityHandle{}, fmt.Errorf("activity %q is not ready for Slurm: %w", execution.Activity.ID, err)
+		}
+	}
+	if err := validateSlurmPrerequisites(execution.Activity); err != nil {
+		return domain.ActivityHandle{}, err
+	}
 	if execution.Resource.ExecutionTarget == domain.ExecutionTargetDirect {
 		return a.startDirect(ctx, execution)
 	}
@@ -333,7 +341,9 @@ func directScript(activity domain.Activity) (string, error) {
 	}
 	var script strings.Builder
 	script.WriteString("#!/bin/sh\nset -eu\n")
-	writeActivityCommand(&script, activity)
+	if err := writeActivityCommand(&script, activity); err != nil {
+		return "", err
+	}
 	return script.String(), nil
 }
 
@@ -374,9 +384,19 @@ func batchScript(runID string, activity domain.Activity, partition, node string)
 	script.WriteString(shellQuote(activity.Command.WorkingDirectory))
 	script.WriteString("\nmkdir -p \"$artifact_root\"\nartifact_before=$(mktemp)\nfind \"$artifact_root\" -type f -print 2>/dev/null | sort > \"$artifact_before\"\n")
 	script.WriteString("printf 'state=running\\nartifact_root=%s\\n' \"$artifact_root\" > \"$sentinel\"\n")
-	script.WriteString("finish() { code=$?; state=completed; [ \"$code\" -eq 0 ] || state=failed; { printf 'state=%s\\nexit_code=%s\\nartifact_root=%s\\n' \"$state\" \"$code\" \"$artifact_root\"; find \"$artifact_root\" -type f -print 2>/dev/null | sort | comm -13 \"$artifact_before\" - | while IFS= read -r file; do relative=${file#\"$artifact_root\"/}; size=$(wc -c < \"$file\" 2>/dev/null) || continue; checksum=$(sha256sum \"$file\" 2>/dev/null | awk '{print $1}') || continue; encoded=$(printf '%s' \"$relative\" | base64 | tr -d '\\n'); printf 'artifact=%s|%s|%s\\n' \"$encoded\" \"$size\" \"$checksum\"; done; } > \"$sentinel\" || true; rm -f \"$artifact_before\"; exit \"$code\"; }\n")
+	script.WriteString("finish() { code=$?; state=completed; [ \"$code\" -eq 0 ] || state=failed; ")
+	script.WriteString("{ printf 'state=%s\\nexit_code=%s\\nartifact_root=%s\\n' \"$state\" \"$code\" \"$artifact_root\"; ")
+	script.WriteString("find \"$artifact_root\" -type f -print 2>/dev/null | sort | comm -13 \"$artifact_before\" - | ")
+	script.WriteString("while IFS= read -r file; do relative=${file#\"$artifact_root\"/}; ")
+	script.WriteString("size=$(wc -c < \"$file\" 2>/dev/null) || continue; ")
+	script.WriteString("checksum=$(sha256sum \"$file\" 2>/dev/null | awk '{print $1}') || continue; ")
+	script.WriteString("encoded=$(printf '%s' \"$relative\" | base64 | tr -d '\\n'); ")
+	script.WriteString("printf 'artifact=%s|%s|%s\\n' \"$encoded\" \"$size\" \"$checksum\"; done; ")
+	script.WriteString("} > \"$sentinel\" || true; rm -f \"$artifact_before\"; exit \"$code\"; }\n")
 	script.WriteString("trap finish EXIT\nset -eu\n")
-	writeActivityCommand(&script, activity)
+	if err := writeActivityCommand(&script, activity); err != nil {
+		return "", err
+	}
 	return script.String(), nil
 }
 
@@ -396,7 +416,7 @@ func slurmArtifactRoot(runID, activityID string) string {
 	return "akoflow-workspaces/" + shellToken(runID) + "/" + shellToken(activityID)
 }
 
-func writeActivityCommand(script *strings.Builder, activity domain.Activity) {
+func writeActivityCommand(script *strings.Builder, activity domain.Activity) error {
 	for key, value := range activity.Command.Environment {
 		script.WriteString("export ")
 		script.WriteString(shellToken(key))
@@ -409,9 +429,13 @@ func writeActivityCommand(script *strings.Builder, activity domain.Activity) {
 		script.WriteString(shellQuote(activity.Command.WorkingDirectory))
 		script.WriteByte('\n')
 	}
-	if activity.Command.Image != "" {
+	image, err := slurmExecutable(activity.Command)
+	if err != nil {
+		return err
+	}
+	if image != "" {
 		script.WriteString("singularity exec ")
-		script.WriteString(shellQuote(singularityImage(activity.Command.Image)))
+		script.WriteString(shellQuote(image))
 		script.WriteByte(' ')
 	}
 	script.WriteString(shellQuote(activity.Command.Entrypoint))
@@ -420,18 +444,53 @@ func writeActivityCommand(script *strings.Builder, activity domain.Activity) {
 		script.WriteString(shellQuote(argument))
 	}
 	script.WriteByte('\n')
+	return nil
 }
 
-// singularityImage keeps native SIF files and explicit OCI/library URIs intact.
-// Plain OCI references are what Kubernetes accepts, so make them usable by
-// SingularityCE/Apptainer as docker:// references automatically.
-func singularityImage(image string) string {
-	image = strings.TrimSpace(image)
-	if image == "" || strings.Contains(image, "://") || strings.HasPrefix(image, "/") ||
-		strings.HasPrefix(image, "./") || strings.HasSuffix(image, ".sif") {
-		return image
+func validateSlurmPrerequisites(activity domain.Activity) error {
+	_, err := slurmExecutable(activity.Command)
+	if err != nil {
+		return fmt.Errorf("activity %q is not ready for Slurm: %w", activity.ID, err)
 	}
-	return "docker://" + image
+	return nil
+}
+
+// slurmExecutable deliberately does not infer docker://. A remote cluster may
+// have no registry access; OCI must be materialized to SIF (or explicitly
+// requested as destination-pull) by the artifact preparation phase first.
+func slurmExecutable(command domain.ActivityCommand) (string, error) {
+	if resolved := command.ResolvedExecutable; resolved != nil {
+		if resolved.Delivery == domain.DeliveryDestinationPull {
+			if resolved.RemotePath != "" {
+				return resolved.RemotePath, nil
+			}
+			return "", fmt.Errorf("destination-pull executable requires an explicit URI")
+		}
+		path := resolved.LocalPath
+		if path == "" {
+			path = resolved.RemotePath
+		}
+		if path == "" || !resolved.MaterializationDone {
+			return "", fmt.Errorf("executable materialization is not committed")
+		}
+		return path, nil
+	}
+	ref := command.EffectiveExecutable()
+	if ref == nil {
+		return "", nil
+	}
+	if ref.Delivery.Strategy == domain.DeliveryDestinationPull && ref.Source.Reference != "" {
+		return ref.Source.Reference, nil
+	}
+	// A legacy SIF/path is already a location. Legacy OCI references are not.
+	image := strings.TrimSpace(command.Image)
+	if ref.Source.Type == domain.ExecutableSourceRemoteFile && ref.Source.Path != "" && ref.Delivery.Strategy == domain.DeliveryUseInPlace {
+		return ref.Source.Path, nil
+	}
+	if image != "" && (strings.HasPrefix(image, "/") || strings.HasPrefix(image, "./") || strings.HasSuffix(image, ".sif")) {
+		return image, nil
+	}
+	return "", fmt.Errorf("executable %q requires artifact materialization before Slurm submission", ref.Source.Reference)
 }
 
 func shellToken(value string) string {

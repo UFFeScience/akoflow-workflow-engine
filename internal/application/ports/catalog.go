@@ -30,4 +30,8 @@ type DataCatalog interface {
 	CatalogArtifacts(context.Context, domain.ActivityHandle) error
 	ListInstances(context.Context, string) ([]domain.DataObjectInstance, error)
 	ListLocations(context.Context, string) ([]domain.DataLocation, error)
+	ListArtifacts(context.Context) ([]domain.ExecutableArtifact, error)
+	ListArtifactLocations(context.Context) ([]domain.ArtifactLocation, error)
+	ListArtifactMaterializations(context.Context, string) ([]domain.ArtifactMaterialization, error)
+	SaveArtifactMaterialization(context.Context, domain.ArtifactMaterialization) error
 }

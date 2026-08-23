@@ -18,6 +18,7 @@ type ActivityController interface {
 type Config struct {
 	PollInterval time.Duration
 	MaxParallel  int
+	Preparer     ports.PreparationCoordinator
 }
 
 type Supervisor struct {
@@ -175,10 +176,25 @@ func (s *Supervisor) startReadyActivities(
 			)
 			return fmt.Errorf("resource %q not found", assignment.ResourceID)
 		}
+		var preparation *domain.PreparationGate
+		if requirement, required := request.PreparationRequirementsByActivity[activityID]; required {
+			if s.config.Preparer == nil {
+				return fmt.Errorf("activity %q requires materialization but no preparation coordinator is configured", activityID)
+			}
+			if requirement.Artifact != nil {
+				requirement.Artifact.RunID = request.Run.ID
+				requirement.Artifact.ActivityID = activityID
+			}
+			var prepareErr error
+			preparation, prepareErr = s.config.Preparer.Prepare(ctx, activityID, requirement)
+			if prepareErr != nil {
+				return fmt.Errorf("prepare activity %q: %w", activityID, prepareErr)
+			}
+		}
 		handle, err := s.activities.Start(ctx, domain.ActivityExecutionContext{
 			Run: request.Run, Workflow: request.Workflow, Activity: activity,
 			Assignment: assignment, Resource: resource,
-			RuntimeID: selectRuntime(request, resource.ID),
+			RuntimeID: selectRuntime(request, resource.ID), Preparation: preparation,
 		})
 		if err != nil {
 			_ = s.recordStartFailure(
@@ -217,15 +233,15 @@ func (s *Supervisor) recordStartFailure(
 	now := float64(time.Now().UnixNano()) / float64(time.Second)
 	message := "start activity: " + err.Error()
 	handle := domain.ActivityHandle{
-		ID:       runID + ":" + activityID,
-		RunID:    runID,
+		ID:         runID + ":" + activityID,
+		RunID:      runID,
 		ActivityID: activityID,
 		ResourceID: resource.ID,
 		RuntimeID:  runtimeID,
 		Status:     domain.HandleFailed,
 		StartedAt:  now,
 		FinishedAt: now,
-		Failure: message, Log: "[AKOFLOW ERROR] " + message + "\n",
+		Failure:    message, Log: "[AKOFLOW ERROR] " + message + "\n",
 	}
 	if saveErr := s.executions.Save(ctx, handle); saveErr != nil {
 		return saveErr

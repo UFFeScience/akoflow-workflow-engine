@@ -33,12 +33,12 @@ func (f ConnectionFactory) Build(runtime domain.EnvironmentRuntime, connection d
 	if remote {
 		executor = runtimecommon.SSHCommandExecutor{
 			Executor: executor, Endpoint: connection.Endpoint, Username: connection.Username,
-			Port:         configInt(connection.Configuration, "port"),
-			IdentityFile: credentialFile(connection.CredentialRef),
-			ProxyCommand: configString(connection.Configuration, "proxyCommand"),
-			HostKeyAlias: configString(connection.Configuration, "hostKeyAlias"),
+			Port:           configInt(connection.Configuration, "port"),
+			IdentityFile:   credentialFile(connection.CredentialRef),
+			ProxyCommand:   configString(connection.Configuration, "proxyCommand"),
+			HostKeyAlias:   configString(connection.Configuration, "hostKeyAlias"),
 			KnownHostsFile: knownHostsFile(connection),
-			ForwardAgent: configBool(connection.Configuration, "forwardAgent", false),
+			ForwardAgent:   configBool(connection.Configuration, "forwardAgent", false),
 		}
 	}
 	scriptDirectory := configString(runtime.Configuration, "scriptDirectory")
