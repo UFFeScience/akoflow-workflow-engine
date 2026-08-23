@@ -159,7 +159,7 @@ static void run_simulation(sg4::Engine& engine, const json& input,
     sg4::Actor::create("transfer-" + transfer.producer_id + "-" + transfer.consumer_id, source_host,
                        [transfer_model, run_id]() {
       sg4::Mailbox::by_name(mailbox_name(run_id, "ready", transfer_model->producer_id,
-                                         transfer_model->consumer_id))->get();
+                                         transfer_model->consumer_id))->get<void>();
       transfer_model->started_at = sg4::Engine::get_clock();
       sg4::Mailbox::by_name(mailbox_name(run_id, "data", transfer_model->producer_id,
                                          transfer_model->consumer_id))
@@ -176,12 +176,12 @@ static void run_simulation(sg4::Engine& engine, const json& input,
                         &incoming_lanes, &outgoing_lanes, &tasks, run_id]() {
       for (const auto& [producer_id, mailbox] : incoming_dependencies[id]) {
         if (tasks.at(producer_id).resource_id == task_model->resource_id)
-          sg4::Mailbox::by_name(mailbox_name(run_id, "ready", producer_id, id))->get();
+          sg4::Mailbox::by_name(mailbox_name(run_id, "ready", producer_id, id))->get<void>();
         else
-          sg4::Mailbox::by_name(mailbox)->get();
+          sg4::Mailbox::by_name(mailbox)->get<void>();
       }
       for (const auto& mailbox : incoming_lanes[id])
-        sg4::Mailbox::by_name(mailbox)->get();
+        sg4::Mailbox::by_name(mailbox)->get<void>();
       task_model->started_at = sg4::Engine::get_clock();
       if (task_model->overhead_seconds > 0)
         sg4::this_actor::sleep_for(task_model->overhead_seconds);
