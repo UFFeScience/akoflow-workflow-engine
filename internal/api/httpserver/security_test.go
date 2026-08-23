@@ -35,6 +35,12 @@ func TestSecureAPIAllowsOnlyPublicInstanceBootstrapWithoutToken(t *testing.T) {
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("public instance GET got %d, want 204", response.Code)
 	}
+	request = httptest.NewRequest(http.MethodGet, "/akoflow-api/instance", nil)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("public instance GET without trailing slash got %d, want 204", response.Code)
+	}
 
 	request = httptest.NewRequest(http.MethodPut, "/akoflow-api/instance/", nil)
 	response = httptest.NewRecorder()

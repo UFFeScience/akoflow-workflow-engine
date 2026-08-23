@@ -35,7 +35,10 @@ func SecureAPI(next http.Handler, options SecurityOptions) http.Handler {
 // contains only the installation identity; every mutable or operational API
 // remains protected by the bearer token.
 func isPublicBootstrapRequest(r *http.Request) bool {
-	return r.Method == http.MethodGet && r.URL.Path == "/akoflow-api/instance/"
+	if r.Method != http.MethodGet {
+		return false
+	}
+	return r.URL.Path == "/akoflow-api/instance" || r.URL.Path == "/akoflow-api/instance/"
 }
 
 func validBearer(r *http.Request, expected string) bool {
