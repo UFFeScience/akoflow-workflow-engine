@@ -152,7 +152,7 @@ func (a *Adapter) sentinelStatus(ctx context.Context, handle domain.ActivityHand
 }
 
 func (a *Adapter) fallbackStatus(ctx context.Context, handle domain.ActivityHandle, sacctErr error) (domain.ActivityHandle, error) {
-	if output, err := a.executor.Run(ctx, "squeue", []string{"--noheader", "--jobs", handle.ExternalID, "--format=%T|%i"}, nil); err == nil {
+	if output, err := a.executor.Run(ctx, "squeue", []string{"--noheader", "--jobs", handle.ExternalID, "--format=%T"}, nil); err == nil {
 		if strings.TrimSpace(string(output)) != "" {
 			return applySlurmStatus(handle, string(output)), nil
 		}
