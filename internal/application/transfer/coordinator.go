@@ -9,6 +9,7 @@ import (
 
 type MaterializationCatalog interface {
 	SaveArtifactMaterialization(context.Context, domain.ArtifactMaterialization) error
+	SaveTransferRun(context.Context, domain.DataTransferRun) error
 }
 
 // Coordinator is the orchestration boundary: it returns only verified,
@@ -28,7 +29,10 @@ func (c Coordinator) Prepare(ctx context.Context, _ string, requirement domain.P
 		if err := c.save(ctx, initial); err != nil {
 			return nil, fmt.Errorf("save artifact materialization: %w", err)
 		}
-		result, _, err := c.Materializer.Materialize(ctx, *requirement.ArtifactTransfer, initial)
+		result, transferRun, err := c.Materializer.Materialize(ctx, *requirement.ArtifactTransfer, initial)
+		if saveErr := c.saveTransfer(ctx, transferRun); saveErr != nil {
+			return nil, fmt.Errorf("save artifact transfer: %w", saveErr)
+		}
 		if saveErr := c.save(ctx, result); saveErr != nil {
 			return nil, fmt.Errorf("save artifact materialization: %w", saveErr)
 		}
@@ -64,6 +68,13 @@ func (c Coordinator) Prepare(ctx context.Context, _ string, requirement domain.P
 		return nil, err
 	}
 	return gate, nil
+}
+
+func (c Coordinator) saveTransfer(ctx context.Context, value domain.DataTransferRun) error {
+	if c.Catalog == nil || value.ID == "" {
+		return nil
+	}
+	return c.Catalog.SaveTransferRun(ctx, value)
 }
 
 func (c Coordinator) save(ctx context.Context, value domain.ArtifactMaterialization) error {
