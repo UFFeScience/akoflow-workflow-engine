@@ -29,6 +29,9 @@ func Bootstrap(ctx context.Context, db *sql.DB) error {
 	if err := migrateUserPreferences(ctx, db); err != nil {
 		return err
 	}
+	if err := migrateExecutionMetrics(ctx, db); err != nil {
+		return err
+	}
 	if err := Validate(ctx, db); err != nil {
 		return fmt.Errorf("%w; remove the existing database file and recreate it: %v", ErrIncompatibleSchema, err)
 	}
@@ -39,6 +42,7 @@ func Bootstrap(ctx context.Context, db *sql.DB) error {
 // upgraded in place. Other checksum mismatches continue to be rejected rather
 // than masking a damaged or manually altered database.
 const legacySchemaBeforeUserPreferences = "e69b7b1e006cddda2f49939e41e5b2c84b7fddb61317a38216258e28b55ef250"
+const schemaBeforeExecutionMetrics = "9bf9465dbc586d92d41480a45fa5d680653ddb6aba0402b132e992fc91c0b9ac"
 
 func migrateUserPreferences(ctx context.Context, db *sql.DB) error {
 	var checksum string
@@ -64,8 +68,37 @@ func migrateUserPreferences(ctx context.Context, db *sql.DB) error {
 	)`); err != nil {
 		return fmt.Errorf("create user preferences table: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE schema_metadata SET checksum=?, applied_at=?`, schemaChecksum(), time.Now().UTC()); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE schema_metadata SET checksum=?, applied_at=?`, schemaBeforeExecutionMetrics, time.Now().UTC()); err != nil {
 		return fmt.Errorf("record user preferences migration: %w", err)
+	}
+	return tx.Commit()
+}
+
+func migrateExecutionMetrics(ctx context.Context, db *sql.DB) error {
+	var checksum string
+	if err := db.QueryRowContext(ctx, `SELECT checksum FROM schema_metadata LIMIT 1`).Scan(&checksum); err != nil || checksum == schemaChecksum() {
+		return nil
+	}
+	if checksum != schemaBeforeExecutionMetrics {
+		return nil
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin execution metrics migration: %w", err)
+	}
+	defer tx.Rollback()
+	for _, statement := range []string{
+		`ALTER TABLE transfer_runs ADD COLUMN started_at REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE transfer_runs ADD COLUMN finished_at REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE transfer_runs ADD COLUMN transferred_bytes INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE task_executions ADD COLUMN transfer_bytes INTEGER NOT NULL DEFAULT 0`,
+	} {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("apply execution metrics migration: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE schema_metadata SET checksum=?, applied_at=?`, schemaChecksum(), time.Now().UTC()); err != nil {
+		return fmt.Errorf("record execution metrics migration: %w", err)
 	}
 	return tx.Commit()
 }

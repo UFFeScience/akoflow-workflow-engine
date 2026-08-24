@@ -145,10 +145,10 @@ func TestListRunsPageCombinesWorkflowInteractiveAndStandaloneRuns(t *testing.T) 
 	}
 	statements := []string{
 		`INSERT INTO console_sessions(id,resource_id,runtime_id,connection_id,status,created_at,connected_at)
-			VALUES ('session','resource','ssh','connection','connected','2026-08-23T12:01:00Z','2026-08-23T12:01:01Z')`,
+			VALUES ('session','resource','ssh','connection','connected','2099-08-23T12:01:00Z','2099-08-23T12:01:01Z')`,
 		`INSERT INTO console_commands(id,resource_id,runtime_id,connection_id,command_text,timeout_seconds,
 			status,created_at,started_at) VALUES
-			('command','resource','ssh','connection','hostname',30,'running','2026-08-23T12:02:00Z','2026-08-23T12:02:00Z')`,
+			('command','resource','ssh','connection','hostname',30,'running','2099-08-23T12:02:00Z','2099-08-23T12:02:00Z')`,
 	}
 	for _, statement := range statements {
 		if _, err := repository.db.ExecContext(ctx, statement); err != nil {

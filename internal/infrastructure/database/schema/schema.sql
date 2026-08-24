@@ -293,9 +293,10 @@ CREATE TABLE task_executions (
 		started_at REAL NOT NULL DEFAULT 0,
 		finished_at REAL NOT NULL DEFAULT 0,
 		runtime_seconds REAL NOT NULL DEFAULT 0,
-		queue_seconds REAL NOT NULL DEFAULT 0,
-		transfer_seconds REAL NOT NULL DEFAULT 0,
-		interference_seconds REAL NOT NULL DEFAULT 0,
+	queue_seconds REAL NOT NULL DEFAULT 0,
+	transfer_seconds REAL NOT NULL DEFAULT 0,
+	transfer_bytes INTEGER NOT NULL DEFAULT 0,
+	interference_seconds REAL NOT NULL DEFAULT 0,
 		overhead_seconds REAL NOT NULL DEFAULT 0,
 		cost REAL NOT NULL DEFAULT 0,
 		failure_reason TEXT NOT NULL DEFAULT '',
@@ -615,7 +616,9 @@ CREATE TABLE artifact_materializations (
 );
 CREATE TABLE transfer_runs (
     id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, strategy TEXT NOT NULL, status TEXT NOT NULL,
-    verified_blobs TEXT NOT NULL DEFAULT '[]', completed_chunks TEXT NOT NULL DEFAULT '[]', error TEXT NOT NULL DEFAULT '',
+    verified_blobs TEXT NOT NULL DEFAULT '[]', completed_chunks TEXT NOT NULL DEFAULT '[]',
+    started_at REAL NOT NULL DEFAULT 0, finished_at REAL NOT NULL DEFAULT 0,
+    transferred_bytes INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE artifact_builds (

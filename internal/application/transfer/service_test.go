@@ -27,6 +27,9 @@ func TestMaterializerCommitsVerifiedBlob(t *testing.T) {
 	if err != nil || !result.Committed() || run.Status != domain.TransferCompleted {
 		t.Fatalf("result=%+v run=%+v err=%v", result, run, err)
 	}
+	if run.TransferredBytes != int64(len(content)) || run.StartedAt == 0 || run.FinishedAt < run.StartedAt {
+		t.Fatalf("transfer metrics=%+v", run)
+	}
 	if _, err = os.Stat(filepath.Join(destination, digest)); err != nil {
 		t.Fatal(err)
 	}

@@ -83,6 +83,7 @@ func (s *Supervisor) executeActivities(ctx context.Context, request ports.Execut
 	completed := make(map[string]domain.TaskExecution)
 	running := make(map[string]domain.ActivityHandle)
 	tasks := make(map[string]domain.TaskExecution)
+	transfers := make([]domain.DataTransfer, 0)
 
 	for len(completed) < len(activities) {
 		if err := ctx.Err(); err != nil {
@@ -92,7 +93,7 @@ func (s *Supervisor) executeActivities(ctx context.Context, request ports.Execut
 			return domain.ExecutionTrace{}, err
 		}
 		if request.Run.Mode == domain.ExecutionModeInteractive && len(running) > 0 {
-			return runningTrace(request, tasks), nil
+			return runningTrace(request, tasks, transfers), nil
 		}
 		ready := readyActivities(activities, predecessors, completed, running, tasks)
 		available := s.config.MaxParallel - len(running)
@@ -101,7 +102,7 @@ func (s *Supervisor) executeActivities(ctx context.Context, request ports.Execut
 		}
 		if err := s.startReadyActivities(
 			ctx, request, ready[:available], activities, assignments, resources,
-			running, completed, tasks,
+			running, completed, tasks, &transfers,
 		); err != nil {
 			return domain.ExecutionTrace{}, err
 		}
@@ -116,7 +117,7 @@ func (s *Supervisor) executeActivities(ctx context.Context, request ports.Execut
 			}
 		}
 	}
-	return completedTrace(request, tasks), nil
+	return completedTrace(request, tasks, transfers), nil
 }
 
 func (s *Supervisor) inspectRunning(
@@ -159,8 +160,10 @@ func (s *Supervisor) startReadyActivities(
 	running map[string]domain.ActivityHandle,
 	completed map[string]domain.TaskExecution,
 	tasks map[string]domain.TaskExecution,
+	transfers *[]domain.DataTransfer,
 ) error {
 	for _, activityID := range ready {
+		readyAt := unixNow()
 		activity, assignment := activities[activityID], assignments[activityID]
 		resource, ok := resources[assignment.ResourceID]
 		if !ok {
@@ -178,22 +181,14 @@ func (s *Supervisor) startReadyActivities(
 		}
 		var preparation *domain.PreparationGate
 		if requirement, required := request.PreparationRequirementsByActivity[activityID]; required {
-			if s.config.Preparer == nil {
-				failure := fmt.Errorf("activity %q requires materialization but no preparation coordinator is configured", activityID)
-				_ = s.recordStartFailure(ctx, request.Run.ID, activityID, assignment, resource, selectRuntime(request, assignment), failure)
-				return failure
-			}
-			if requirement.Artifact != nil {
-				requirement.Artifact.RunID = request.Run.ID
-				requirement.Artifact.ActivityID = activityID
-			}
 			var prepareErr error
-			preparation, prepareErr = s.config.Preparer.Prepare(ctx, activityID, requirement)
+			preparation, prepareErr = s.prepareActivity(ctx, request.Run.ID, activityID, requirement)
 			if prepareErr != nil {
 				failure := fmt.Errorf("prepare activity %q: %w", activityID, prepareErr)
 				_ = s.recordStartFailure(ctx, request.Run.ID, activityID, assignment, resource, selectRuntime(request, assignment), failure)
 				return failure
 			}
+			*transfers = append(*transfers, transferObservations(request.Run.ID, activityID, resource.ID, preparation.TransferRuns)...)
 		} else if activity.Command.Executable != nil && activity.Command.Executable.Source.Type == domain.ExecutableSourceType("build") {
 			// Authored executable references are location-independent contracts.
 			// Running them without a generated preparation requirement would let a
@@ -220,7 +215,7 @@ func (s *Supervisor) startReadyActivities(
 			)
 			return fmt.Errorf("start activity %q: %w", activityID, err)
 		}
-		task := newRunningTask(request.Run.ID, activityID, assignment, resource, handle)
+		task := newRunningTask(request.Run.ID, activityID, assignment, resource, handle, readyAt, preparation)
 		tasks[activityID], running[activityID] = task, handle
 		if handle.Status == domain.HandleCompleted {
 			completeTask(&task, handle)
@@ -232,6 +227,45 @@ func (s *Supervisor) startReadyActivities(
 		}
 	}
 	return nil
+}
+
+func (s *Supervisor) prepareActivity(
+	ctx context.Context,
+	runID, activityID string,
+	requirement domain.PreparationRequirement,
+) (*domain.PreparationGate, error) {
+	if s.config.Preparer == nil {
+		return nil, fmt.Errorf("activity %q requires materialization but no preparation coordinator is configured", activityID)
+	}
+	if requirement.Artifact != nil {
+		requirement.Artifact.RunID = runID
+		requirement.Artifact.ActivityID = activityID
+	}
+	return s.config.Preparer.Prepare(ctx, activityID, requirement)
+}
+
+func transferObservations(
+	runID, activityID, resourceID string,
+	observations []domain.DataTransferRun,
+) []domain.DataTransfer {
+	transfers := make([]domain.DataTransfer, 0, len(observations))
+	for _, observation := range observations {
+		// Artifact stores are not execution resources in the current transfer
+		// schema. Attribute ingress to the selected resource until the schema
+		// includes a storage endpoint dimension.
+		transfers = append(transfers, domain.DataTransfer{
+			ID:                 runID + ":" + activityID + ":" + observation.ID,
+			ExecutionRunID:     runID,
+			ConsumerActivityID: activityID,
+			SourceResourceID:   resourceID,
+			TargetResourceID:   resourceID,
+			Bytes:              observation.TransferredBytes,
+			StartedAt:          observation.StartedAt,
+			FinishedAt:         observation.FinishedAt,
+			DurationSeconds:    maxFloat(0, observation.FinishedAt-observation.StartedAt),
+		})
+	}
+	return transfers
 }
 
 func (s *Supervisor) recordStartFailure(
@@ -258,7 +292,7 @@ func (s *Supervisor) recordStartFailure(
 	if saveErr := s.executions.Save(ctx, handle); saveErr != nil {
 		return saveErr
 	}
-	task := newRunningTask(runID, activityID, assignment, resource, handle)
+	task := newRunningTask(runID, activityID, assignment, resource, handle, now, nil)
 	task.Status, task.FinishedAt, task.FailureReason = domain.TaskFailed, now, message
 	return s.executions.SaveTask(ctx, task)
 }
@@ -296,19 +330,61 @@ func newRunningTask(
 	assignment domain.PlanAssignment,
 	resource domain.Resource,
 	handle domain.ActivityHandle,
+	readyAt float64,
+	preparation *domain.PreparationGate,
 ) domain.TaskExecution {
-	return domain.TaskExecution{
+	task := domain.TaskExecution{
 		ID: runID + ":" + activityID, ExecutionRunID: runID,
 		PlanAssignmentID: assignment.ID, ActivityID: activityID,
 		PlannedResourceID: assignment.ResourceID, AllocatedResourceID: resource.ID,
-		Attempt: 1, Status: domain.TaskRunning, StartedAt: handle.StartedAt,
+		Attempt: 1, Status: domain.TaskRunning, ReadyAt: readyAt, DataReadyAt: unixNow(),
+		QueuedAt: handle.StartedAt, StartedAt: handle.StartedAt,
 	}
+	if preparation != nil {
+		for _, transfer := range preparation.TransferRuns {
+			task.TransferSeconds += maxFloat(0, transfer.FinishedAt-transfer.StartedAt)
+			task.TransferBytes += transfer.TransferredBytes
+		}
+	}
+	return task
 }
 
 func completeTask(task *domain.TaskExecution, handle domain.ActivityHandle) {
 	task.Status, task.FinishedAt = domain.TaskCompleted, handle.FinishedAt
+	applyHandleTiming(task, handle)
 	task.RuntimeSeconds = maxFloat(0, handle.FinishedAt-handle.StartedAt)
 }
+
+func applyHandleTiming(task *domain.TaskExecution, handle domain.ActivityHandle) {
+	if submittedAt, ok := metadataFloat(handle.Metadata, "submittedAt"); ok {
+		task.QueuedAt = submittedAt
+		task.QueueSeconds = maxFloat(0, handle.StartedAt-submittedAt)
+	}
+	if handle.StartedAt > 0 {
+		task.StartedAt = handle.StartedAt
+	}
+}
+
+func metadataFloat(metadata map[string]any, key string) (float64, bool) {
+	value, ok := metadata[key]
+	if !ok {
+		return 0, false
+	}
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case float32:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case int:
+		return float64(typed), true
+	default:
+		return 0, false
+	}
+}
+
+func unixNow() float64 { return float64(time.Now().UnixNano()) / float64(time.Second) }
 
 func validateRequest(request ports.ExecutionRequest) error {
 	if request.Run.ID == "" || request.Plan.ID == "" || request.Workflow.ID == "" {
@@ -378,8 +454,8 @@ func readyActivities(activities map[string]domain.Activity, predecessors map[str
 	return ready
 }
 
-func completedTrace(request ports.ExecutionRequest, tasks map[string]domain.TaskExecution) domain.ExecutionTrace {
-	trace := runningTrace(request, tasks)
+func completedTrace(request ports.ExecutionRequest, tasks map[string]domain.TaskExecution, transfers []domain.DataTransfer) domain.ExecutionTrace {
+	trace := runningTrace(request, tasks, transfers)
 	trace.Executed.Feasible = true
 	firstStart := 0.0
 	lastFinish := 0.0
@@ -389,18 +465,20 @@ func completedTrace(request ports.ExecutionRequest, tasks map[string]domain.Task
 		}
 		lastFinish = maxFloat(lastFinish, task.FinishedAt)
 		trace.Executed.ComputeSeconds += task.RuntimeSeconds
+		trace.Executed.TransferSeconds += task.TransferSeconds
+		trace.Executed.QueueSeconds += task.QueueSeconds
 		trace.Executed.Cost += task.Cost
 	}
 	trace.Executed.MakespanSeconds = maxFloat(0, lastFinish-firstStart)
 	return trace
 }
-func runningTrace(request ports.ExecutionRequest, tasks map[string]domain.TaskExecution) domain.ExecutionTrace {
+func runningTrace(request ports.ExecutionRequest, tasks map[string]domain.TaskExecution, transfers []domain.DataTransfer) domain.ExecutionTrace {
 	result := make([]domain.TaskExecution, 0, len(tasks))
 	for _, task := range tasks {
 		result = append(result, task)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ActivityID < result[j].ActivityID })
-	return domain.ExecutionTrace{RunID: request.Run.ID, PlanID: request.Plan.ID, Mode: request.Run.Mode, Predicted: request.Plan.Predicted, Tasks: result}
+	return domain.ExecutionTrace{RunID: request.Run.ID, PlanID: request.Plan.ID, Mode: request.Run.Mode, Predicted: request.Plan.Predicted, Tasks: result, Transfers: transfers}
 }
 func maxFloat(a, b float64) float64 {
 	if a > b {

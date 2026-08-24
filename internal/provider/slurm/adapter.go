@@ -91,13 +91,15 @@ func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionC
 	if err != nil {
 		return domain.ActivityHandle{}, err
 	}
+	submittedAt := runtimecommon.UnixSeconds(time.Now())
 	return domain.ActivityHandle{ID: runtimecommon.NewID("activity"), RunID: execution.Run.ID,
 		ActivityID: activity.ID, ResourceID: execution.Resource.ID,
 		RuntimeID: execution.RuntimeID, ExternalID: jobID,
-		Status: domain.HandleStarting, StartedAt: runtimecommon.UnixSeconds(time.Now()),
+		Status: domain.HandleStarting, StartedAt: submittedAt,
 		Metadata: map[string]any{"executionTarget": string(domain.ExecutionTargetBatch), "scriptPath": scriptPath,
 			"logPath":                   slurmLogPath(execution.Run.ID, activity.ID, jobID),
 			"sentinelPath":              slurmSentinelPath(execution.Run.ID, activity.ID, jobID),
+			"submittedAt":               submittedAt,
 			"artifactObservationDriver": "filesystem-diff", "artifactObservationRoot": activity.Command.WorkingDirectory}}, nil
 }
 
@@ -146,6 +148,9 @@ func (a *Adapter) sentinelStatus(ctx context.Context, handle domain.ActivityHand
 		return handle, false
 	}
 	values := sentinelValues(string(payload))
+	if startedAt, err := strconv.ParseFloat(values["started_at"], 64); err == nil && startedAt > 0 {
+		handle.StartedAt = startedAt
+	}
 	switch values["state"] {
 	case "running":
 		handle.Status = domain.HandleRunning
@@ -385,9 +390,9 @@ func batchScript(runID string, activity domain.Activity, partition, node string)
 	script.WriteString("artifact_root=")
 	script.WriteString(shellQuote(activity.Command.WorkingDirectory))
 	script.WriteString("\nmkdir -p \"$artifact_root\"\nartifact_before=$(mktemp)\nfind \"$artifact_root\" -type f -print 2>/dev/null | sort > \"$artifact_before\"\n")
-	script.WriteString("printf 'state=running\\nartifact_root=%s\\n' \"$artifact_root\" > \"$sentinel\"\n")
+	script.WriteString("started_at=$(date +%s.%N)\nprintf 'state=running\\nstarted_at=%s\\nartifact_root=%s\\n' \"$started_at\" \"$artifact_root\" > \"$sentinel\"\n")
 	script.WriteString("finish() { code=$?; state=completed; [ \"$code\" -eq 0 ] || state=failed; ")
-	script.WriteString("{ printf 'state=%s\\nexit_code=%s\\nartifact_root=%s\\n' \"$state\" \"$code\" \"$artifact_root\"; ")
+	script.WriteString("{ printf 'state=%s\\nexit_code=%s\\nstarted_at=%s\\nartifact_root=%s\\n' \"$state\" \"$code\" \"$started_at\" \"$artifact_root\"; ")
 	script.WriteString("find \"$artifact_root\" -type f -print 2>/dev/null | sort | comm -13 \"$artifact_before\" - | ")
 	script.WriteString("while IFS= read -r file; do relative=${file#\"$artifact_root\"/}; ")
 	script.WriteString("size=$(wc -c < \"$file\" 2>/dev/null) || continue; ")

@@ -20,6 +20,7 @@ type Coordinator struct {
 }
 
 func (c Coordinator) Prepare(ctx context.Context, _ string, requirement domain.PreparationRequirement) (*domain.PreparationGate, error) {
+	transferRuns := make([]domain.DataTransferRun, 0, 2)
 	if requirement.Artifact != nil {
 		if requirement.ArtifactTransfer == nil {
 			return nil, fmt.Errorf("artifact materialization lacks transfer plan")
@@ -39,6 +40,7 @@ func (c Coordinator) Prepare(ctx context.Context, _ string, requirement domain.P
 		if err != nil {
 			return nil, err
 		}
+		transferRuns = append(transferRuns, transferRun)
 		requirement.Artifact = &result
 	}
 	if requirement.Workspace != nil {
@@ -56,6 +58,7 @@ func (c Coordinator) Prepare(ctx context.Context, _ string, requirement domain.P
 		if err != nil {
 			return nil, err
 		}
+		transferRuns = append(transferRuns, run)
 		if result.Status != domain.MaterializationCommitted {
 			return nil, fmt.Errorf("workspace materialization is not committed")
 		}
@@ -63,7 +66,7 @@ func (c Coordinator) Prepare(ctx context.Context, _ string, requirement domain.P
 			return nil, err
 		}
 	}
-	gate := &domain.PreparationGate{Executable: requirement.Artifact, Workspace: requirement.Workspace}
+	gate := &domain.PreparationGate{Executable: requirement.Artifact, Workspace: requirement.Workspace, TransferRuns: transferRuns}
 	if err := gate.Ready(); err != nil {
 		return nil, err
 	}

@@ -239,14 +239,15 @@ func (r *Repository) SaveTransferRun(ctx context.Context, value domain.DataTrans
 	if err != nil {
 		return err
 	}
-	_, err = r.db.ExecContext(ctx, `INSERT INTO transfer_runs(id,plan_id,strategy,status,verified_blobs,completed_chunks,error)
-		VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, verified_blobs=excluded.verified_blobs,
-		completed_chunks=excluded.completed_chunks, error=excluded.error`, value.ID, value.PlanID, value.Strategy, value.Status, string(verified), string(chunks), value.Error)
+	_, err = r.db.ExecContext(ctx, `INSERT INTO transfer_runs(id,plan_id,strategy,status,verified_blobs,completed_chunks,started_at,finished_at,transferred_bytes,error)
+		VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, verified_blobs=excluded.verified_blobs,
+		completed_chunks=excluded.completed_chunks, started_at=excluded.started_at, finished_at=excluded.finished_at,
+		transferred_bytes=excluded.transferred_bytes, error=excluded.error`, value.ID, value.PlanID, value.Strategy, value.Status, string(verified), string(chunks), value.StartedAt, value.FinishedAt, value.TransferredBytes, value.Error)
 	return err
 }
 
 func (r *Repository) ListArtifactTransferRuns(ctx context.Context, runID string) ([]domain.DataTransferRun, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT t.id,t.plan_id,t.strategy,t.status,t.verified_blobs,t.completed_chunks,t.error
+	rows, err := r.db.QueryContext(ctx, `SELECT t.id,t.plan_id,t.strategy,t.status,t.verified_blobs,t.completed_chunks,t.started_at,t.finished_at,t.transferred_bytes,t.error
 		FROM transfer_runs t JOIN artifact_materializations m ON t.id='transfer-' || m.id
 		WHERE m.run_id=? ORDER BY t.id`, runID)
 	if err != nil {
@@ -257,7 +258,7 @@ func (r *Repository) ListArtifactTransferRuns(ctx context.Context, runID string)
 	for rows.Next() {
 		var value domain.DataTransferRun
 		var verified, chunks string
-		if err := rows.Scan(&value.ID, &value.PlanID, &value.Strategy, &value.Status, &verified, &chunks, &value.Error); err != nil {
+		if err := rows.Scan(&value.ID, &value.PlanID, &value.Strategy, &value.Status, &verified, &chunks, &value.StartedAt, &value.FinishedAt, &value.TransferredBytes, &value.Error); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(verified), &value.VerifiedBlobs); err != nil {
@@ -274,8 +275,8 @@ func (r *Repository) ListArtifactTransferRuns(ctx context.Context, runID string)
 func (r *Repository) FindTransferRun(ctx context.Context, id string) (*domain.DataTransferRun, error) {
 	var value domain.DataTransferRun
 	var verified, chunks string
-	err := r.db.QueryRowContext(ctx, `SELECT id,plan_id,strategy,status,verified_blobs,completed_chunks,error FROM transfer_runs WHERE id=?`, id).
-		Scan(&value.ID, &value.PlanID, &value.Strategy, &value.Status, &verified, &chunks, &value.Error)
+	err := r.db.QueryRowContext(ctx, `SELECT id,plan_id,strategy,status,verified_blobs,completed_chunks,started_at,finished_at,transferred_bytes,error FROM transfer_runs WHERE id=?`, id).
+		Scan(&value.ID, &value.PlanID, &value.Strategy, &value.Status, &verified, &chunks, &value.StartedAt, &value.FinishedAt, &value.TransferredBytes, &value.Error)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

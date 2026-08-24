@@ -7,6 +7,7 @@ import (
 	"io"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/UFFeScience/akoflow/internal/application/ports"
 	"github.com/UFFeScience/akoflow/internal/domain"
@@ -59,7 +60,8 @@ func (m Materializer) Materialize(ctx context.Context, plan domain.DataTransferP
 	if strategy == domain.TransferDestinationPull {
 		return failed(target, domain.DataTransferRun{ID: plan.ID, PlanID: plan.ID, Strategy: strategy, Status: domain.TransferPlanned}, fmt.Errorf("destination-pull requires a destination transfer agent"))
 	}
-	run := domain.DataTransferRun{ID: plan.ID, PlanID: plan.ID, Strategy: strategy, Status: domain.TransferRunning}
+	run := domain.DataTransferRun{ID: plan.ID, PlanID: plan.ID, Strategy: strategy,
+		Status: domain.TransferRunning, StartedAt: unixNow()}
 	for _, blob := range plan.Blobs {
 		final := destinationName(plan.Destination.Path, blob.Digest)
 		// A complete matching object is an idempotent, no-copy materialization.
@@ -72,7 +74,8 @@ func (m Materializer) Materialize(ctx context.Context, plan domain.DataTransferP
 		if err != nil {
 			return failed(target, run, err)
 		}
-		input, err := sc.Open(ctx, source, sourceName(plan.Source.Path, blob.Digest, len(plan.Blobs)), offset)
+		sourceName := sourceName(plan.Source.Path, blob.Digest, len(plan.Blobs))
+		input, err := sc.Open(ctx, source, sourceName, offset)
 		if err != nil {
 			return failed(target, run, err)
 		}
@@ -81,6 +84,18 @@ func (m Materializer) Materialize(ctx context.Context, plan domain.DataTransferP
 			return failed(target, run, err)
 		}
 		input.Close()
+		// The transfer plan is content-addressed, so SizeBytes is the verified
+		// object length. A resumed copy transfers only the remaining bytes.
+		sizeBytes := blob.SizeBytes
+		if sizeBytes <= 0 {
+			sizeBytes, err = m.size(ctx, sc, source, sourceName)
+			if err != nil {
+				return failed(target, run, err)
+			}
+		}
+		if sizeBytes > offset {
+			run.TransferredBytes += sizeBytes - offset
+		}
 		ok, err := m.verify(ctx, dc, destination, partial, blob.Digest)
 		if err != nil || !ok {
 			if err == nil {
@@ -93,7 +108,7 @@ func (m Materializer) Materialize(ctx context.Context, plan domain.DataTransferP
 		}
 		run.VerifiedBlobs = append(run.VerifiedBlobs, blob.Digest)
 	}
-	run.Status = domain.TransferCompleted
+	run.Status, run.FinishedAt = domain.TransferCompleted, unixNow()
 	target.Status = domain.MaterializationCommitted
 	target.VerifiedDigest = target.Digest
 	return target, run, nil
@@ -141,5 +156,10 @@ func (m Materializer) verify(ctx context.Context, c ports.TransferConnector, end
 }
 func failed(target domain.ArtifactMaterialization, run domain.DataTransferRun, err error) (domain.ArtifactMaterialization, domain.DataTransferRun, error) {
 	target.Status, run.Status, run.Error = domain.MaterializationFailed, domain.TransferFailed, err.Error()
+	if run.FinishedAt == 0 {
+		run.FinishedAt = unixNow()
+	}
 	return target, run, err
 }
+
+func unixNow() float64 { return float64(time.Now().UnixNano()) / float64(time.Second) }

@@ -169,7 +169,7 @@ func (r *Repository) ListTasks(ctx context.Context, runID string) ([]domain.Task
 		CASE WHEN t.status='running' AND h.id IS NOT NULL THEN 'failed' ELSE t.status END,
 		t.ready_at, t.data_ready_at, t.queued_at, t.started_at,
 		CASE WHEN t.status='running' AND h.id IS NOT NULL THEN h.finished_at ELSE t.finished_at END,
-		t.runtime_seconds, t.queue_seconds, t.transfer_seconds, t.interference_seconds,
+		t.runtime_seconds, t.queue_seconds, t.transfer_seconds, t.transfer_bytes, t.interference_seconds,
 		t.overhead_seconds, t.cost,
 		CASE WHEN t.status='running' AND h.id IS NOT NULL THEN h.failure ELSE t.failure_reason END
 		FROM task_executions t
@@ -187,7 +187,7 @@ func (r *Repository) ListTasks(ctx context.Context, runID string) ([]domain.Task
 			&task.ActivityID, &task.PlannedResourceID, &task.AllocatedResourceID,
 			&task.Attempt, &task.Status, &task.ReadyAt, &task.DataReadyAt,
 			&task.QueuedAt, &task.StartedAt, &task.FinishedAt, &task.RuntimeSeconds,
-			&task.QueueSeconds, &task.TransferSeconds, &task.InterferenceSeconds,
+			&task.QueueSeconds, &task.TransferSeconds, &task.TransferBytes, &task.InterferenceSeconds,
 			&task.OverheadSeconds, &task.Cost, &task.FailureReason); err != nil {
 			return nil, err
 		}
@@ -198,7 +198,7 @@ func (r *Repository) ListTasks(ctx context.Context, runID string) ([]domain.Task
 
 func (r *Repository) ListTransfers(ctx context.Context, runID string) ([]domain.DataTransfer, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT id, execution_run_id,
-		producer_activity_id, consumer_activity_id, source_resource_id,
+		COALESCE(producer_activity_id, ''), COALESCE(consumer_activity_id, ''), source_resource_id,
 		target_resource_id, bytes, started_at, finished_at, duration_seconds, cost
 		FROM data_transfer_observations WHERE execution_run_id=?
 		ORDER BY started_at, producer_activity_id, consumer_activity_id`, runID)
@@ -377,7 +377,7 @@ func (r *Repository) CompleteRun(ctx context.Context, trace domain.ExecutionTrac
 		ON CONFLICT(id) DO UPDATE SET status='completed', started_at=excluded.started_at,
 			finished_at=excluded.finished_at, duration_seconds=excluded.duration_seconds,
 			cost=excluded.cost`, transfer.ID,
-			trace.RunID, transfer.ProducerActivityID, transfer.ConsumerActivityID,
+			trace.RunID, nullableString(transfer.ProducerActivityID), nullableString(transfer.ConsumerActivityID),
 			transfer.SourceResourceID, transfer.TargetResourceID, transfer.Bytes,
 			transfer.StartedAt, transfer.FinishedAt, transfer.DurationSeconds,
 			transfer.Cost); err != nil {
@@ -470,21 +470,21 @@ func saveTask(ctx context.Context, tx *sql.Tx, task domain.TaskExecution) error 
 	_, err := tx.ExecContext(ctx, `INSERT INTO task_executions (
 		id, execution_run_id, plan_assignment_id, activity_id, planned_resource_id,
 		allocated_resource_id, attempt, status, ready_at, data_ready_at, queued_at,
-		started_at, finished_at, runtime_seconds, queue_seconds, transfer_seconds,
+		started_at, finished_at, runtime_seconds, queue_seconds, transfer_seconds, transfer_bytes,
 		interference_seconds, overhead_seconds, cost, failure_reason
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(execution_run_id, activity_id, attempt) DO UPDATE SET
 		allocated_resource_id=excluded.allocated_resource_id, status=excluded.status,
 		started_at=excluded.started_at, finished_at=excluded.finished_at,
 		runtime_seconds=excluded.runtime_seconds, queue_seconds=excluded.queue_seconds,
-		transfer_seconds=excluded.transfer_seconds,
+		transfer_seconds=excluded.transfer_seconds, transfer_bytes=excluded.transfer_bytes,
 		interference_seconds=excluded.interference_seconds,
 		overhead_seconds=excluded.overhead_seconds, cost=excluded.cost,
 		failure_reason=excluded.failure_reason`,
 		task.ID, task.ExecutionRunID, task.PlanAssignmentID, task.ActivityID,
 		task.PlannedResourceID, nullableString(task.AllocatedResourceID), task.Attempt,
 		task.Status, task.ReadyAt, task.DataReadyAt, task.QueuedAt, task.StartedAt,
-		task.FinishedAt, task.RuntimeSeconds, task.QueueSeconds, task.TransferSeconds,
+		task.FinishedAt, task.RuntimeSeconds, task.QueueSeconds, task.TransferSeconds, task.TransferBytes,
 		task.InterferenceSeconds, task.OverheadSeconds, task.Cost, task.FailureReason)
 	return err
 }

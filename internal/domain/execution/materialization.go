@@ -127,6 +127,9 @@ type DataTransferRun struct {
 	Status          TransferStatus   `json:"status"`
 	VerifiedBlobs   []string         `json:"verifiedBlobs,omitempty"`
 	CompletedChunks []int            `json:"completedChunks,omitempty"`
+	StartedAt       float64          `json:"startedAt,omitempty"`
+	FinishedAt      float64          `json:"finishedAt,omitempty"`
+	TransferredBytes int64           `json:"transferredBytes,omitempty"`
 	Error           string           `json:"error,omitempty"`
 }
 
@@ -235,6 +238,9 @@ func (m *WorkspaceMaterialization) Commit(verified []string) error {
 type PreparationGate struct {
 	Executable *ArtifactMaterialization
 	Workspace  *WorkspaceMaterialization
+	// TransferRuns are verified transfer observations performed while preparing
+	// this activity. They are surfaced in the execution timeline and rollups.
+	TransferRuns []DataTransferRun
 }
 
 func (g PreparationGate) Ready() error {

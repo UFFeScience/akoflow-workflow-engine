@@ -98,6 +98,7 @@ type TaskExecution struct {
 	RuntimeSeconds      float64             `json:"runtimeSeconds"`
 	QueueSeconds        float64             `json:"queueSeconds"`
 	TransferSeconds     float64             `json:"transferSeconds"`
+	TransferBytes       int64               `json:"transferBytes"`
 	InterferenceSeconds float64             `json:"interferenceSeconds"`
 	OverheadSeconds     float64             `json:"overheadSeconds"`
 	Cost                float64             `json:"cost"`
