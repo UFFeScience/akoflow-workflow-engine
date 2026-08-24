@@ -1298,7 +1298,7 @@ func (h *Handler) configureGatewayArtifactTransfer(ctx context.Context, requirem
 		return err
 	}
 	root := path.Join("/home", connection.Username, ".akoflow", "artifacts")
-	u := url.URL{Scheme: "ssh", Host: connection.Username + "@" + connection.Endpoint, Path: root}
+	u := url.URL{Scheme: "ssh", User: url.User(connection.Username), Host: connection.Endpoint, Path: root}
 	query := url.Values{}
 	if identity := strings.TrimPrefix(connection.CredentialRef, "file:"); identity != "" {
 		query.Set("identityFile", identity)

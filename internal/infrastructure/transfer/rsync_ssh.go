@@ -28,6 +28,9 @@ func sshTarget(e domain.TransferEndpoint, name string) (string, string, error) {
 		return "", "", fmt.Errorf("ssh endpoint requires absolute path")
 	}
 	host, base := uri.Host, filepath.Clean(uri.Path)
+	if uri.User != nil {
+		host = uri.User.Username() + "@" + host
+	}
 	if host == "" || !filepath.IsAbs(base) {
 		return "", "", fmt.Errorf("ssh endpoint requires host and absolute base path")
 	}
