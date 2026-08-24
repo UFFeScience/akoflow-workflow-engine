@@ -35,6 +35,7 @@ type DataCatalog interface {
 	ListArtifacts(context.Context) ([]domain.ExecutableArtifact, error)
 	ListArtifactLocations(context.Context) ([]domain.ArtifactLocation, error)
 	ListArtifactMaterializations(context.Context, string) ([]domain.ArtifactMaterialization, error)
+	ListArtifactTransferRuns(context.Context, string) ([]domain.DataTransferRun, error)
 	SaveArtifactMaterialization(context.Context, domain.ArtifactMaterialization) error
 	SaveTransferRun(context.Context, domain.DataTransferRun) error
 	FindTransferRun(context.Context, string) (*domain.DataTransferRun, error)

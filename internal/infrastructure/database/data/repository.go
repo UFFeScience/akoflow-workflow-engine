@@ -245,6 +245,32 @@ func (r *Repository) SaveTransferRun(ctx context.Context, value domain.DataTrans
 	return err
 }
 
+func (r *Repository) ListArtifactTransferRuns(ctx context.Context, runID string) ([]domain.DataTransferRun, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT t.id,t.plan_id,t.strategy,t.status,t.verified_blobs,t.completed_chunks,t.error
+		FROM transfer_runs t JOIN artifact_materializations m ON t.id='transfer-' || m.id
+		WHERE m.run_id=? ORDER BY t.id`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	values := []domain.DataTransferRun{}
+	for rows.Next() {
+		var value domain.DataTransferRun
+		var verified, chunks string
+		if err := rows.Scan(&value.ID, &value.PlanID, &value.Strategy, &value.Status, &verified, &chunks, &value.Error); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(verified), &value.VerifiedBlobs); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(chunks), &value.CompletedChunks); err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+	}
+	return values, rows.Err()
+}
+
 func (r *Repository) FindTransferRun(ctx context.Context, id string) (*domain.DataTransferRun, error) {
 	var value domain.DataTransferRun
 	var verified, chunks string

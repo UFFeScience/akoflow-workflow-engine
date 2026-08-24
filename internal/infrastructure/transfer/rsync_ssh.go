@@ -71,7 +71,7 @@ func (RsyncSSH) Exists(ctx context.Context, e domain.TransferEndpoint, name stri
 	if err != nil {
 		return false, err
 	}
-	args := append(sshArgs(e), host, "test -f -- "+shell(path))
+	args := append(sshArgs(e), host, "test -f "+shell(path))
 	output, err := exec.CommandContext(ctx, "ssh", args...).CombinedOutput()
 	if err == nil {
 		return true, nil

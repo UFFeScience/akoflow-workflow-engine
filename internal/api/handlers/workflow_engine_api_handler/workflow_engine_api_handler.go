@@ -844,6 +844,12 @@ func (h *Handler) GetExecution(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		response["artifactMaterializations"] = materializations
+		transferRuns, transferErr := h.data.ListArtifactTransferRuns(r.Context(), run.ID)
+		if transferErr != nil {
+			writeError(w, http.StatusInternalServerError, transferErr)
+			return
+		}
+		response["artifactTransferRuns"] = transferRuns
 	}
 	writeJSON(w, http.StatusOK, response)
 }
