@@ -376,10 +376,12 @@ func batchScript(runID string, activity domain.Activity, partition, node string)
 		script.WriteString(fmt.Sprintf("#SBATCH --mem=%dM\n", (activity.Resources.MemoryBytes+(1<<20)-1)/(1<<20)))
 	}
 	sentinelPrefix := slurmSentinelPrefix(runID, activity.ID)
-	script.WriteString("sentinel=")
+	// Keep the sentinel in the submission directory. The activity command may
+	// change into its workspace, and a relative sentinel path would otherwise
+	// leave the initial `running` file behind while writing completion there.
+	script.WriteString("sentinel_dir=$(pwd)\nsentinel=$(printf '%s/%s' \"$sentinel_dir\" ")
 	script.WriteString(shellQuote(sentinelPrefix))
-	script.WriteString("\"${SLURM_JOB_ID}\"")
-	script.WriteString(".status\n")
+	script.WriteString(")\nsentinel=\"${sentinel}${SLURM_JOB_ID}.status\"\n")
 	script.WriteString("artifact_root=")
 	script.WriteString(shellQuote(activity.Command.WorkingDirectory))
 	script.WriteString("\nmkdir -p \"$artifact_root\"\nartifact_before=$(mktemp)\nfind \"$artifact_root\" -type f -print 2>/dev/null | sort > \"$artifact_before\"\n")
