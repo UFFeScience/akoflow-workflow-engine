@@ -103,6 +103,7 @@ func (s *DiscoveryCoordinator) recordAudit(ctx context.Context, event domainaudi
 // paths reported by the login-node probe. It never scans their contents.
 func materializeDiscoveredStorages(ctx context.Context, store ports.DiscoveredStorageStore, definition domain.EnvironmentDefinition, connection domain.EnvironmentConnection, observation ports.ConnectionDiscovery) error {
 	seen := map[string]bool{}
+	runtimeIDs := runtimeIDsForConnection(definition, connection.ID)
 	for _, p := range observation.Transfer.Paths {
 		path := strings.TrimSpace(p.Path)
 		if path == "" || seen[path] {
@@ -137,6 +138,12 @@ func materializeDiscoveredStorages(ctx context.Context, store ports.DiscoveredSt
 			Metadata: map[string]any{
 				"connectionId": connection.ID, "discoverySource": "transfer-path",
 			},
+		}
+		for _, runtimeID := range runtimeIDs {
+			value.RuntimeBindings = append(value.RuntimeBindings, domain.StorageRuntimeBinding{
+				RuntimeID: runtimeID, HostPath: path, ReadOnly: !p.Writable,
+				Configuration: map[string]any{"discoverySource": "transfer-path"},
+			})
 		}
 		if err := store.UpsertDiscoveredStorage(ctx, value); err != nil {
 			return fmt.Errorf("upsert discovered storage %s: %w", path, err)

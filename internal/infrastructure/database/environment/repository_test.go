@@ -118,6 +118,31 @@ func TestEnvironmentRejectsTwoDefaultStoragesForRuntime(t *testing.T) {
 	}
 }
 
+func TestDiscoveredStorageIsVisibleThroughItsRuntimeBinding(t *testing.T) {
+	repository := setupRepository(t)
+	definition := Definition{
+		Environment: domain.Environment{ID: "env", Name: "cluster"},
+		Version: domain.EnvironmentVersion{ID: "v1", Version: 1, Status: domain.EnvironmentVersionPublished,
+			NetworkModel: "real", InterferenceModel: "none", CostModel: "free"},
+		Runtimes: []domain.EnvironmentRuntime{{ID: "slurm", Name: "SLURM", Driver: domain.RuntimeDriverSlurm,
+			Mode: domain.RuntimeModeExecution}},
+	}
+	if err := repository.Create(context.Background(), definition); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.UpsertDiscoveredStorage(context.Background(), domain.StorageResource{
+		ID: "discovered-scratch", EnvironmentVersionID: "v1", Name: "Discovered scratch",
+		Type: domain.StorageLustre, Endpoint: "/scratch", CapacityBytes: 1024,
+		RuntimeBindings: []domain.StorageRuntimeBinding{{RuntimeID: "slurm", HostPath: "/scratch"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	storages, err := repository.ListRuntimeStorages(context.Background(), "v1", "slurm")
+	if err != nil || len(storages) != 1 || storages[0].ID != "discovered-scratch" {
+		t.Fatalf("storages=%+v err=%v", storages, err)
+	}
+}
+
 func TestDeleteEnvironmentRemovesDiscoveredInventory(t *testing.T) {
 	repository := setupRepository(t)
 	definition := Definition{

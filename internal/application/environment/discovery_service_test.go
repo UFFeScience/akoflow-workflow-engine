@@ -8,7 +8,10 @@ import (
 	"github.com/UFFeScience/akoflow/internal/domain"
 )
 
-type discoveryCatalog struct{ definition domain.EnvironmentDefinition }
+type discoveryCatalog struct {
+	definition domain.EnvironmentDefinition
+	storages   []domain.StorageResource
+}
 
 func (c discoveryCatalog) Create(context.Context, domain.EnvironmentDefinition) error  { return nil }
 func (c discoveryCatalog) Replace(context.Context, domain.EnvironmentDefinition) error { return nil }
@@ -27,6 +30,10 @@ func (discoveryCatalog) UpsertConnection(context.Context, domain.EnvironmentConn
 }
 func (discoveryCatalog) ListConnections(context.Context, string) ([]domain.EnvironmentConnection, error) {
 	return nil, nil
+}
+func (c *discoveryCatalog) UpsertDiscoveredStorage(_ context.Context, value domain.StorageResource) error {
+	c.storages = append(c.storages, value)
+	return nil
 }
 
 type discoveryInventory struct {
@@ -149,5 +156,31 @@ func TestDiscoveryMaterializesPartitionsReportedBySlurm(t *testing.T) {
 	}
 	if len(inventory.bindings) == 0 {
 		t.Fatal("discovered partition must be bound to the SLURM runtime")
+	}
+}
+
+func TestDiscoveryBindsDiscoveredStorageToConnectionRuntimes(t *testing.T) {
+	definition := domain.EnvironmentDefinition{
+		Version:         domain.EnvironmentVersion{ID: "env-v1"},
+		Connections:     []domain.EnvironmentConnection{{ID: "hpc", Type: domain.ConnectionSSH}},
+		Runtimes:        []domain.EnvironmentRuntime{{ID: "slurm", Configuration: map[string]any{"connectionId": "hpc"}}},
+		Resources:       []domain.Resource{{ID: "cluster", Type: domain.ResourceCluster}},
+		RuntimeBindings: []domain.ResourceRuntimeBinding{{ResourceID: "cluster", RuntimeID: "slurm", Enabled: true}},
+	}
+	catalog := &discoveryCatalog{definition: definition}
+	coordinator := NewDiscoveryCoordinator(catalog, &discoveryInventory{}, map[domain.ConnectionType]ports.ConnectionDiscoverer{
+		domain.ConnectionSSH: connectionDiscovererStub{observation: ports.ConnectionDiscovery{
+			Available: true, Transfer: domain.TransferCapabilities{Paths: []domain.TransferPath{{Path: "/scratch/user", Kind: "scratch", Writable: true}}},
+		}},
+	})
+	if _, err := coordinator.DiscoverConnection(context.Background(), "hpc"); err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.storages) != 1 || len(catalog.storages[0].RuntimeBindings) != 1 {
+		t.Fatalf("storages=%+v", catalog.storages)
+	}
+	binding := catalog.storages[0].RuntimeBindings[0]
+	if binding.RuntimeID != "slurm" || binding.HostPath != "/scratch/user" {
+		t.Fatalf("binding=%+v", binding)
 	}
 }

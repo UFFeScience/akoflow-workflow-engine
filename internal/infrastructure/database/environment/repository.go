@@ -887,6 +887,11 @@ func (r *Repository) FindDefaultRuntimeStorage(ctx context.Context, versionID, r
 	return nil, sql.ErrNoRows
 }
 func (r *Repository) UpsertDiscoveredStorage(ctx context.Context, value domain.StorageResource) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 	configuration, err := json.Marshal(value.Configuration)
 	if err != nil {
 		return err
@@ -907,10 +912,34 @@ func (r *Repository) UpsertDiscoveredStorage(ctx context.Context, value domain.S
 		capacity_bytes=excluded.capacity_bytes,
 		configuration=excluded.configuration,
 		metadata=excluded.metadata`
-	_, err = r.db.ExecContext(ctx, statement,
+	_, err = tx.ExecContext(ctx, statement,
 		value.ID, value.EnvironmentVersionID, value.Name, value.Type,
 		value.Endpoint, value.CapacityBytes, value.Shared, value.ReadOnly,
 		string(configuration), value.CredentialReference, string(encoded),
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	for _, binding := range value.RuntimeBindings {
+		configuration, err := json.Marshal(binding.Configuration)
+		if err != nil {
+			return err
+		}
+		containerPath := binding.ContainerPath
+		if containerPath == "" {
+			containerPath = "/akoflow/data"
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO storage_runtime_bindings (
+			storage_resource_id, environment_version_id, runtime_id, is_default,
+			host_path, container_path, read_only, configuration
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(storage_resource_id, runtime_id) DO UPDATE SET
+			host_path=excluded.host_path, container_path=excluded.container_path,
+			read_only=excluded.read_only, configuration=excluded.configuration`,
+			value.ID, value.EnvironmentVersionID, binding.RuntimeID, binding.Default,
+			binding.HostPath, containerPath, binding.ReadOnly, string(configuration)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
