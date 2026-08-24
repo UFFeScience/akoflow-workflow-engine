@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"path"
 	"reflect"
 	"strconv"
 	"strings"
@@ -1268,11 +1270,49 @@ func (h *Handler) resolveBuildPreparations(ctx context.Context, request *ports.E
 		if !required {
 			continue
 		}
+		if err := h.configureGatewayArtifactTransfer(ctx, &requirement, resource); err != nil {
+			return err
+		}
 		if request.PreparationRequirementsByActivity == nil {
 			request.PreparationRequirementsByActivity = make(map[string]domain.PreparationRequirement)
 		}
 		request.PreparationRequirementsByActivity[activity.ID] = requirement
 	}
+	return nil
+}
+
+func (h *Handler) configureGatewayArtifactTransfer(ctx context.Context, requirement *domain.PreparationRequirement, resource domain.Resource) error {
+	if requirement.Artifact == nil || requirement.ArtifactTransfer == nil {
+		return nil
+	}
+	connections, ok := h.environments.(ports.ConnectionStore)
+	if !ok {
+		return nil
+	}
+	connectionID, _ := resource.Metadata["connectionId"].(string)
+	if connectionID == "" {
+		return nil
+	}
+	connection, err := connections.FindConnection(ctx, connectionID)
+	if err != nil || connection == nil || connection.Type != domain.ConnectionSSH || connection.Endpoint == "" || connection.Username == "" {
+		return err
+	}
+	root := path.Join("/home", connection.Username, ".akoflow", "artifacts")
+	u := url.URL{Scheme: "ssh", Host: connection.Username + "@" + connection.Endpoint, Path: root}
+	query := url.Values{}
+	if identity := strings.TrimPrefix(connection.CredentialRef, "file:"); identity != "" {
+		query.Set("identityFile", identity)
+	}
+	for _, key := range []string{"knownHostsFile", "proxyCommand"} {
+		if value, _ := connection.Configuration[key].(string); value != "" {
+			query.Set(key, value)
+		}
+	}
+	u.RawQuery = query.Encode()
+	requirement.Artifact.DestinationPath = path.Join(root, strings.TrimPrefix(requirement.Artifact.Digest, "sha256:"))
+	requirement.ArtifactTransfer.Strategy = domain.TransferSourcePush
+	requirement.ArtifactTransfer.Destination.URI = u.String()
+	requirement.ArtifactTransfer.Destination.Path = ""
 	return nil
 }
 

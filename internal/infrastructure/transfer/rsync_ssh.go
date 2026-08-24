@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,12 +20,14 @@ type RsyncSSH struct{}
 
 func (RsyncSSH) CanHandle(e domain.TransferEndpoint) bool { return strings.HasPrefix(e.URI, "ssh://") }
 func sshTarget(e domain.TransferEndpoint, name string) (string, string, error) {
-	rest := strings.TrimPrefix(e.URI, "ssh://")
-	slash := strings.Index(rest, "/")
-	if slash < 0 {
+	uri, err := url.Parse(e.URI)
+	if err != nil || uri.Scheme != "ssh" {
+		return "", "", fmt.Errorf("invalid SSH endpoint")
+	}
+	if uri.Host == "" || uri.Path == "" {
 		return "", "", fmt.Errorf("ssh endpoint requires absolute path")
 	}
-	host, base := rest[:slash], filepath.Clean(rest[slash:])
+	host, base := uri.Host, filepath.Clean(uri.Path)
 	if host == "" || !filepath.IsAbs(base) {
 		return "", "", fmt.Errorf("ssh endpoint requires host and absolute base path")
 	}
@@ -45,6 +48,18 @@ func sshArgs(e domain.TransferEndpoint) []string {
 	}
 	if options := e.Configuration["sshOptions"]; options != "" {
 		args = append(args, strings.Fields(options)...)
+	}
+	if uri, err := url.Parse(e.URI); err == nil {
+		query := uri.Query()
+		if identity := query.Get("identityFile"); identity != "" {
+			args = append(args, "-i", identity)
+		}
+		if knownHosts := query.Get("knownHostsFile"); knownHosts != "" {
+			args = append(args, "-o", "UserKnownHostsFile="+knownHosts, "-o", "StrictHostKeyChecking=yes")
+		}
+		if proxy := query.Get("proxyCommand"); proxy != "" {
+			args = append(args, "-o", "ProxyCommand="+proxy)
+		}
 	}
 	return args
 }

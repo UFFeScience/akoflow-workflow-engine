@@ -71,7 +71,7 @@ func preparationForOutput(variant *domain.ArtifactVariant, location *domain.Arti
 		DestinationPath: destination, Status: domain.MaterializationPlanned,
 	}
 	transfer := domain.DataTransferPlan{
-		ID: "transfer-" + materialization.ID, Strategy: domain.TransferDestinationPull,
+		ID: "transfer-" + materialization.ID, Strategy: domain.TransferSourcePush,
 		Source: domain.TransferLocation{URI: location.URI},
 		Destination: domain.TransferLocation{
 			ResourceID: resource.ID, EnvironmentID: resource.EnvironmentVersionID,
