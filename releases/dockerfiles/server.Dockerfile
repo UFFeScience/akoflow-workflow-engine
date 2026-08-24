@@ -38,7 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /src
 RUN git clone --depth 1 --branch ${APPTAINER_VERSION} https://github.com/apptainer/apptainer.git . \
  && ./mconfig --prefix=/usr/local --with-suid \
- && make -C builddir -j"$(nproc)" \
+ && make -C builddir -j4 \
  && make -C builddir install
 
 FROM debian:trixie-slim
