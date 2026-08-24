@@ -64,7 +64,7 @@ func TestSlurmRejectsUnmaterializedOCIInsteadOfAddingDockerURI(t *testing.T) {
 	}
 }
 
-func TestSlurmUsesRemoteSIFAndExplicitDestinationPull(t *testing.T) {
+func TestSlurmUsesOnlyMaterializedOrSharedSIF(t *testing.T) {
 	image, err := slurmExecutable(domain.ActivityCommand{Executable: &domain.ExecutableReference{
 		Source: domain.ExecutableSource{Type: domain.ExecutableSourceRemoteFile, Path: "/apps/tool.sif", ResourceRef: "plafrim"}, Delivery: domain.ExecutableDelivery{Strategy: domain.DeliveryUseInPlace},
 	}})
@@ -74,7 +74,7 @@ func TestSlurmUsesRemoteSIFAndExplicitDestinationPull(t *testing.T) {
 	image, err = slurmExecutable(domain.ActivityCommand{Executable: &domain.ExecutableReference{
 		Source: domain.ExecutableSource{Type: domain.ExecutableSourceOCI, Reference: "docker://alpine:3.20"}, Delivery: domain.ExecutableDelivery{Strategy: domain.DeliveryDestinationPull},
 	}})
-	if err != nil || image != "docker://alpine:3.20" {
+	if err == nil || image != "" {
 		t.Fatalf("image=%q err=%v", image, err)
 	}
 }

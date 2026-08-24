@@ -455,17 +455,11 @@ func validateSlurmPrerequisites(activity domain.Activity) error {
 	return nil
 }
 
-// slurmExecutable deliberately does not infer docker://. A remote cluster may
-// have no registry access; OCI must be materialized to SIF (or explicitly
-// requested as destination-pull) by the artifact preparation phase first.
+// slurmExecutable never lets a Slurm node fetch an executable itself. The
+// control-plane gateway must materialize and transfer every non-shared SIF
+// before submission.
 func slurmExecutable(command domain.ActivityCommand) (string, error) {
 	if resolved := command.ResolvedExecutable; resolved != nil {
-		if resolved.Delivery == domain.DeliveryDestinationPull {
-			if resolved.RemotePath != "" {
-				return resolved.RemotePath, nil
-			}
-			return "", fmt.Errorf("destination-pull executable requires an explicit URI")
-		}
 		path := resolved.LocalPath
 		if path == "" {
 			path = resolved.RemotePath
@@ -478,9 +472,6 @@ func slurmExecutable(command domain.ActivityCommand) (string, error) {
 	ref := command.EffectiveExecutable()
 	if ref == nil {
 		return "", nil
-	}
-	if ref.Delivery.Strategy == domain.DeliveryDestinationPull && ref.Source.Reference != "" {
-		return ref.Source.Reference, nil
 	}
 	// A legacy SIF/path is already a location. Legacy OCI references are not.
 	image := strings.TrimSpace(command.Image)
