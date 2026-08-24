@@ -82,7 +82,15 @@ func (s Executor) buildOutput(ctx context.Context, spec domain.ArtifactBuild, ru
 			return "", "", fmt.Errorf("Apptainer builder is not configured")
 		}
 		sifPath := filepath.Join(s.ArtifactStoreRoot, "outputs", run.ID+".sif")
-		output, err := s.Runner.Run(ctx, apptainer, []string{"build", sifPath, "docker://" + image}, nil)
+		// Apptainer otherwise selects the image matching the architecture of the
+		// control-plane host.  That is incorrect when the build is intended for a
+		// different execution environment (for example an arm64 laptop building a
+		// SIF for an amd64 Slurm cluster).
+		architecture := strings.TrimSpace(spec.TargetArchitecture)
+		if architecture == "" {
+			architecture = "amd64"
+		}
+		output, err := s.Runner.Run(ctx, apptainer, []string{"build", "--arch", architecture, sifPath, "docker://" + image}, nil)
 		if err != nil {
 			return "", string(output), err
 		}
