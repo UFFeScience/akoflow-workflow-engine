@@ -72,12 +72,16 @@ func (RsyncSSH) Exists(ctx context.Context, e domain.TransferEndpoint, name stri
 		return false, err
 	}
 	args := append(sshArgs(e), host, "test -f -- "+shell(path))
-	err = exec.CommandContext(ctx, "ssh", args...).Run()
+	output, err := exec.CommandContext(ctx, "ssh", args...).CombinedOutput()
 	if err == nil {
 		return true, nil
 	}
 	if exit, ok := err.(*exec.ExitError); ok && exit.ExitCode() == 1 {
 		return false, nil
+	}
+	message := strings.TrimSpace(string(output))
+	if message != "" {
+		return false, fmt.Errorf("check SSH location: %w: %s", err, message)
 	}
 	return false, fmt.Errorf("check SSH location: %w", err)
 }
