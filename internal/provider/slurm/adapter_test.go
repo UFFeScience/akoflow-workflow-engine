@@ -149,11 +149,11 @@ func TestSentinelAndScontrolStatusParsing(t *testing.T) {
 }
 
 func TestSentinelRecordsContainerStartupTiming(t *testing.T) {
-	executor := &executorFake{output: []byte("state=completed\nexit_code=0\nstarted_at=100\ncontainer_started_at=103.25\n")}
+	executor := &executorFake{output: []byte("state=completed\nexit_code=0\nstarted_at=100\nallocated_node=bora017\ncontainer_started_at=103.25\n")}
 	handle, found := New(executor, "").sentinelStatus(context.Background(), domain.ActivityHandle{
 		Metadata: map[string]any{"sentinelPath": "status"},
 	})
-	if !found || handle.StartedAt != 100 || handle.Metadata[domain.TimingContainerStartedAt] != 103.25 {
+	if !found || handle.StartedAt != 100 || handle.Metadata[domain.TimingContainerStartedAt] != 103.25 || handle.Metadata["allocatedNode"] != "bora017" {
 		t.Fatalf("handle=%+v found=%t", handle, found)
 	}
 }
