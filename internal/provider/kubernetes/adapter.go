@@ -60,12 +60,14 @@ func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionC
 			return domain.ActivityHandle{}, err
 		}
 	}
+	submittedAt := runtimecommon.UnixSeconds(time.Now())
 	return domain.ActivityHandle{ID: runtimecommon.NewID("activity"), RunID: execution.Run.ID,
 		ActivityID: activity.ID, ResourceID: execution.Resource.ID,
 		RuntimeID: execution.RuntimeID, ExternalID: name,
-		Status: domain.HandleStarting, StartedAt: runtimecommon.UnixSeconds(time.Now()),
+		Status: domain.HandleStarting, StartedAt: submittedAt,
 		Endpoints: serviceEndpoints(name, a.namespace, activity),
 		Metadata: map[string]any{
+			domain.TimingSubmittedAt:    submittedAt,
 			"artifactObservationDriver": "filesystem-diff",
 			"artifactObservationRoot":   observationRoot(activity, execution.Run.ID),
 			"artifactStorageType":       storageBindingFor(activity).Type,
@@ -87,6 +89,7 @@ func (a *Adapter) Inspect(ctx context.Context, handle domain.ActivityHandle) (do
 	if err := json.Unmarshal(output, &job); err != nil {
 		return handle, fmt.Errorf("decode Kubernetes job: %w", err)
 	}
+	a.applyPodTiming(ctx, handle.ExternalID, &handle)
 	switch {
 	case job.Status.Succeeded > 0:
 		handle.Status = domain.HandleCompleted
@@ -125,6 +128,45 @@ func (a *Adapter) Inspect(ctx context.Context, handle domain.ActivityHandle) (do
 		}
 	}
 	return handle, nil
+}
+
+func (a *Adapter) applyPodTiming(ctx context.Context, jobName string, handle *domain.ActivityHandle) {
+	payload, err := a.api.List(ctx, a.namespace, "pods", "job-name="+jobName)
+	if err != nil {
+		return
+	}
+	var pods struct {
+		Items []struct {
+			Status struct {
+				StartTime         *time.Time `json:"startTime"`
+				ContainerStatuses []struct {
+					Name  string `json:"name"`
+					State struct {
+						Running *struct {
+							StartedAt time.Time `json:"startedAt"`
+						} `json:"running"`
+					} `json:"state"`
+				} `json:"containerStatuses"`
+			} `json:"status"`
+		} `json:"items"`
+	}
+	if json.Unmarshal(payload, &pods) != nil || len(pods.Items) == 0 {
+		return
+	}
+	status := pods.Items[0].Status
+	if status.StartTime != nil && !status.StartTime.IsZero() {
+		handle.StartedAt = runtimecommon.UnixSeconds(*status.StartTime)
+	}
+	for _, container := range status.ContainerStatuses {
+		if container.Name != activityContainer || container.State.Running == nil || container.State.Running.StartedAt.IsZero() {
+			continue
+		}
+		if handle.Metadata == nil {
+			handle.Metadata = make(map[string]any)
+		}
+		handle.Metadata[domain.TimingContainerStartedAt] = runtimecommon.UnixSeconds(container.State.Running.StartedAt)
+		return
+	}
 }
 
 func (a *Adapter) activityLog(ctx context.Context, jobName string) ([]byte, error) {

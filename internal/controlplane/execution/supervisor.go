@@ -352,17 +352,27 @@ func newRunningTask(
 func completeTask(task *domain.TaskExecution, handle domain.ActivityHandle) {
 	task.Status, task.FinishedAt = domain.TaskCompleted, handle.FinishedAt
 	applyHandleTiming(task, handle)
-	task.RuntimeSeconds = maxFloat(0, handle.FinishedAt-handle.StartedAt)
+	task.RuntimeSeconds = maxFloat(0, handle.FinishedAt-executionStartedAt(handle))
 }
 
 func applyHandleTiming(task *domain.TaskExecution, handle domain.ActivityHandle) {
-	if submittedAt, ok := metadataFloat(handle.Metadata, "submittedAt"); ok {
+	if submittedAt, ok := metadataFloat(handle.Metadata, domain.TimingSubmittedAt); ok {
 		task.QueuedAt = submittedAt
 		task.QueueSeconds = maxFloat(0, handle.StartedAt-submittedAt)
 	}
 	if handle.StartedAt > 0 {
 		task.StartedAt = handle.StartedAt
 	}
+	if containerStartedAt, ok := metadataFloat(handle.Metadata, domain.TimingContainerStartedAt); ok {
+		task.OverheadSeconds = maxFloat(0, containerStartedAt-handle.StartedAt)
+	}
+}
+
+func executionStartedAt(handle domain.ActivityHandle) float64 {
+	if containerStartedAt, ok := metadataFloat(handle.Metadata, domain.TimingContainerStartedAt); ok && containerStartedAt > handle.StartedAt {
+		return containerStartedAt
+	}
+	return handle.StartedAt
 }
 
 func metadataFloat(metadata map[string]any, key string) (float64, bool) {

@@ -99,7 +99,7 @@ func (a *Adapter) Start(ctx context.Context, execution domain.ActivityExecutionC
 		Metadata: map[string]any{"executionTarget": string(domain.ExecutionTargetBatch), "scriptPath": scriptPath,
 			"logPath":                   slurmLogPath(execution.Run.ID, activity.ID, jobID),
 			"sentinelPath":              slurmSentinelPath(execution.Run.ID, activity.ID, jobID),
-			"submittedAt":               submittedAt,
+			domain.TimingSubmittedAt:    submittedAt,
 			"artifactObservationDriver": "filesystem-diff", "artifactObservationRoot": activity.Command.WorkingDirectory}}, nil
 }
 
@@ -150,6 +150,12 @@ func (a *Adapter) sentinelStatus(ctx context.Context, handle domain.ActivityHand
 	values := sentinelValues(string(payload))
 	if startedAt, err := strconv.ParseFloat(values["started_at"], 64); err == nil && startedAt > 0 {
 		handle.StartedAt = startedAt
+	}
+	if containerStartedAt, err := strconv.ParseFloat(values["container_started_at"], 64); err == nil && containerStartedAt > 0 {
+		if handle.Metadata == nil {
+			handle.Metadata = make(map[string]any)
+		}
+		handle.Metadata[domain.TimingContainerStartedAt] = containerStartedAt
 	}
 	switch values["state"] {
 	case "running":
@@ -346,7 +352,7 @@ func directScript(activity domain.Activity) (string, error) {
 	}
 	var script strings.Builder
 	script.WriteString("#!/bin/sh\nset -eu\n")
-	if err := writeActivityCommand(&script, activity); err != nil {
+	if err := writeActivityCommand(&script, activity, ""); err != nil {
 		return "", err
 	}
 	return script.String(), nil
@@ -389,19 +395,20 @@ func batchScript(runID string, activity domain.Activity, partition, node string)
 	script.WriteString(")\nsentinel=\"${sentinel}${SLURM_JOB_ID}.status\"\n")
 	script.WriteString("artifact_root=")
 	script.WriteString(shellQuote(activity.Command.WorkingDirectory))
-	script.WriteString("\nmkdir -p \"$artifact_root\"\nartifact_before=$(mktemp)\nfind \"$artifact_root\" -type f -print 2>/dev/null | sort > \"$artifact_before\"\n")
+	script.WriteString("\ncontainer_start_marker=\"${sentinel}.container-started\"\nrm -f \"$container_start_marker\"\nmkdir -p \"$artifact_root\"\nartifact_before=$(mktemp)\nfind \"$artifact_root\" -type f -print 2>/dev/null | sort > \"$artifact_before\"\n")
 	script.WriteString("started_at=$(date +%s.%N)\nprintf 'state=running\\nstarted_at=%s\\nartifact_root=%s\\n' \"$started_at\" \"$artifact_root\" > \"$sentinel\"\n")
 	script.WriteString("finish() { code=$?; state=completed; [ \"$code\" -eq 0 ] || state=failed; ")
-	script.WriteString("{ printf 'state=%s\\nexit_code=%s\\nstarted_at=%s\\nartifact_root=%s\\n' \"$state\" \"$code\" \"$started_at\" \"$artifact_root\"; ")
+	script.WriteString("container_started_at=0; [ ! -f \"$container_start_marker\" ] || container_started_at=$(cat \"$container_start_marker\"); ")
+	script.WriteString("{ printf 'state=%s\\nexit_code=%s\\nstarted_at=%s\\ncontainer_started_at=%s\\nartifact_root=%s\\n' \"$state\" \"$code\" \"$started_at\" \"$container_started_at\" \"$artifact_root\"; ")
 	script.WriteString("find \"$artifact_root\" -type f -print 2>/dev/null | sort | comm -13 \"$artifact_before\" - | ")
 	script.WriteString("while IFS= read -r file; do relative=${file#\"$artifact_root\"/}; ")
 	script.WriteString("size=$(wc -c < \"$file\" 2>/dev/null) || continue; ")
 	script.WriteString("checksum=$(sha256sum \"$file\" 2>/dev/null | awk '{print $1}') || continue; ")
 	script.WriteString("encoded=$(printf '%s' \"$relative\" | base64 | tr -d '\\n'); ")
 	script.WriteString("printf 'artifact=%s|%s|%s\\n' \"$encoded\" \"$size\" \"$checksum\"; done; ")
-	script.WriteString("} > \"$sentinel\" || true; rm -f \"$artifact_before\"; exit \"$code\"; }\n")
+	script.WriteString("} > \"$sentinel\" || true; rm -f \"$artifact_before\" \"$container_start_marker\"; exit \"$code\"; }\n")
 	script.WriteString("trap finish EXIT\nset -eu\n")
-	if err := writeActivityCommand(&script, activity); err != nil {
+	if err := writeActivityCommand(&script, activity, "$container_start_marker"); err != nil {
 		return "", err
 	}
 	return script.String(), nil
@@ -423,7 +430,7 @@ func slurmArtifactRoot(runID, activityID string) string {
 	return "akoflow-workspaces/" + shellToken(runID) + "/" + shellToken(activityID)
 }
 
-func writeActivityCommand(script *strings.Builder, activity domain.Activity) error {
+func writeActivityCommand(script *strings.Builder, activity domain.Activity, containerStartMarker string) error {
 	for key, value := range activity.Command.Environment {
 		script.WriteString("export ")
 		script.WriteString(shellToken(key))
@@ -443,7 +450,17 @@ func writeActivityCommand(script *strings.Builder, activity domain.Activity) err
 	if image != "" {
 		script.WriteString("singularity exec ")
 		script.WriteString(shellQuote(image))
-		script.WriteByte(' ')
+		if containerStartMarker != "" {
+			script.WriteString(" /bin/sh -c ")
+			// BusyBox, used by many OCI images, does not support date's %N format.
+			// Seconds are portable across the minimal /bin/sh image contract.
+			script.WriteString(shellQuote(`date +%s > "$1"; shift; exec "$@"`))
+			script.WriteString(" sh ")
+			script.WriteString(containerStartMarker)
+			script.WriteByte(' ')
+		} else {
+			script.WriteByte(' ')
+		}
 	}
 	script.WriteString(shellQuote(activity.Command.Entrypoint))
 	for _, argument := range activity.Command.Arguments {

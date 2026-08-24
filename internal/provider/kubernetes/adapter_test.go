@@ -102,6 +102,20 @@ func TestAdapterExplainsMissingShellContract(t *testing.T) {
 	}
 }
 
+func TestAdapterSeparatesKubernetesQueueAndContainerStartup(t *testing.T) {
+	api := &apiFake{
+		getOutput:  []byte(`{"status":{"active":1}}`),
+		listOutput: []byte(`{"items":[{"status":{"startTime":"2026-08-24T06:30:00Z","containerStatuses":[{"name":"activity","state":{"running":{"startedAt":"2026-08-24T06:30:04Z"}}}]}}]}`),
+	}
+	handle, err := New(api, "default").Inspect(context.Background(), domain.ActivityHandle{
+		ExternalID: "job", StartedAt: 0,
+		Metadata: map[string]any{domain.TimingSubmittedAt: 1.0},
+	})
+	if err != nil || handle.StartedAt != 1787553000 || handle.Metadata[domain.TimingContainerStartedAt] != 1787553004.0 {
+		t.Fatalf("handle=%+v err=%v", handle, err)
+	}
+}
+
 func TestShellLifecycleExecutesActivityAndPublishesManifest(t *testing.T) {
 	command := exec.Command(
 		"/bin/sh", "-c", renderShellLifecycle(), "akoflow-entrypoint",

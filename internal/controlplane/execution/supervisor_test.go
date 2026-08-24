@@ -188,6 +188,20 @@ func TestSupervisorRejectsIncompletePlan(t *testing.T) {
 	}
 }
 
+func TestCompletedTaskSeparatesContainerOverheadFromCompute(t *testing.T) {
+	task := domain.TaskExecution{}
+	completeTask(&task, domain.ActivityHandle{
+		StartedAt: 10, FinishedAt: 18,
+		Metadata: map[string]any{
+			domain.TimingSubmittedAt:        7.0,
+			domain.TimingContainerStartedAt: 12.5,
+		},
+	})
+	if task.QueueSeconds != 3 || task.OverheadSeconds != 2.5 || task.RuntimeSeconds != 5.5 {
+		t.Fatalf("timing=%+v", task)
+	}
+}
+
 func TestSupervisorMarksActivityFailedWhenStartIsRejected(t *testing.T) {
 	store := &executionStoreFake{}
 	activities := &activityControllerFake{startErr: fmt.Errorf("activity image is required for Kubernetes")}

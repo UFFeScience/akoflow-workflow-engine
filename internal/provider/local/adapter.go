@@ -78,11 +78,13 @@ func (a *Adapter) Start(_ context.Context, execution domain.ActivityExecutionCon
 	if err := command.Start(); err != nil {
 		return domain.ActivityHandle{}, fmt.Errorf("start local activity: %w", err)
 	}
+	startedAt := runtimecommon.UnixSeconds(time.Now())
 	handle := domain.ActivityHandle{ID: execution.Run.ID + ":" + activity.ID, RunID: execution.Run.ID,
 		ActivityID: activity.ID, ResourceID: execution.Resource.ID,
 		RuntimeID: execution.RuntimeID, ExternalID: strconv.Itoa(command.Process.Pid),
-		Status: domain.HandleRunning, StartedAt: runtimecommon.UnixSeconds(time.Now()),
+		Status: domain.HandleRunning, StartedAt: startedAt,
 		Endpoints: localEndpoints(activity), Metadata: map[string]any{
+			domain.TimingSubmittedAt:    startedAt,
 			"artifactObservationDriver": "filesystem-diff",
 			"artifactObservationRoot":   root,
 		}}

@@ -19,6 +19,16 @@ const (
 	ExecutionRunStandalone  ExecutionRunKind = "standalone"
 )
 
+// Runtime timing metadata has one contract across real runtimes. SubmittedAt
+// is when the control plane handed work to a runtime, StartedAt is when that
+// runtime allocated execution, and ContainerStartedAt is when user code can
+// begin inside its container. Adapters omit ContainerStartedAt only when they
+// do not execute a container.
+const (
+	TimingSubmittedAt        = "submittedAt"
+	TimingContainerStartedAt = "containerStartedAt"
+)
+
 const (
 	ExecutionRunCreated   ExecutionRunStatus = "created"
 	ExecutionRunRunning   ExecutionRunStatus = "running"

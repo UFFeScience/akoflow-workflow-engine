@@ -148,6 +148,16 @@ func TestSentinelAndScontrolStatusParsing(t *testing.T) {
 	}
 }
 
+func TestSentinelRecordsContainerStartupTiming(t *testing.T) {
+	executor := &executorFake{output: []byte("state=completed\nexit_code=0\nstarted_at=100\ncontainer_started_at=103.25\n")}
+	handle, found := New(executor, "").sentinelStatus(context.Background(), domain.ActivityHandle{
+		Metadata: map[string]any{"sentinelPath": "status"},
+	})
+	if !found || handle.StartedAt != 100 || handle.Metadata[domain.TimingContainerStartedAt] != 103.25 {
+		t.Fatalf("handle=%+v found=%t", handle, found)
+	}
+}
+
 func TestConnectionFactorySubmitsToConfiguredSSHLoginNode(t *testing.T) {
 	executor := &executorFake{output: []byte("123;cluster\n")}
 	adapter, err := (ConnectionFactory{Executor: executor, DefaultScriptDirectory: t.TempDir()}).Build(

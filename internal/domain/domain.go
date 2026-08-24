@@ -219,6 +219,8 @@ const (
 	ExecutionRunRunning         = execution.ExecutionRunRunning
 	ExecutionRunCompleted       = execution.ExecutionRunCompleted
 	ExecutionRunFailed          = execution.ExecutionRunFailed
+	TimingSubmittedAt           = execution.TimingSubmittedAt
+	TimingContainerStartedAt    = execution.TimingContainerStartedAt
 	TaskBlocked                 = execution.TaskBlocked
 	TaskReady                   = execution.TaskReady
 	TaskPreparing               = execution.TaskPreparing
