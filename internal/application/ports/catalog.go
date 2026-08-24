@@ -49,5 +49,6 @@ type DataCatalog interface {
 	FindBuildContext(context.Context, string) (*domain.BuildContextArtifact, error)
 	PublishBuildOutput(context.Context, string, domain.ArtifactVariant, domain.ArtifactLocation) error
 	FindBuildOutput(context.Context, string) (*domain.ArtifactVariant, *domain.ArtifactLocation, error)
+	FindDockerBuildOutput(context.Context, string, string) (*domain.ArtifactBuild, *domain.ArtifactVariant, *domain.ArtifactLocation, error)
 	RegisterArtifactVersion(context.Context, domain.ArtifactVersion) error
 }

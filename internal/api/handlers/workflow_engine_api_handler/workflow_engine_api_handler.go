@@ -1221,6 +1221,9 @@ func resolveDirectOCIImages(workflow *domain.WorkflowVersion) {
 }
 
 func (h *Handler) resolveBuildPreparations(ctx context.Context, request *ports.ExecutionRequest) error {
+	if h.data == nil {
+		return nil
+	}
 	resources := make(map[string]domain.Resource, len(request.Resources))
 	for _, resource := range request.Resources {
 		resources[resource.ID] = resource
@@ -1231,7 +1234,7 @@ func (h *Handler) resolveBuildPreparations(ctx context.Context, request *ports.E
 	}
 	resolver := applicationbuild.OutputResolver{Catalog: h.data}
 	for _, activity := range request.Workflow.Activities {
-		if activity.Command.Executable == nil || activity.Command.Executable.Source.Type != domain.ExecutableSourceType("build") {
+		if activity.Command.Executable == nil {
 			continue
 		}
 		assignment, ok := assignments[activity.ID]
@@ -1242,9 +1245,28 @@ func (h *Handler) resolveBuildPreparations(ctx context.Context, request *ports.E
 		if !ok {
 			return fmt.Errorf("build activity %q has unknown resource %q", activity.ID, assignment.ResourceID)
 		}
-		requirement, err := resolver.Preparation(ctx, activity.Command.Executable.Source.ArtifactBuildRef, activity.ID, resource, "")
-		if err != nil {
-			return err
+		var requirement domain.PreparationRequirement
+		var required bool
+		switch activity.Command.Executable.Source.Type {
+		case domain.ExecutableSourceType("build"):
+			var err error
+			requirement, err = resolver.Preparation(ctx, activity.Command.Executable.Source.ArtifactBuildRef, activity.ID, resource, "")
+			if err != nil {
+				return err
+			}
+			required = true
+		case domain.ExecutableSourceOCI:
+			if executionRuntimeDriver(*request, assignment) != domain.RuntimeDriverSlurm {
+				continue
+			}
+			var err error
+			requirement, required, err = resolver.PreparationForDockerImage(ctx, activity.Command.Executable.Source.Reference, activity.ID, resource, "")
+			if err != nil {
+				return err
+			}
+		}
+		if !required {
+			continue
 		}
 		if request.PreparationRequirementsByActivity == nil {
 			request.PreparationRequirementsByActivity = make(map[string]domain.PreparationRequirement)
@@ -1252,6 +1274,27 @@ func (h *Handler) resolveBuildPreparations(ctx context.Context, request *ports.E
 		request.PreparationRequirementsByActivity[activity.ID] = requirement
 	}
 	return nil
+}
+
+func executionRuntimeDriver(request ports.ExecutionRequest, assignment domain.PlanAssignment) domain.RuntimeDriver {
+	mode := domain.RuntimeModeExecution
+	if request.Run.Mode == domain.ExecutionModeSimulation {
+		mode = domain.RuntimeModeSimulation
+	}
+	runtimes := make(map[string]domain.EnvironmentRuntime, len(request.Runtimes))
+	for _, runtime := range request.Runtimes {
+		runtimes[runtime.ID] = runtime
+	}
+	selected, _ := assignment.Metadata["runtimeId"].(string)
+	for _, binding := range request.RuntimeBindings {
+		if binding.ResourceID != assignment.ResourceID || !binding.Enabled {
+			continue
+		}
+		if runtime, found := runtimes[binding.RuntimeID]; found && runtime.Mode == mode && (selected == "" || runtime.ID == selected) {
+			return runtime.Driver
+		}
+	}
+	return ""
 }
 
 func decode(w http.ResponseWriter, r *http.Request, target any) bool {

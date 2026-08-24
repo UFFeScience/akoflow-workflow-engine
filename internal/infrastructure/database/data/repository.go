@@ -398,6 +398,37 @@ func (r *Repository) FindBuildOutput(ctx context.Context, buildID string) (*doma
 	return &variant, &location, nil
 }
 
+// FindDockerBuildOutput locates the latest published SIF for an OCI image.
+// It is used to transparently upgrade legacy OCI workflow references when a
+// Slurm target requires a materialized executable.
+func (r *Repository) FindDockerBuildOutput(ctx context.Context, image, architecture string) (*domain.ArtifactBuild, *domain.ArtifactVariant, *domain.ArtifactLocation, error) {
+	const query = `SELECT b.id,b.artifact_version_id,b.source_type,b.context_digest,b.recipe_path,b.recipe_digest,b.target_format,b.target_os,b.target_architecture,b.build_arguments,b.cache_key,
+		v.id,v.digest,v.format,v.architecture,v.size_bytes,
+		l.id,l.variant_id,l.scope,l.scope_id,l.endpoint_id,l.uri,l.digest,l.available
+		FROM artifact_builds b
+		JOIN build_runs r ON r.artifact_build_id=b.id
+		JOIN artifact_variants v ON v.id=r.output_variant_id
+		JOIN artifact_locations l ON l.variant_id=v.id
+		WHERE b.source_type='docker-image' AND b.recipe_path=? AND r.status='completed'
+		AND (?='' OR b.target_architecture='' OR b.target_architecture=?)
+		ORDER BY CASE WHEN b.target_architecture=? THEN 0 ELSE 1 END, r.finished_at DESC LIMIT 1`
+	var build domain.ArtifactBuild
+	var variant domain.ArtifactVariant
+	var location domain.ArtifactLocation
+	err := r.db.QueryRowContext(ctx, query, image, architecture, architecture, architecture).Scan(
+		&build.ID, &build.ArtifactVersionID, &build.SourceType, &build.ContextDigest, &build.RecipePath, &build.RecipeDigest, &build.TargetFormat, &build.TargetOS, &build.TargetArchitecture, &build.BuildArguments, &build.CacheKey,
+		&variant.ID, &variant.Digest, &variant.Format, &variant.Architecture, &variant.SizeBytes,
+		&location.ID, &location.VariantID, &location.Scope, &location.ScopeID, &location.EndpointID, &location.URI, &location.Digest, &location.Available,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return &build, &variant, &location, nil
+}
+
 // PublishBuildOutput makes a variant visible only together with the completed
 // build run and its durable location.
 func (r *Repository) PublishBuildOutput(ctx context.Context, runID string, variant domain.ArtifactVariant, location domain.ArtifactLocation) error {
