@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/UFFeScience/akoflow/internal/domain"
 )
@@ -38,7 +39,7 @@ func (r OutputResolver) PreparationForDockerImage(ctx context.Context, image, ac
 	if r.Catalog == nil {
 		return domain.PreparationRequirement{}, false, fmt.Errorf("build output catalog is unavailable")
 	}
-	_, variant, location, err := r.Catalog.FindDockerBuildOutput(ctx, image, resource.Architecture)
+	_, variant, location, err := r.Catalog.FindDockerBuildOutput(ctx, image, normalizedArchitecture(resource.Architecture))
 	if err != nil {
 		return domain.PreparationRequirement{}, false, err
 	}
@@ -46,6 +47,17 @@ func (r OutputResolver) PreparationForDockerImage(ctx context.Context, image, ac
 		return domain.PreparationRequirement{}, false, nil
 	}
 	return preparationForOutput(variant, location, activityID, resource, destination), true, nil
+}
+
+func normalizedArchitecture(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "x86_64", "x64":
+		return "amd64"
+	case "aarch64":
+		return "arm64"
+	default:
+		return value
+	}
 }
 
 func preparationForOutput(variant *domain.ArtifactVariant, location *domain.ArtifactLocation, activityID string, resource domain.Resource, destination string) domain.PreparationRequirement {
