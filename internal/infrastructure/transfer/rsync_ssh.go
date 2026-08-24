@@ -126,7 +126,11 @@ func (RsyncSSH) Put(ctx context.Context, e domain.TransferEndpoint, name string,
 	}
 	sshCommand := "ssh"
 	if extra := sshArgs(e); len(extra) > 0 {
-		sshCommand += " " + strings.Join(extra, " ")
+		quoted := make([]string, len(extra))
+		for index, value := range extra {
+			quoted[index] = shell(value)
+		}
+		sshCommand += " " + strings.Join(quoted, " ")
 	}
 	args := []string{"-a", "--partial", "-e", sshCommand, tmp.Name(), host + ":" + path}
 	if offset > 0 {
