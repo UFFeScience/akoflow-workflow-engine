@@ -38,15 +38,19 @@ type Executor struct {
 }
 
 func (s Executor) Execute(ctx context.Context, spec domain.ArtifactBuild, run domain.BuildRun) (domain.BuildRun, error) {
-	if s.Contexts == nil || s.Runner == nil {
+	if s.Runner == nil || (spec.SourceType != "docker-image" && s.Contexts == nil) {
 		return s.fail(ctx, run, "builder is not configured")
 	}
-	contextPath, err := s.Contexts.ResolveBuildContext(ctx, spec.ContextDigest)
-	if err != nil {
-		return s.fail(ctx, run, fmt.Sprintf("resolve immutable build context: %v", err))
-	}
-	if strings.TrimSpace(contextPath) == "" {
-		return s.fail(ctx, run, "build context is unavailable")
+	contextPath := ""
+	if spec.SourceType != "docker-image" {
+		var err error
+		contextPath, err = s.Contexts.ResolveBuildContext(ctx, spec.ContextDigest)
+		if err != nil {
+			return s.fail(ctx, run, fmt.Sprintf("resolve immutable build context: %v", err))
+		}
+		if strings.TrimSpace(contextPath) == "" {
+			return s.fail(ctx, run, "build context is unavailable")
+		}
 	}
 	run.Status = "running"
 	_ = s.save(ctx, run)
@@ -64,6 +68,25 @@ func (s Executor) buildOutput(ctx context.Context, spec domain.ArtifactBuild, ru
 	}
 	if err := os.MkdirAll(filepath.Join(s.ArtifactStoreRoot, "outputs"), 0700); err != nil {
 		return "", "", err
+	}
+	if spec.SourceType == "docker-image" {
+		if spec.TargetFormat != "sif" {
+			return "", "", fmt.Errorf("Docker image artifacts must target SIF")
+		}
+		image := strings.TrimPrefix(strings.TrimSpace(spec.RecipePath), "docker://")
+		if image == "" || strings.ContainsAny(image, " \t\n\r") {
+			return "", "", fmt.Errorf("a valid Docker image reference is required")
+		}
+		apptainer := s.Apptainer
+		if apptainer == "" {
+			return "", "", fmt.Errorf("Apptainer builder is not configured")
+		}
+		sifPath := filepath.Join(s.ArtifactStoreRoot, "outputs", run.ID+".sif")
+		output, err := s.Runner.Run(ctx, apptainer, []string{"build", sifPath, "docker://" + image}, nil)
+		if err != nil {
+			return "", string(output), err
+		}
+		return sifPath, string(output), nil
 	}
 	buildctl := s.Buildctl
 	if buildctl == "" {

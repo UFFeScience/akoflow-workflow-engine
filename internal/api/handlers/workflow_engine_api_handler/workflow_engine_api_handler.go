@@ -3,7 +3,9 @@ package workflow_engine_api_handler
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -59,6 +61,13 @@ type BuildOrchestrator interface {
 	Upload(context.Context, io.Reader) (domain.BuildContextArtifact, error)
 	Start(context.Context, domain.ArtifactBuild) (domain.BuildRun, error)
 	MaxUploadBytes() int64
+}
+
+type DockerArtifactRequest struct {
+	ArtifactID   string `json:"artifactId"`
+	Version      string `json:"version"`
+	Image        string `json:"image"`
+	Architecture string `json:"architecture"`
 }
 
 type Dependencies struct {
@@ -924,6 +933,40 @@ func (h *Handler) CreateArtifactBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, value)
+}
+
+// RegisterDockerArtifact creates an immutable catalog version and a SIF build
+// specification. The actual registry pull happens only when its build run is
+// started, never in the browser.
+func (h *Handler) RegisterDockerArtifact(w http.ResponseWriter, r *http.Request) {
+	var input DockerArtifactRequest
+	if !decode(w, r, &input) {
+		return
+	}
+	input.ArtifactID = strings.TrimSpace(input.ArtifactID)
+	input.Version = strings.TrimSpace(input.Version)
+	image := strings.TrimPrefix(strings.TrimSpace(input.Image), "docker://")
+	if input.ArtifactID == "" || input.Version == "" || image == "" || strings.ContainsAny(image, " \t\n\r") {
+		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("artifactId, version and a valid Docker image are required"))
+		return
+	}
+	if input.Architecture == "" {
+		input.Architecture = "amd64"
+	}
+	now := time.Now().UTC().UnixNano()
+	version := domain.ArtifactVersion{ID: fmt.Sprintf("artifact-version-%d", now), ArtifactID: input.ArtifactID, Version: input.Version, Scope: domain.CatalogScope("system")}
+	if err := h.data.RegisterArtifactVersion(r.Context(), version); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("register artifact version: %w", err))
+		return
+	}
+	sum := sha256.Sum256([]byte("docker://" + image))
+	digest := "sha256:" + hex.EncodeToString(sum[:])
+	build := domain.ArtifactBuild{ID: fmt.Sprintf("build-%d", now), ArtifactVersionID: version.ID, SourceType: "docker-image", ContextDigest: digest, RecipePath: image, RecipeDigest: digest, TargetFormat: "sif", TargetOS: "linux", TargetArchitecture: input.Architecture, BuildArguments: "{}", CacheKey: "docker-image:" + digest + ":" + version.ID}
+	if err := h.data.SaveArtifactBuild(r.Context(), build); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("create Docker artifact build: %w", err))
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"artifact": version, "build": build})
 }
 func (h *Handler) GetArtifactBuild(w http.ResponseWriter, r *http.Request) {
 	value, err := h.data.FindArtifactBuild(r.Context(), r.PathValue("buildId"))

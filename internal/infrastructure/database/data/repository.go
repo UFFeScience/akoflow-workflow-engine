@@ -277,6 +277,12 @@ func (r *Repository) SaveArtifactBuild(ctx context.Context, value domain.Artifac
 	return err
 }
 
+func (r *Repository) RegisterArtifactVersion(ctx context.Context, value domain.ArtifactVersion) error {
+	_, err := r.db.ExecContext(ctx, `INSERT INTO artifact_versions(id,artifact_id,name,version,scope,scope_id)
+		VALUES(?,?,?,?,?,?)`, value.ID, value.ArtifactID, value.ArtifactID, value.Version, value.Scope, value.ScopeID)
+	return err
+}
+
 func (r *Repository) FindArtifactBuildByCacheKey(ctx context.Context, cacheKey string) (*domain.ArtifactBuild, error) {
 	return r.findArtifactBuild(ctx, `SELECT id,artifact_version_id,source_type,context_digest,recipe_path,recipe_digest,target_format,target_os,target_architecture,build_arguments,cache_key FROM artifact_builds WHERE cache_key=?`, cacheKey)
 }
