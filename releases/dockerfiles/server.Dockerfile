@@ -30,7 +30,7 @@ FROM moby/buildkit:latest AS buildkit-client
 # runtime package. The build is architecture-native, so Docker Buildx produces
 # matching amd64/arm64 images without copying a host binary.
 FROM golang:1.25-trixie AS apptainer-builder
-ARG APPTAINER_VERSION=v1.3.6
+ARG APPTAINER_VERSION=v1.5.3
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential git libseccomp-dev libglib2.0-dev libgpgme-dev \
     libssl-dev libnss3-dev uuid-dev \
