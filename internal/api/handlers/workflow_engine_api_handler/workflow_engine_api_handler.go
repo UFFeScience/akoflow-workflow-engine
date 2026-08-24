@@ -582,6 +582,33 @@ func (h *Handler) SaveInstance(w http.ResponseWriter, r *http.Request) {
 	writeItem(w, stored, err)
 }
 
+func (h *Handler) GetUserPreferences(w http.ResponseWriter, r *http.Request) {
+	value, err := h.instance.FindPreferences(r.Context(), r.PathValue("clientId"))
+	writeItem(w, value, err)
+}
+
+func (h *Handler) SaveUserPreferences(w http.ResponseWriter, r *http.Request) {
+	var value domaininstance.UserPreferences
+	if !decode(w, r, &value) {
+		return
+	}
+	value.ClientID = r.PathValue("clientId")
+	if len(value.ClientID) < 8 || len(value.ClientID) > 128 {
+		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("a valid client id is required"))
+		return
+	}
+	if value.Theme != "light" && value.Theme != "dark" {
+		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("theme must be light or dark"))
+		return
+	}
+	if err := h.instance.SavePreferences(r.Context(), value); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	stored, err := h.instance.FindPreferences(r.Context(), value.ClientID)
+	writeItem(w, stored, err)
+}
+
 func (h *Handler) ListEnvironments(w http.ResponseWriter, r *http.Request) {
 	items, err := h.environments.List(r.Context())
 	writeList(w, items, err)

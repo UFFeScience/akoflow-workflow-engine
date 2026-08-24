@@ -26,10 +26,48 @@ func Bootstrap(ctx context.Context, db *sql.DB) error {
 	if empty {
 		return installSchema(ctx, db)
 	}
+	if err := migrateUserPreferences(ctx, db); err != nil {
+		return err
+	}
 	if err := Validate(ctx, db); err != nil {
 		return fmt.Errorf("%w; remove the existing database file and recreate it: %v", ErrIncompatibleSchema, err)
 	}
 	return nil
+}
+
+// legacySchemaBeforeUserPreferences is the only schema version that can be
+// upgraded in place. Other checksum mismatches continue to be rejected rather
+// than masking a damaged or manually altered database.
+const legacySchemaBeforeUserPreferences = "e69b7b1e006cddda2f49939e41e5b2c84b7fddb61317a38216258e28b55ef250"
+
+func migrateUserPreferences(ctx context.Context, db *sql.DB) error {
+	var checksum string
+	if err := db.QueryRowContext(ctx, `SELECT checksum FROM schema_metadata LIMIT 1`).Scan(&checksum); err != nil {
+		return nil
+	}
+	if checksum == schemaChecksum() {
+		return nil
+	}
+	if checksum != legacySchemaBeforeUserPreferences {
+		return nil
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin user preferences migration: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS user_preferences (
+		client_id TEXT PRIMARY KEY,
+		theme TEXT NOT NULL DEFAULT 'light' CHECK(theme IN ('light', 'dark')),
+		animations_enabled INTEGER NOT NULL DEFAULT 1 CHECK(animations_enabled IN (0, 1)),
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		return fmt.Errorf("create user preferences table: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE schema_metadata SET checksum=?, applied_at=?`, schemaChecksum(), time.Now().UTC()); err != nil {
+		return fmt.Errorf("record user preferences migration: %w", err)
+	}
+	return tx.Commit()
 }
 
 func installSchema(ctx context.Context, db *sql.DB) error {

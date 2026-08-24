@@ -7,6 +7,12 @@ CREATE TABLE system_instance (
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
+CREATE TABLE user_preferences (
+		client_id TEXT PRIMARY KEY,
+		theme TEXT NOT NULL DEFAULT 'light' CHECK(theme IN ('light', 'dark')),
+		animations_enabled INTEGER NOT NULL DEFAULT 1 CHECK(animations_enabled IN (0, 1)),
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
 CREATE TABLE environments (
 		id TEXT PRIMARY KEY,
 		name TEXT NOT NULL,

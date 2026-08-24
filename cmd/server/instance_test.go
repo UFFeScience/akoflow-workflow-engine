@@ -21,6 +21,14 @@ func (store *instanceStoreStub) Save(_ context.Context, value domaininstance.Ins
 	return store.err
 }
 
+func (store *instanceStoreStub) FindPreferences(context.Context, string) (*domaininstance.UserPreferences, error) {
+	return nil, store.err
+}
+
+func (store *instanceStoreStub) SavePreferences(context.Context, domaininstance.UserPreferences) error {
+	return store.err
+}
+
 func TestEnsureSystemInstanceKeepsExistingIdentity(t *testing.T) {
 	existing := &domaininstance.Instance{ID: "existing", Name: "Existing"}
 	store := &instanceStoreStub{value: existing}

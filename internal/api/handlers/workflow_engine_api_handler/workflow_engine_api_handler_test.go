@@ -169,6 +169,14 @@ func (store *instanceStoreStub) Save(_ context.Context, value domaininstance.Ins
 	return nil
 }
 
+func (store *instanceStoreStub) FindPreferences(context.Context, string) (*domaininstance.UserPreferences, error) {
+	return nil, nil
+}
+
+func (store *instanceStoreStub) SavePreferences(context.Context, domaininstance.UserPreferences) error {
+	return nil
+}
+
 func (resourceInventoryStub) Upsert(context.Context, domain.Resource) error { return nil }
 func (resourceInventoryStub) UpsertRuntimeBinding(context.Context, domain.ResourceRuntimeBinding) error {
 	return nil

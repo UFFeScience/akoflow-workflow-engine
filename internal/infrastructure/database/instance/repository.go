@@ -55,3 +55,26 @@ func (repository *Repository) Save(ctx context.Context, value domaininstance.Ins
 	)
 	return err
 }
+
+func (repository *Repository) FindPreferences(ctx context.Context, clientID string) (*domaininstance.UserPreferences, error) {
+	value := &domaininstance.UserPreferences{}
+	err := repository.db.QueryRowContext(ctx, `SELECT client_id, theme, animations_enabled, updated_at
+		FROM user_preferences WHERE client_id=?`, clientID).Scan(
+		&value.ClientID, &value.Theme, &value.AnimationsEnabled, &value.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return value, err
+}
+
+func (repository *Repository) SavePreferences(ctx context.Context, value domaininstance.UserPreferences) error {
+	_, err := repository.db.ExecContext(ctx, `INSERT INTO user_preferences (
+		client_id, theme, animations_enabled, updated_at
+	) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+	ON CONFLICT(client_id) DO UPDATE SET
+		theme=excluded.theme,
+		animations_enabled=excluded.animations_enabled,
+		updated_at=CURRENT_TIMESTAMP`, value.ClientID, value.Theme, value.AnimationsEnabled)
+	return err
+}
