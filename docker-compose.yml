@@ -2,7 +2,8 @@ services:
   akoflow-server:
     build:
       context: .
-      dockerfile: releases/dockerfiles/server.Dockerfile
+      dockerfile: releases/dockerfiles/server.dev.Dockerfile
+    command: go run ./cmd/server
     environment:
       AKOFLOW_HTTP_ADDRESS: 0.0.0.0:8080
       AKOFLOW_API_TOKEN: ${AKOFLOW_API_TOKEN:?set AKOFLOW_API_TOKEN in .env}
@@ -22,6 +23,9 @@ services:
       K8S_API_SERVER_CA_FILE: ${K8S_API_SERVER_CA_FILE:-}
       K8S_API_SERVER_INSECURE_SKIP_TLS_VERIFY: ${K8S_API_SERVER_INSECURE_SKIP_TLS_VERIFY:-true}
     volumes:
+      - .:/app
+      - go-module-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
       - artifact-store:/var/lib/akoflow/artifacts
       # Plans, preparation state and execution history need to survive a
       # release container recreation. This starts as a clean database volume.
@@ -53,3 +57,5 @@ volumes:
   artifact-store:
   buildkit-state:
   engine-data:
+  go-module-cache:
+  go-build-cache:

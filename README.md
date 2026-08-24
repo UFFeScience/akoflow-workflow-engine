@@ -17,10 +17,12 @@ database, stop it, remove the configured SQLite database file, and start it
 again to create a clean database. Export any data that must be retained before
 removing the file.
 
-## Docker build service
+## Development server
 
-The Compose stack runs the API, a rootless BuildKit daemon, and a persistent
-artifact-store volume. It does **not** mount `/var/run/docker.sock`.
+The Compose stack is the development environment. The API always runs from
+the mounted source tree via `go run ./cmd/server`; it does not use a compiled
+production server image. BuildKit and the artifact-store remain available for
+Docker-image-to-SIF builds. The stack does **not** mount `/var/run/docker.sock`.
 
 ```sh
 cp .env.example .env
@@ -37,21 +39,17 @@ browser requests. BuildKit produces OCI archives. The server image includes a na
 and can convert OCI to SIF; Compose grants `/dev/fuse` and `SYS_ADMIN` solely
 for that operation, not Docker host control.
 
-## Development server
-
-Use the development overlay while changing the backend. It mounts the source
-tree and starts the API with `go run ./cmd/server`; after a Go change, restart
-only the service—there is no production-image rebuild.
+After a Go change, restart only the server; there is no production-image
+rebuild.
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up
-# after editing Go code: Ctrl-C, then run the same command again
+docker compose restart akoflow-server
 ```
 
-The overlay reuses the Compose SQLite and artifact volumes, keeping the
-configured environments available while the source is run through `go run`.
-Its image is built once to install Go and operational clients; source edits
-themselves are compiled by `go run`.
+The stack reuses the SQLite and artifact volumes, keeping configured
+environments available while the source is run through `go run`. Its image is
+built only to install Go and operational clients; source edits themselves are
+compiled at server start.
 
 ## Executable and workspace delivery
 
