@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"path"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -115,6 +116,18 @@ type Handler struct {
 	terminal     ports.InteractiveConsole
 	storage      StorageNavigator
 	build        BuildOrchestrator
+}
+
+// SearchResult is a compact, navigable projection of a control-plane entity.
+// It intentionally does not expose raw configuration or credentials.
+type SearchResult struct {
+	Type     string  `json:"type"`
+	ID       string  `json:"id"`
+	Title    string  `json:"title"`
+	Subtitle string  `json:"subtitle,omitempty"`
+	Path     string  `json:"path"`
+	Status   string  `json:"status,omitempty"`
+	Score    float64 `json:"score"`
 }
 
 func New(dependencies Dependencies) (*Handler, error) {
@@ -699,6 +712,158 @@ func (h *Handler) ExportWorkflow(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListPlans(w http.ResponseWriter, r *http.Request) {
 	items, err := h.plans.List(r.Context())
 	writeList(w, items, err)
+}
+
+// Search is the global, permission-aware control-plane search. It uses the
+// same catalogs as the individual pages, so no client-side bulk indexing is
+// needed and every result has a direct UI route.
+func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if query == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"query": query, "results": []SearchResult{}, "total": 0})
+		return
+	}
+	limit := positiveInteger(r.URL.Query().Get("limit"), 30)
+	if limit > 100 {
+		limit = 100
+	}
+	types := searchTypes(r.URL.Query().Get("types"))
+	results := make([]SearchResult, 0, limit)
+	add := func(item SearchResult, fields ...string) {
+		if !types[item.Type] {
+			return
+		}
+		if score := searchScore(query, fields...); score > 0 {
+			item.Score = score
+			results = append(results, item)
+		}
+	}
+	if types["workflow"] {
+		items, err := h.workflows.List(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		for _, item := range items {
+			add(SearchResult{Type: "workflow", ID: item.ID, Title: item.Name, Subtitle: item.Namespace, Path: "/workflows/" + url.PathEscape(item.ID)}, item.ID, item.ExternalID, item.Name, item.Namespace)
+		}
+	}
+	if types["execution"] {
+		items, err := h.executions.ListRuns(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		for _, item := range items {
+			add(SearchResult{Type: "execution", ID: item.ID, Title: firstNonEmpty(item.Title, item.ID), Subtitle: firstNonEmpty(item.FailureReason, item.ResourceID, item.RuntimeID), Status: string(item.Status), Path: "/executions/" + url.PathEscape(item.ID)}, item.ID, item.Title, item.ResourceID, item.RuntimeID, item.FailureReason, string(item.Status))
+		}
+	}
+	if types["artifact"] {
+		items, err := h.data.ListArtifacts(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		for _, item := range items {
+			add(SearchResult{Type: "artifact", ID: item.ID, Title: firstNonEmpty(item.Name, item.ID), Subtitle: item.Version, Path: "/artifacts/" + url.PathEscape(item.ID)}, item.ID, item.Name, item.Version)
+		}
+	}
+	if types["environment"] {
+		items, err := h.environments.List(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		for _, item := range items {
+			value := item.Environment
+			add(SearchResult{Type: "environment", ID: value.ID, Title: value.Name, Subtitle: value.Description, Status: string(value.Status), Path: "/environments/" + url.PathEscape(value.ID)}, value.ID, value.Name, value.Description, string(value.Status))
+		}
+	}
+	if types["resource"] {
+		items, err := h.resources.List(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		for _, item := range items {
+			add(SearchResult{Type: "resource", ID: item.ID, Title: item.Name, Subtitle: string(item.Type), Path: "/resources/" + url.PathEscape(item.ID)}, item.ID, item.Name, item.ProviderID, item.Region, item.Zone, string(item.Type), item.EnvironmentVersionID)
+		}
+	}
+	if types["plan"] {
+		items, err := h.plans.List(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		for _, item := range items {
+			add(SearchResult{Type: "plan", ID: item.ID, Title: item.ID, Subtitle: item.Algorithm, Path: "/plans/" + url.PathEscape(item.ID)}, item.ID, item.Algorithm, item.Objective, item.WorkflowVersionID, item.ExecutionScopeID)
+		}
+	}
+	if types["scope"] {
+		items, err := h.scopes.ListScopes(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		for _, item := range items {
+			add(SearchResult{Type: "scope", ID: item.ID, Title: item.Name, Subtitle: item.NetworkTopologyID, Path: "/execution-scopes/" + url.PathEscape(item.ID)}, item.ID, item.Name, item.NetworkTopologyID, strings.Join(item.EnvironmentVersionIDs, " "))
+		}
+	}
+	if types["materialization"] {
+		items, err := h.data.ListArtifactMaterializations(r.Context(), "")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		for _, item := range items {
+			add(SearchResult{Type: "materialization", ID: item.ID, Title: item.VariantID, Subtitle: firstNonEmpty(item.DestinationPath, item.ResourceID), Status: string(item.Status), Path: "/materializations?runId=" + url.QueryEscape(item.RunID)}, item.ID, item.VariantID, item.Digest, item.ResourceID, item.RunID, item.ActivityID, item.DestinationPath, string(item.Status))
+		}
+	}
+	sort.SliceStable(results, func(i, j int) bool { return results[i].Score > results[j].Score })
+	if len(results) > limit {
+		results = results[:limit]
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"query": query, "results": results, "total": len(results)})
+}
+
+func searchTypes(raw string) map[string]bool {
+	all := map[string]bool{"workflow": true, "execution": true, "artifact": true, "environment": true, "resource": true, "plan": true, "scope": true, "materialization": true}
+	if strings.TrimSpace(raw) == "" {
+		return all
+	}
+	selected := map[string]bool{}
+	for _, value := range strings.Split(raw, ",") {
+		if all[strings.TrimSpace(value)] {
+			selected[strings.TrimSpace(value)] = true
+		}
+	}
+	return selected
+}
+
+func searchScore(query string, fields ...string) float64 {
+	needle := strings.ToLower(strings.TrimSpace(query))
+	best := 0.0
+	for _, field := range fields {
+		value := strings.ToLower(field)
+		switch {
+		case value == needle:
+			best = max(best, 1)
+		case strings.HasPrefix(value, needle):
+			best = max(best, .9)
+		case strings.Contains(value, needle):
+			best = max(best, .7)
+		}
+	}
+	return best
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (h *Handler) ListExecutions(w http.ResponseWriter, r *http.Request) {
