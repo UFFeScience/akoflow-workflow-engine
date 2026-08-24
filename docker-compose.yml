@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: releases/dockerfiles/server.dev.Dockerfile
-    command: go run ./cmd/server
+    command: /usr/local/go/bin/go run ./cmd/server
     environment:
       AKOFLOW_HTTP_ADDRESS: 0.0.0.0:8080
       AKOFLOW_API_TOKEN: ${AKOFLOW_API_TOKEN:?set AKOFLOW_API_TOKEN in .env}
