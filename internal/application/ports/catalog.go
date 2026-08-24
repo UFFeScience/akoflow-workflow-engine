@@ -41,6 +41,7 @@ type DataCatalog interface {
 	SaveArtifactBuild(context.Context, domain.ArtifactBuild) error
 	FindArtifactBuildByCacheKey(context.Context, string) (*domain.ArtifactBuild, error)
 	FindArtifactBuild(context.Context, string) (*domain.ArtifactBuild, error)
+	ListArtifactBuilds(context.Context, string) ([]domain.ArtifactBuild, error)
 	SaveBuildRun(context.Context, domain.BuildRun) error
 	FindBuildRun(context.Context, string) (*domain.BuildRun, error)
 	ListBuildRuns(context.Context, string) ([]domain.BuildRun, error)

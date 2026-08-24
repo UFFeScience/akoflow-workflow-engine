@@ -69,6 +69,7 @@ func NewMux(workflowEngine *workflow_engine_api_handler.Handler) *http.ServeMux 
 	mux.HandleFunc("POST /akoflow-api/artifact-builds/", http_config.KernelHandler(workflowEngine.CreateArtifactBuild))
 	mux.HandleFunc("POST /akoflow-api/artifacts/docker/", http_config.KernelHandler(workflowEngine.RegisterDockerArtifact))
 	mux.HandleFunc("GET /akoflow-api/artifact-builds/{buildId}/", http_config.KernelHandler(workflowEngine.GetArtifactBuild))
+	mux.HandleFunc("GET /akoflow-api/artifacts/{artifactId}/builds/", http_config.KernelHandler(workflowEngine.ListArtifactBuilds))
 	mux.HandleFunc("GET /akoflow-api/artifact-builds/{buildId}/runs/", http_config.KernelHandler(workflowEngine.ListBuildRuns))
 	mux.HandleFunc("POST /akoflow-api/artifact-builds/{buildId}/runs/", http_config.KernelHandler(workflowEngine.StartArtifactBuildRun))
 	mux.HandleFunc("GET /akoflow-api/build-runs/{runId}/", http_config.KernelHandler(workflowEngine.GetBuildRun))

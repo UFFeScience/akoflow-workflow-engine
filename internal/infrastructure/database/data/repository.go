@@ -291,6 +291,25 @@ func (r *Repository) FindArtifactBuild(ctx context.Context, id string) (*domain.
 	return r.findArtifactBuild(ctx, `SELECT id,artifact_version_id,source_type,context_digest,recipe_path,recipe_digest,target_format,target_os,target_architecture,build_arguments,cache_key FROM artifact_builds WHERE id=?`, id)
 }
 
+func (r *Repository) ListArtifactBuilds(ctx context.Context, artifactID string) ([]domain.ArtifactBuild, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT b.id,b.artifact_version_id,b.source_type,b.context_digest,b.recipe_path,b.recipe_digest,b.target_format,b.target_os,b.target_architecture,b.build_arguments,b.cache_key
+		FROM artifact_builds b JOIN artifact_versions v ON v.id=b.artifact_version_id
+		WHERE v.artifact_id=? ORDER BY b.created_at DESC`, artifactID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	values := []domain.ArtifactBuild{}
+	for rows.Next() {
+		var value domain.ArtifactBuild
+		if err := rows.Scan(&value.ID, &value.ArtifactVersionID, &value.SourceType, &value.ContextDigest, &value.RecipePath, &value.RecipeDigest, &value.TargetFormat, &value.TargetOS, &value.TargetArchitecture, &value.BuildArguments, &value.CacheKey); err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+	}
+	return values, rows.Err()
+}
+
 func (r *Repository) findArtifactBuild(ctx context.Context, query, argument string) (*domain.ArtifactBuild, error) {
 	var value domain.ArtifactBuild
 	err := r.db.QueryRowContext(ctx, query, argument).

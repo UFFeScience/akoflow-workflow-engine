@@ -972,6 +972,10 @@ func (h *Handler) GetArtifactBuild(w http.ResponseWriter, r *http.Request) {
 	value, err := h.data.FindArtifactBuild(r.Context(), r.PathValue("buildId"))
 	writeItem(w, value, err)
 }
+func (h *Handler) ListArtifactBuilds(w http.ResponseWriter, r *http.Request) {
+	values, err := h.data.ListArtifactBuilds(r.Context(), r.PathValue("artifactId"))
+	writeList(w, values, err)
+}
 func (h *Handler) ListBuildRuns(w http.ResponseWriter, r *http.Request) {
 	values, err := h.data.ListBuildRuns(r.Context(), r.PathValue("buildId"))
 	writeList(w, values, err)
