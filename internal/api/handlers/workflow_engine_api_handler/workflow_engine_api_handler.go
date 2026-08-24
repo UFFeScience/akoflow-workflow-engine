@@ -60,6 +60,7 @@ type StorageNavigator interface {
 type BuildOrchestrator interface {
 	Upload(context.Context, io.Reader) (domain.BuildContextArtifact, error)
 	Start(context.Context, domain.ArtifactBuild) (domain.BuildRun, error)
+	OpenOutput(context.Context, string) (io.ReadCloser, string, error)
 	MaxUploadBytes() int64
 }
 
@@ -983,6 +984,22 @@ func (h *Handler) ListBuildRuns(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetBuildRun(w http.ResponseWriter, r *http.Request) {
 	value, err := h.data.FindBuildRun(r.Context(), r.PathValue("runId"))
 	writeItem(w, value, err)
+}
+
+func (h *Handler) StreamBuildOutput(w http.ResponseWriter, r *http.Request) {
+	if h.build == nil {
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("build service is unavailable"))
+		return
+	}
+	file, name, err := h.build.OpenOutput(r.Context(), r.PathValue("runId"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	defer file.Close()
+	w.Header().Set("Content-Type", "application/vnd.sylabs.sif")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
+	_, _ = io.Copy(w, file)
 }
 func (h *Handler) StartArtifactBuildRun(w http.ResponseWriter, r *http.Request) {
 	if h.build == nil {

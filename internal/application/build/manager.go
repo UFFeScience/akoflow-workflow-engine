@@ -32,6 +32,18 @@ func (m Manager) MaxUploadBytes() int64 {
 	return 512 << 20
 }
 
+func (m Manager) OpenOutput(_ context.Context, runID string) (io.ReadCloser, string, error) {
+	if m.Root == "" || runID == "" || filepath.Base(runID) != runID {
+		return nil, "", fmt.Errorf("invalid build output")
+	}
+	name := runID + ".sif"
+	file, err := os.Open(filepath.Join(m.Root, "outputs", name))
+	if err != nil {
+		return nil, "", fmt.Errorf("SIF output is unavailable: %w", err)
+	}
+	return file, name, nil
+}
+
 func (m Manager) Upload(ctx context.Context, input io.Reader) (domain.BuildContextArtifact, error) {
 	if m.Root == "" {
 		return domain.BuildContextArtifact{}, fmt.Errorf("artifact store is not configured")

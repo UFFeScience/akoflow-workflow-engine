@@ -73,6 +73,7 @@ func NewMux(workflowEngine *workflow_engine_api_handler.Handler) *http.ServeMux 
 	mux.HandleFunc("GET /akoflow-api/artifact-builds/{buildId}/runs/", http_config.KernelHandler(workflowEngine.ListBuildRuns))
 	mux.HandleFunc("POST /akoflow-api/artifact-builds/{buildId}/runs/", http_config.KernelHandler(workflowEngine.StartArtifactBuildRun))
 	mux.HandleFunc("GET /akoflow-api/build-runs/{runId}/", http_config.KernelHandler(workflowEngine.GetBuildRun))
+	mux.HandleFunc("GET /akoflow-api/build-runs/{runId}/output/", workflowEngine.StreamBuildOutput)
 	mux.HandleFunc("GET /akoflow-api/resources/{resourceId}/", http_config.KernelHandler(workflowEngine.GetResource))
 	mux.HandleFunc("GET /akoflow-api/resources/{resourceId}/snapshot/", http_config.KernelHandler(workflowEngine.GetResourceSnapshot))
 	mux.HandleFunc("POST /akoflow-api/resources/", http_config.KernelHandler(workflowEngine.CreateResource))
