@@ -124,23 +124,64 @@ func (RsyncSSH) Put(ctx context.Context, e domain.TransferEndpoint, name string,
 	if output, mkdirErr := exec.CommandContext(ctx, "ssh", append(sshArgs(e), host, "mkdir -p -- "+shell(filepath.Dir(path)))...).CombinedOutput(); mkdirErr != nil {
 		return fmt.Errorf("create SSH staging directory: %w: %s", mkdirErr, strings.TrimSpace(string(output)))
 	}
-	sshCommand := "ssh"
-	if extra := sshArgs(e); len(extra) > 0 {
-		quoted := make([]string, len(extra))
-		for index, value := range extra {
-			quoted[index] = shell(value)
-		}
-		sshCommand += " " + strings.Join(quoted, " ")
+	config, target, cleanup, err := rsyncSSHConfig(e, host)
+	if err != nil {
+		return err
 	}
-	args := []string{"-a", "--partial", "-e", sshCommand, tmp.Name(), host + ":" + path}
+	defer cleanup()
+	sshCommand := "ssh -F " + config
+	args := []string{"-a", "--partial", "-e", sshCommand, tmp.Name(), target + ":" + path}
 	if offset > 0 {
-		args = []string{"-a", "--append-verify", "--partial", "-e", sshCommand, tmp.Name(), host + ":" + path}
+		args = []string{"-a", "--append-verify", "--partial", "-e", sshCommand, tmp.Name(), target + ":" + path}
 	}
 	output, err := exec.CommandContext(ctx, "rsync", args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("copy to SSH staging: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+func rsyncSSHConfig(endpoint domain.TransferEndpoint, fallbackHost string) (string, string, func(), error) {
+	uri, err := url.Parse(endpoint.URI)
+	if err != nil {
+		return "", "", nil, err
+	}
+	target := "akoflow-staging"
+	user, host := "", uri.Host
+	if uri.User != nil {
+		user = uri.User.Username()
+	}
+	if host == "" {
+		host = strings.TrimPrefix(fallbackHost, user+"@")
+	}
+	lines := []string{"Host " + target, "  HostName " + host}
+	if user != "" {
+		lines = append(lines, "  User "+user)
+	}
+	query := uri.Query()
+	if identity := query.Get("identityFile"); identity != "" {
+		lines = append(lines, "  IdentityFile "+identity)
+	}
+	if knownHosts := query.Get("knownHostsFile"); knownHosts != "" {
+		lines = append(lines, "  UserKnownHostsFile "+knownHosts, "  StrictHostKeyChecking yes")
+	}
+	if proxy := query.Get("proxyCommand"); proxy != "" {
+		lines = append(lines, "  ProxyCommand "+proxy)
+	}
+	file, err := os.CreateTemp("", "akoflow-ssh-config-*")
+	if err != nil {
+		return "", "", nil, err
+	}
+	if _, err = file.WriteString(strings.Join(lines, "\n") + "\n"); err != nil {
+		_ = file.Close()
+		_ = os.Remove(file.Name())
+		return "", "", nil, err
+	}
+	if err = file.Close(); err != nil {
+		_ = os.Remove(file.Name())
+		return "", "", nil, err
+	}
+	return file.Name(), target, func() { _ = os.Remove(file.Name()) }, nil
 }
 func (RsyncSSH) Commit(ctx context.Context, e domain.TransferEndpoint, partial, final string) error {
 	host, p, err := sshTarget(e, partial)
