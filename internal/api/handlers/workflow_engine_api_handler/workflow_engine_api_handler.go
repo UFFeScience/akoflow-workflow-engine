@@ -1315,7 +1315,9 @@ func (h *Handler) configureGatewayArtifactTransfer(ctx context.Context, requirem
 		}
 	}
 	u.RawQuery = query.Encode()
-	requirement.Artifact.DestinationPath = path.Join(root, strings.TrimPrefix(requirement.Artifact.Digest, "sha256:"))
+	// The transfer materializer stores each blob under its complete digest. The
+	// resolved Slurm path must use that exact name, including the sha256 prefix.
+	requirement.Artifact.DestinationPath = path.Join(root, requirement.Artifact.Digest)
 	requirement.ArtifactTransfer.Strategy = domain.TransferSourcePush
 	requirement.ArtifactTransfer.Destination.URI = u.String()
 	requirement.ArtifactTransfer.Destination.Path = ""
