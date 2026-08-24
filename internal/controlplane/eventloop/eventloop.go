@@ -102,7 +102,13 @@ func (l *Loop) drain(ctx context.Context, semaphore chan struct{}, running *sync
 }
 
 func (l *Loop) handle(ctx context.Context, job domainqueue.Job) {
-	err := l.dispatcher.Dispatch(ctx, job)
+	jobCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	leaseDone := make(chan struct{})
+	go l.keepLeaseAlive(jobCtx, job, cancel, leaseDone)
+	err := l.dispatcher.Dispatch(jobCtx, job)
+	cancel()
+	<-leaseDone
 	now := time.Now().UTC()
 	if err == nil {
 		_ = l.queue.Complete(ctx, job.ID, l.config.Owner, now)
@@ -110,4 +116,25 @@ func (l *Loop) handle(ctx context.Context, job domainqueue.Job) {
 	}
 	backoff := l.config.RetryBaseInterval * time.Duration(1<<min(job.Attempts-1, 8))
 	_ = l.queue.Retry(ctx, job.ID, l.config.Owner, err, now.Add(backoff))
+}
+
+func (l *Loop) keepLeaseAlive(ctx context.Context, job domainqueue.Job, cancel context.CancelFunc, done chan<- struct{}) {
+	defer close(done)
+	interval := l.config.LeaseDuration / 3
+	if interval < 10*time.Millisecond {
+		interval = 10 * time.Millisecond
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			if err := l.queue.RenewLease(ctx, job.ID, l.config.Owner, now.Add(l.config.LeaseDuration)); err != nil {
+				cancel()
+				return
+			}
+		}
+	}
 }

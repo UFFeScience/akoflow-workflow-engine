@@ -137,6 +137,15 @@ func (r *Repository) Complete(ctx context.Context, id, owner string, at time.Tim
 		WHERE id=? AND status='leased' AND lease_owner=?`, at, id, owner)
 }
 
+func (r *Repository) RenewLease(ctx context.Context, id, owner string, expiresAt time.Time) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE queue_jobs SET lease_expires_at=?
+		WHERE id=? AND status='leased' AND lease_owner=?`, expiresAt, id, owner)
+	if err != nil {
+		return err
+	}
+	return requireOne(result, "renew queue job lease")
+}
+
 func (r *Repository) Retry(ctx context.Context, id, owner string, cause error, availableAt time.Time) error {
 	message := ""
 	if cause != nil {

@@ -12,6 +12,7 @@ import (
 type QueueStore interface {
 	Publish(context.Context, domainqueue.Job) (domainqueue.Job, error)
 	Lease(context.Context, string, []string, int, time.Duration) ([]domainqueue.Job, error)
+	RenewLease(context.Context, string, string, time.Time) error
 	Complete(context.Context, string, string, time.Time) error
 	Retry(context.Context, string, string, error, time.Time) error
 	Cancel(context.Context, string, time.Time) error
