@@ -121,8 +121,8 @@ func (RsyncSSH) Put(ctx context.Context, e domain.TransferEndpoint, name string,
 	if err != nil {
 		return err
 	}
-	if err := exec.CommandContext(ctx, "ssh", append(sshArgs(e), host, "mkdir -p -- "+shell(filepath.Dir(path)))...).Run(); err != nil {
-		return fmt.Errorf("create SSH staging directory: %w", err)
+	if output, mkdirErr := exec.CommandContext(ctx, "ssh", append(sshArgs(e), host, "mkdir -p -- "+shell(filepath.Dir(path)))...).CombinedOutput(); mkdirErr != nil {
+		return fmt.Errorf("create SSH staging directory: %w: %s", mkdirErr, strings.TrimSpace(string(output)))
 	}
 	sshCommand := "ssh"
 	if extra := sshArgs(e); len(extra) > 0 {
@@ -132,7 +132,11 @@ func (RsyncSSH) Put(ctx context.Context, e domain.TransferEndpoint, name string,
 	if offset > 0 {
 		args = []string{"-a", "--append-verify", "--partial", "-e", sshCommand, tmp.Name(), host + ":" + path}
 	}
-	return exec.CommandContext(ctx, "rsync", args...).Run()
+	output, err := exec.CommandContext(ctx, "rsync", args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("copy to SSH staging: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
 }
 func (RsyncSSH) Commit(ctx context.Context, e domain.TransferEndpoint, partial, final string) error {
 	host, p, err := sshTarget(e, partial)
