@@ -127,6 +127,19 @@ func TestValidatePlanAllowsExplicitManualResourceSelectorOverride(t *testing.T) 
 	))
 }
 
+func TestValidatePlanAllowsCapacityRequestsOnSchedulerPartition(t *testing.T) {
+	workflow, resources, plan := validPlanFixture()
+	resources[0] = domain.Resource{
+		ID: "r1", EnvironmentVersionID: "env", Type: domain.ResourceHPCPartition,
+		ExecutionTarget: domain.ExecutionTargetBatch, ProviderID: "preempt", Schedulable: true,
+	}
+	workflow.Activities[0].Resources = domain.ActivityResources{CPU: 128, MemoryBytes: 512 << 30}
+
+	require.NoError(t, NewValidator().Validate(
+		plan, workflow, resources, validScope(), domain.NetworkTopology{ExecutionScopeID: "scope"},
+	))
+}
+
 func validScope() domain.ExecutionScope {
 	return domain.ExecutionScope{ID: "scope", EnvironmentVersionIDs: []string{"env"}}
 }
