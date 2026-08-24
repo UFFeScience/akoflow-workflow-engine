@@ -20,9 +20,10 @@ func buildEventLoop(
 	data ports.DataCatalog,
 	activities *applicationexecution.Controller,
 	simulator ports.PlanExecutor,
+	artifactStoreRoot string,
 ) (*eventloop.Loop, error) {
 	dispatcher := eventloop.NewDispatcher()
-	if err := registerExecutionHandlers(dispatcher, executions, data, activities, simulator); err != nil {
+	if err := registerExecutionHandlers(dispatcher, executions, data, activities, simulator, artifactStoreRoot); err != nil {
 		return nil, err
 	}
 	for _, eventType := range domainEventTypes() {
@@ -42,13 +43,14 @@ func registerExecutionHandlers(
 	data ports.DataCatalog,
 	activities *applicationexecution.Controller,
 	simulator ports.PlanExecutor,
+	artifactStoreRoot string,
 ) error {
 	if err := dispatcher.Register(eventloop.EventActivityExecutionRequested,
 		eventloop.NewActivityExecutionHandler(activities)); err != nil {
 		return err
 	}
 	preparer := applicationtransfer.Coordinator{Catalog: data, Materializer: applicationtransfer.Materializer{Connectors: []ports.TransferConnector{
-		infratransfer.LocalFilesystem{}, infratransfer.RsyncSSH{}, infratransfer.HTTPDownload{}, infratransfer.S3Compatible{}, infratransfer.GCS{},
+		infratransfer.ArtifactStore{Root: artifactStoreRoot}, infratransfer.LocalFilesystem{}, infratransfer.RsyncSSH{}, infratransfer.HTTPDownload{}, infratransfer.S3Compatible{}, infratransfer.GCS{},
 	}}}
 	supervisor, err := controlexecution.New(executions, activities,
 		simulator, controlexecution.Config{PollInterval: time.Second, MaxParallel: 8, Preparer: preparer})
